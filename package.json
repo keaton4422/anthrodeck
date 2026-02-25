@@ -1,0 +1,45 @@
+{
+  "name": "anthrodeck",
+  "version": "0.1.0",
+  "description": "Steam Deck AI assistant powered by Claude",
+  "main": ".vite/build/main/index.js",
+  "scripts": {
+    "start": "electron-forge start",
+    "dev": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.4.0",
+    "@electron-forge/maker-deb": "^7.4.0",
+    "@electron-forge/maker-zip": "^7.4.0",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.4.0",
+    "@electron-forge/plugin-vite": "^7.4.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.0",
+    "electron": "^28.2.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "electron-squirrel-startup": "^1.0.0",
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.3",
+    "highlight.js": "^11.10.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "build": {
+    "publish": {
+      "provider": "github",
+      "owner": "keaton4422",
+      "repo": "anthrodeck"
+    }
+  }
+}

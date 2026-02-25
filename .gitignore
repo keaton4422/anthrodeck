@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+.vite/
+out/
+
+# Electron Forge
+dist/
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/settings.json
+.idea/
+
+# Claude Code local settings
+.claude/
