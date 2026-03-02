@@ -6,35 +6,16 @@ interface Props {
   transcript: string;
   onStart: () => void;
   onStop: () => void;
+  compact?: boolean; // smaller size for use in drawers/previews
 }
 
-export function VoiceButton({ isListening, isSupported, transcript, onStart, onStop }: Props) {
-  if (!isSupported) {
-    return (
-      <div
-        style={{
-          width: 72,
-          height: 72,
-          borderRadius: '50%',
-          border: '2px solid #2A2A2A',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-          cursor: 'not-allowed',
-          opacity: 0.4,
-        }}
-        title="Voice not supported in this environment"
-      >
-        <MicIcon muted />
-        <span style={{ fontSize: 8, color: '#6A6A6A', marginTop: 2 }}>N/A</span>
-      </div>
-    );
-  }
+export default function VoiceButton({ isListening, isSupported, transcript, onStart, onStop, compact }: Props) {
+  if (!isSupported) return null;
+  const size = compact ? 36 : 72;
+  const iconSize = compact ? 16 : 26;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: compact ? 3 : 6, flexShrink: 0 }}>
       {/* Live transcript above button */}
       {transcript && (
         <div
@@ -70,8 +51,8 @@ export function VoiceButton({ isListening, isSupported, transcript, onStart, onS
         onTouchEnd={(e) => { e.preventDefault(); onStop(); }}
         className={isListening ? 'voice-btn-listening' : 'voice-btn-idle'}
         style={{
-          width: 72,
-          height: 72,
+          width: size,
+          height: size,
           borderRadius: '50%',
           border: `2px solid ${isListening ? '#E05252' : '#CC785C'}`,
           background: isListening
@@ -90,7 +71,7 @@ export function VoiceButton({ isListening, isSupported, transcript, onStart, onS
         title={isListening ? 'Release to send' : 'Hold to speak (or L2 trigger)'}
         aria-label="Voice input"
       >
-        <MicIcon muted={false} active={isListening} />
+        <MicIcon muted={false} active={isListening} size={iconSize} />
       </button>
 
       <span
@@ -108,10 +89,10 @@ export function VoiceButton({ isListening, isSupported, transcript, onStart, onS
   );
 }
 
-function MicIcon({ muted, active }: { muted: boolean; active?: boolean }) {
+function MicIcon({ muted, active, size = 26 }: { muted: boolean; active?: boolean; size?: number }) {
   const color = muted ? '#3A3A3A' : active ? '#E05252' : '#CC785C';
   return (
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="9" y="2" width="6" height="13" rx="3" />
       <path d="M5 10a7 7 0 0 0 14 0" />
       <line x1="12" y1="19" x2="12" y2="23" />

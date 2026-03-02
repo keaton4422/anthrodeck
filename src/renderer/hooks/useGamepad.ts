@@ -6,6 +6,7 @@ interface GamepadActions {
   onAPress?: () => void;
   onBPress?: () => void;
   onXPress?: () => void;
+  onYPress?: () => void;
   onStartPress?: () => void;
   onScrollY?: (delta: number) => void;
 }
@@ -39,6 +40,7 @@ export function useGamepad(actions: GamepadActions) {
         if (pressed(BTN.A) && !prevButtons[BTN.A]) acts.onAPress?.();
         if (pressed(BTN.B) && !prevButtons[BTN.B]) acts.onBPress?.();
         if (pressed(BTN.X) && !prevButtons[BTN.X]) acts.onXPress?.();
+        if (pressed(BTN.Y) && !prevButtons[BTN.Y]) acts.onYPress?.();
         if (pressed(BTN.START) && !prevButtons[BTN.START]) acts.onStartPress?.();
 
         // L2 trigger (value-based)

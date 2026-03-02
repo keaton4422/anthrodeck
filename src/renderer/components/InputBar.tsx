@@ -1,5 +1,5 @@
 import React, { KeyboardEvent, useRef, useState } from 'react';
-import { VoiceButton } from './VoiceButton';
+import VoiceButton from './VoiceButton';
 
 interface Props {
   onSend: (text: string) => void;

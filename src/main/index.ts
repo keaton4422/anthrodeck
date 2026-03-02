@@ -1,11 +1,11 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import { exec } from 'child_process';
 import os from 'os';
 import fs from 'fs';
 import Store from 'electron-store';
-import Anthropic from '@anthropic-ai/sdk';
 import { autoUpdater } from 'electron-updater';
+import { runAgentLoop } from './agentLoop';
 
 // Injected by electron-forge Vite plugin
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
@@ -13,17 +13,7 @@ declare const MAIN_WINDOW_VITE_NAME: string;
 
 const store = new Store();
 let mainWindow: BrowserWindow | null = null;
-let currentStreamAborted = false;
-
-const SYSTEM_PROMPT = `You are AntroDeck — an AI assistant built into a Steam Deck. You help the user code, create, deploy, and accomplish anything through voice and touch.
-
-Guidelines:
-- Keep responses clear and concise since the user is reading on a handheld screen
-- When providing code, always use fenced code blocks with the language specified (e.g. \`\`\`python)
-- Prefer practical, runnable examples over lengthy explanations
-- If the user asks you to write a file or run a command, provide the exact code/command
-- The user can click "Run" on code blocks to execute them on their Steam Deck
-- Be encouraging and treat every request as achievable`;
+const abortRef = { aborted: false };
 
 function createWindow() {
   const isDev = !!MAIN_WINDOW_VITE_DEV_SERVER_URL;
@@ -51,56 +41,109 @@ function createWindow() {
     );
   }
 
-  // Dev shortcuts
   mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.key === 'F11') {
-      mainWindow?.setFullScreen(!mainWindow.isFullScreen());
-    }
-    if (input.key === 'F12') {
-      mainWindow?.webContents.toggleDevTools();
-    }
-    if (input.key === 'Escape' && isDev) {
-      mainWindow?.setFullScreen(false);
-    }
+    if (input.key === 'F11') mainWindow?.setFullScreen(!mainWindow.isFullScreen());
+    if (input.key === 'F12') mainWindow?.webContents.toggleDevTools();
+    if (input.key === 'Escape' && isDev) mainWindow?.setFullScreen(false);
   });
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  mainWindow.on('closed', () => { mainWindow = null; });
 }
 
 // ─── Store IPC ────────────────────────────────────────────────────────────────
-ipcMain.handle('store:get', (_, key: string) => {
-  return store.get(key);
+ipcMain.handle('store:get', (_, key: string) => store.get(key));
+ipcMain.handle('store:set', (_, key: string, value: unknown) => { store.set(key, value); });
+
+// ─── Project IPC ──────────────────────────────────────────────────────────────
+ipcMain.handle('project:open-dialog', async () => {
+  const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
+  return result.filePaths[0] ?? null;
+});
+ipcMain.handle('project:get', () => store.get('projectPath', null));
+ipcMain.handle('project:set', (_, p: string) => { store.set('projectPath', p); });
+
+// ─── File System IPC (scoped to project root) ─────────────────────────────────
+const IGNORE_DIRS = new Set(['node_modules', '.git', '.vite', 'out', 'dist', '__pycache__', '.DS_Store']);
+
+function listFilesRecursive(dir: string, rootDir: string, depth = 0, max = 3): string[] {
+  if (depth >= max) return [];
+  const results: string[] = [];
+  let entries: fs.Dirent[];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+  for (const e of entries) {
+    if (IGNORE_DIRS.has(e.name)) continue;
+    const rel = path.relative(rootDir, path.join(dir, e.name)).replace(/\\/g, '/');
+    results.push(e.isDirectory() ? `${rel}/` : rel);
+    if (e.isDirectory()) results.push(...listFilesRecursive(path.join(dir, e.name), rootDir, depth + 1, max));
+  }
+  return results;
+}
+
+ipcMain.handle('fs:list', (_, subDir?: string) => {
+  const root = store.get('projectPath', null) as string | null;
+  if (!root) return [];
+  const base = subDir ? path.join(root, subDir) : root;
+  return listFilesRecursive(base, root);
 });
 
-ipcMain.handle('store:set', (_, key: string, value: unknown) => {
-  store.set(key, value);
+ipcMain.handle('fs:read', (_, relPath: string) => {
+  const root = store.get('projectPath', null) as string | null;
+  if (!root) throw new Error('No project open');
+  return fs.readFileSync(path.join(root, relPath), 'utf-8');
+});
+
+ipcMain.handle('fs:write', (_, relPath: string, content: string) => {
+  const root = store.get('projectPath', null) as string | null;
+  if (!root) throw new Error('No project open');
+  const abs = path.join(root, relPath);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, content, 'utf-8');
+});
+
+// ─── Git IPC ──────────────────────────────────────────────────────────────────
+function runGit(command: string, cwd: string): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    exec(command, { cwd, timeout: 30_000 }, (err, stdout, stderr) => {
+      resolve({ stdout: stdout.trim(), stderr: (stderr || err?.message || '').trim() });
+    });
+  });
+}
+
+ipcMain.handle('git:status', async () => {
+  const root = store.get('projectPath', null) as string | null;
+  if (!root) return { stdout: '', stderr: 'No project open' };
+  return runGit('git status --short', root);
+});
+
+ipcMain.handle('git:addAndCommit', async (_, message: string) => {
+  const root = store.get('projectPath', null) as string | null;
+  if (!root) return { stdout: '', stderr: 'No project open' };
+  const add = await runGit('git add .', root);
+  if (add.stderr && !add.stderr.includes('warning')) return add;
+  return runGit(`git commit -m "${message.replace(/"/g, '\\"')}"`, root);
+});
+
+ipcMain.handle('git:push', async () => {
+  const root = store.get('projectPath', null) as string | null;
+  if (!root) return { stdout: '', stderr: 'No project open' };
+  return runGit('git push', root);
 });
 
 // ─── Shell Execution IPC ──────────────────────────────────────────────────────
 ipcMain.handle('shell:run', async (_, { code, language }: { code: string; language: string }) => {
   return new Promise<{ stdout: string; stderr: string; error: string | null }>((resolve) => {
+    const projectPath = store.get('projectPath', null) as string | null;
+    const cwd = projectPath ?? os.tmpdir();
     const tmpDir = os.tmpdir();
     const extMap: Record<string, string> = {
-      python: 'py',
-      python3: 'py',
-      javascript: 'js',
-      js: 'js',
-      typescript: 'ts',
-      ts: 'ts',
-      bash: 'sh',
-      sh: 'sh',
-      ruby: 'rb',
+      python: 'py', python3: 'py', javascript: 'js', js: 'js',
+      typescript: 'ts', ts: 'ts', bash: 'sh', sh: 'sh', ruby: 'rb',
     };
     const ext = extMap[language.toLowerCase()] ?? 'txt';
     const tmpFile = path.join(tmpDir, `anthrodeck_${Date.now()}.${ext}`);
 
-    try {
-      fs.writeFileSync(tmpFile, code, 'utf-8');
-    } catch (e) {
-      return resolve({ stdout: '', stderr: '', error: `Failed to write temp file: ${(e as Error).message}` });
-    }
+    try { fs.writeFileSync(tmpFile, code, 'utf-8'); }
+    catch (e) { return resolve({ stdout: '', stderr: '', error: `Failed to write temp file: ${(e as Error).message}` }); }
 
     const cmdMap: Record<string, string> = {
       py: process.platform === 'win32' ? `python "${tmpFile}"` : `python3 "${tmpFile}"`,
@@ -115,87 +158,61 @@ ipcMain.handle('shell:run', async (_, { code, language }: { code: string; langua
       return resolve({ stdout: '', stderr: `Running ${language} files is not supported yet.`, error: null });
     }
 
-    exec(cmd, { timeout: 30_000 }, (error, stdout, stderr) => {
+    exec(cmd, { cwd, timeout: 30_000 }, (error, stdout, stderr) => {
       try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
-      resolve({
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        error: error && !stderr ? error.message : null,
-      });
+      resolve({ stdout: stdout.trim(), stderr: stderr.trim(), error: error && !stderr ? error.message : null });
     });
   });
 });
 
-// ─── Claude Streaming IPC ─────────────────────────────────────────────────────
-ipcMain.on('claude:send', async (event, { messages, apiKey }: { messages: Array<{ role: string; content: string }>; apiKey: string }) => {
-  currentStreamAborted = false;
+// ─── Claude Agentic IPC ───────────────────────────────────────────────────────
+ipcMain.on('claude:send', async (event, {
+  messages,
+  apiKey,
+  projectPath,
+  autonomousWrites,
+}: {
+  messages: Array<{ role: string; content: string }>;
+  apiKey: string;
+  projectPath: string | null;
+  autonomousWrites: boolean;
+}) => {
+  abortRef.aborted = false;
 
   if (!apiKey) {
     event.sender.send('claude:error', 'No API key set. Open Settings (⚙) and enter your Anthropic API key.');
     return;
   }
 
-  const client = new Anthropic({ apiKey });
-
-  try {
-    const stream = client.messages.stream({
-      model: 'claude-opus-4-6',
-      max_tokens: 8192,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      thinking: { type: 'adaptive' } as any,
-      system: SYSTEM_PROMPT,
-      messages: messages as Anthropic.MessageParam[],
-    });
-
-    for await (const chunk of stream) {
-      if (currentStreamAborted || event.sender.isDestroyed()) break;
-
-      if (chunk.type === 'content_block_delta') {
-        if (chunk.delta.type === 'text_delta' && chunk.delta.text) {
-          event.sender.send('claude:delta', chunk.delta.text);
-        }
-      }
-    }
-
-    if (!currentStreamAborted && !event.sender.isDestroyed()) {
-      const final = await stream.finalMessage();
-      event.sender.send('claude:done', {
-        inputTokens: final.usage.input_tokens,
-        outputTokens: final.usage.output_tokens,
-      });
-    }
-  } catch (err) {
-    if (!currentStreamAborted && !event.sender.isDestroyed()) {
-      const msg = (err as Error).message ?? 'Unknown error';
-      event.sender.send('claude:error', msg.includes('401') ? 'Invalid API key. Check your key in Settings.' : msg);
-    }
-  }
+  await runAgentLoop(
+    event,
+    messages as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+    apiKey,
+    projectPath,
+    autonomousWrites,
+    mainWindow,
+    abortRef,
+  );
 });
 
-ipcMain.on('claude:abort', () => {
-  currentStreamAborted = true;
-});
+ipcMain.on('claude:abort', () => { abortRef.aborted = true; });
+
+// claude:write-decision is handled inside agentLoop via ipcMain.on (per-call listener)
 
 // ─── Auto-updater ─────────────────────────────────────────────────────────────
-// Only runs in packaged builds (not dev mode)
 function setupAutoUpdater() {
   const isDev = !!MAIN_WINDOW_VITE_DEV_SERVER_URL;
-  if (isDev) return; // electron-updater doesn't work in dev mode
+  if (isDev) return;
 
-  autoUpdater.autoDownload = false; // Let the user choose when to download
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('update-available', (info) => {
-    mainWindow?.webContents.send('updater:update-available', {
-      version: info.version,
-      releaseNotes: info.releaseNotes,
-    });
+    mainWindow?.webContents.send('updater:update-available', { version: info.version });
   });
-
   autoUpdater.on('update-not-available', () => {
     mainWindow?.webContents.send('updater:up-to-date');
   });
-
   autoUpdater.on('download-progress', (progress) => {
     mainWindow?.webContents.send('updater:progress', {
       percent: Math.round(progress.percent),
@@ -204,42 +221,28 @@ function setupAutoUpdater() {
       bytesPerSecond: progress.bytesPerSecond,
     });
   });
-
   autoUpdater.on('update-downloaded', (info) => {
     mainWindow?.webContents.send('updater:ready', { version: info.version });
   });
-
   autoUpdater.on('error', (err) => {
     mainWindow?.webContents.send('updater:error', err.message);
   });
 
-  // Check silently on startup after a short delay
   setTimeout(() => autoUpdater.checkForUpdates(), 3000);
 }
 
 ipcMain.handle('updater:get-version', () => app.getVersion());
-
 ipcMain.handle('updater:check', async () => {
   const isDev = !!MAIN_WINDOW_VITE_DEV_SERVER_URL;
   if (isDev) return { dev: true };
-  try {
-    return await autoUpdater.checkForUpdates();
-  } catch (e) {
-    return { error: (e as Error).message };
-  }
+  try { return await autoUpdater.checkForUpdates(); }
+  catch (e) { return { error: (e as Error).message }; }
 });
-
 ipcMain.handle('updater:download', async () => {
-  try {
-    await autoUpdater.downloadUpdate();
-  } catch (e) {
-    mainWindow?.webContents.send('updater:error', (e as Error).message);
-  }
+  try { await autoUpdater.downloadUpdate(); }
+  catch (e) { mainWindow?.webContents.send('updater:error', (e as Error).message); }
 });
-
-ipcMain.on('updater:install', () => {
-  autoUpdater.quitAndInstall(false, true);
-});
+ipcMain.on('updater:install', () => { autoUpdater.quitAndInstall(false, true); });
 
 // ─── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
@@ -247,13 +250,7 @@ app.whenReady().then(() => {
   setupAutoUpdater();
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
-
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-    setupAutoUpdater();
-  }
+  if (BrowserWindow.getAllWindows().length === 0) { createWindow(); setupAutoUpdater(); }
 });

@@ -1,89 +1,106 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // ─── Persistent store ────────────────────────────────────────────────
-  storeGet: (key: string): Promise<unknown> =>
-    ipcRenderer.invoke('store:get', key),
+  // ── Store ──────────────────────────────────────────────────────────────────
+  storeGet: (key: string) => ipcRenderer.invoke('store:get', key),
+  storeSet: (key: string, value: unknown) => ipcRenderer.invoke('store:set', key, value),
 
-  storeSet: (key: string, value: unknown): Promise<void> =>
-    ipcRenderer.invoke('store:set', key, value),
+  // ── Project ────────────────────────────────────────────────────────────────
+  projectOpenDialog: () => ipcRenderer.invoke('project:open-dialog'),
+  projectGet: () => ipcRenderer.invoke('project:get'),
+  projectSet: (p: string) => ipcRenderer.invoke('project:set', p),
 
-  // ─── Shell code execution ────────────────────────────────────────────
-  runShell: (code: string, language: string): Promise<{
-    stdout: string;
-    stderr: string;
-    error: string | null;
-  }> => ipcRenderer.invoke('shell:run', { code, language }),
+  // ── File System ────────────────────────────────────────────────────────────
+  fsList: (dir?: string) => ipcRenderer.invoke('fs:list', dir),
+  fsRead: (relPath: string) => ipcRenderer.invoke('fs:read', relPath),
+  fsWrite: (relPath: string, content: string) => ipcRenderer.invoke('fs:write', relPath, content),
 
-  // ─── Claude streaming ────────────────────────────────────────────────
+  // ── Git ────────────────────────────────────────────────────────────────────
+  gitStatus: () => ipcRenderer.invoke('git:status'),
+  gitAddAndCommit: (message: string) => ipcRenderer.invoke('git:addAndCommit', message),
+  gitPush: () => ipcRenderer.invoke('git:push'),
+
+  // ── Shell ──────────────────────────────────────────────────────────────────
+  runShell: (code: string, language: string) => ipcRenderer.invoke('shell:run', { code, language }),
+
+  // ── Claude (agentic) ──────────────────────────────────────────────────────
   claudeSend: (data: {
     messages: Array<{ role: string; content: string }>;
     apiKey: string;
-  }): void => {
-    ipcRenderer.send('claude:send', data);
-  },
+    projectPath: string | null;
+    autonomousWrites: boolean;
+  }) => ipcRenderer.send('claude:send', data),
 
-  claudeAbort: (): void => {
-    ipcRenderer.send('claude:abort');
-  },
+  claudeAbort: () => ipcRenderer.send('claude:abort'),
 
-  onClaudeDelta: (callback: (delta: string) => void): (() => void) => {
-    const handler = (_: unknown, delta: string) => callback(delta);
+  onClaudeDelta: (cb: (text: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, text: string) => cb(text);
     ipcRenderer.on('claude:delta', handler);
     return () => ipcRenderer.removeListener('claude:delta', handler);
   },
-
-  onClaudeDone: (callback: (usage: { inputTokens: number; outputTokens: number }) => void): (() => void) => {
-    const handler = (_: unknown, usage: { inputTokens: number; outputTokens: number }) => callback(usage);
+  onClaudeDone: (cb: (usage: { inputTokens: number; outputTokens: number }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, u: { inputTokens: number; outputTokens: number }) => cb(u);
     ipcRenderer.on('claude:done', handler);
     return () => ipcRenderer.removeListener('claude:done', handler);
   },
-
-  onClaudeError: (callback: (error: string) => void): (() => void) => {
-    const handler = (_: unknown, error: string) => callback(error);
+  onClaudeError: (cb: (msg: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, msg: string) => cb(msg);
     ipcRenderer.on('claude:error', handler);
     return () => ipcRenderer.removeListener('claude:error', handler);
   },
 
-  // ─── Auto-updater ────────────────────────────────────────────────────
-  updaterGetVersion: (): Promise<string> =>
-    ipcRenderer.invoke('updater:get-version'),
+  // Tool activity label shown inline in chat (e.g. `read: src/App.tsx`)
+  onClaudeToolActivity: (cb: (label: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, label: string) => cb(label);
+    ipcRenderer.on('claude:tool-activity', handler);
+    return () => ipcRenderer.removeListener('claude:tool-activity', handler);
+  },
 
-  updaterCheck: (): Promise<unknown> =>
-    ipcRenderer.invoke('updater:check'),
+  // Write preview: Claude wants to write a file
+  onWritePreview: (cb: (data: { id: string; path: string; content: string }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: { id: string; path: string; content: string }) => cb(data);
+    ipcRenderer.on('claude:write-preview', handler);
+    return () => ipcRenderer.removeListener('claude:write-preview', handler);
+  },
+  sendWriteDecision: (id: string, accepted: boolean, feedback?: string) => {
+    ipcRenderer.send('claude:write-decision', id, accepted, feedback);
+  },
 
-  updaterDownload: (): Promise<void> =>
-    ipcRenderer.invoke('updater:download'),
+  // Autonomous mode: file was written — show a toast
+  onFileWritten: (cb: (filePath: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, filePath: string) => cb(filePath);
+    ipcRenderer.on('claude:file-written', handler);
+    return () => ipcRenderer.removeListener('claude:file-written', handler);
+  },
 
-  updaterInstall: (): void =>
-    ipcRenderer.send('updater:install'),
+  // ── Auto-updater ──────────────────────────────────────────────────────────
+  updaterGetVersion: () => ipcRenderer.invoke('updater:get-version'),
+  updaterCheck: () => ipcRenderer.invoke('updater:check'),
+  updaterDownload: () => ipcRenderer.invoke('updater:download'),
+  updaterInstall: () => ipcRenderer.send('updater:install'),
 
-  onUpdaterAvailable: (callback: (info: { version: string }) => void): (() => void) => {
-    const handler = (_: unknown, info: { version: string }) => callback(info);
+  onUpdaterAvailable: (cb: (info: { version: string }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, info: { version: string }) => cb(info);
     ipcRenderer.on('updater:update-available', handler);
     return () => ipcRenderer.removeListener('updater:update-available', handler);
   },
-
-  onUpdaterUpToDate: (callback: () => void): (() => void) => {
-    const handler = () => callback();
+  onUpdaterUpToDate: (cb: () => void) => {
+    const handler = () => cb();
     ipcRenderer.on('updater:up-to-date', handler);
     return () => ipcRenderer.removeListener('updater:up-to-date', handler);
   },
-
-  onUpdaterProgress: (callback: (info: { percent: number; bytesPerSecond: number }) => void): (() => void) => {
-    const handler = (_: unknown, info: { percent: number; bytesPerSecond: number }) => callback(info);
+  onUpdaterProgress: (cb: (p: { percent: number }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, p: { percent: number }) => cb(p);
     ipcRenderer.on('updater:progress', handler);
     return () => ipcRenderer.removeListener('updater:progress', handler);
   },
-
-  onUpdaterReady: (callback: (info: { version: string }) => void): (() => void) => {
-    const handler = (_: unknown, info: { version: string }) => callback(info);
+  onUpdaterReady: (cb: (info: { version: string }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, info: { version: string }) => cb(info);
     ipcRenderer.on('updater:ready', handler);
     return () => ipcRenderer.removeListener('updater:ready', handler);
   },
-
-  onUpdaterError: (callback: (error: string) => void): (() => void) => {
-    const handler = (_: unknown, error: string) => callback(error);
+  onUpdaterError: (cb: (msg: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, msg: string) => cb(msg);
     ipcRenderer.on('updater:error', handler);
     return () => ipcRenderer.removeListener('updater:error', handler);
   },

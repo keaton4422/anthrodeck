@@ -1,12 +1,16 @@
 import React, { RefObject } from 'react';
-import { ChatMessage } from '../types';
+import { ChatMessage, PendingWrite } from '../types';
 import { MessageBubble } from './MessageBubble';
+import WritePreview from './WritePreview';
 
 interface Props {
   messages: ChatMessage[];
   error: string | null;
   scrollRef: RefObject<HTMLDivElement>;
   isStreaming: boolean;
+  pendingWrite?: PendingWrite | null;
+  onWriteAccept?: () => void;
+  onWriteReject?: (feedback?: string) => void;
 }
 
 function EmptyState() {
@@ -81,7 +85,7 @@ function QuickPrompt({ text }: { text: string }) {
   );
 }
 
-export function ChatView({ messages, error, scrollRef, isStreaming }: Props) {
+export function ChatView({ messages, error, scrollRef, isStreaming, pendingWrite, onWriteAccept, onWriteReject }: Props) {
   return (
     <div
       ref={scrollRef}
@@ -102,6 +106,17 @@ export function ChatView({ messages, error, scrollRef, isStreaming }: Props) {
             <MessageBubble key={msg.id} message={msg} />
           ))}
         </>
+      )}
+
+      {/* Write preview — shows at the bottom of chat when Claude wants to write a file */}
+      {pendingWrite && onWriteAccept && onWriteReject && (
+        <div style={{ padding: '0 16px' }}>
+          <WritePreview
+            write={pendingWrite}
+            onAccept={onWriteAccept}
+            onReject={onWriteReject}
+          />
+        </div>
       )}
 
       {/* Error banner */}
