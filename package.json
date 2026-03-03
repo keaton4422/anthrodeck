@@ -1,7 +1,7 @@
 {
   "name": "anthrodeck",
-  "version": "0.1.0",
-  "description": "Steam Deck AI assistant powered by Claude",
+  "version": "0.2.0",
+  "description": "Steam Deck AI Coding Assistant",
   "main": ".vite/build/main/index.js",
   "scripts": {
     "start": "electron-forge start",
