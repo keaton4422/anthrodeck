@@ -88,6 +88,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendAskUserDecision: (id: string, value: string) => {
     ipcRenderer.send('claude:ask-user-decision', id, value);
   },
+
+  // Teach mode: Claude is about to run a tool and is asking to proceed.
+  onTeach: (
+    cb: (data: { id: string; tool: string; input: Record<string, unknown>; why: string; timeout: number }) => void,
+  ) => {
+    const handler = (
+      _: Electron.IpcRendererEvent,
+      data: { id: string; tool: string; input: Record<string, unknown>; why: string; timeout: number },
+    ) => cb(data);
+    ipcRenderer.on('claude:teach', handler);
+    return () => ipcRenderer.removeListener('claude:teach', handler);
+  },
+  sendTeachDecision: (id: string, action: 'continue' | 'redirect', instruction?: string) => {
+    ipcRenderer.send('claude:teach-decision', id, action, instruction);
+  },
+
+  // Session flashcards
+  onFlashcard: (cb: (card: { id: string; text: string; timestamp: number }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, card: { id: string; text: string; timestamp: number }) => cb(card);
+    ipcRenderer.on('claude:flashcard', handler);
+    return () => ipcRenderer.removeListener('claude:flashcard', handler);
+  },
+  flashcardsGet: () => ipcRenderer.invoke('flashcards:get'),
+  flashcardGenerate: () => ipcRenderer.invoke('flashcards:generate'),
+  flashcardsClear: () => ipcRenderer.invoke('flashcards:clear'),
   onClaudeError: (cb: (msg: string) => void) => {
     const handler = (_: Electron.IpcRendererEvent, msg: string) => cb(msg);
     ipcRenderer.on('claude:error', handler);
@@ -124,6 +149,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   previewStop: () => ipcRenderer.invoke('preview:stop'),
   previewStatus: () => ipcRenderer.invoke('preview:status'),
   previewDetectDev: () => ipcRenderer.invoke('preview:detect-dev'),
+
+  // ── Local voice (whisper) ─────────────────────────────────────────────────
+  voiceLocalStatus: () => ipcRenderer.invoke('voice:local-status'),
+  voiceDownloadModel: () => ipcRenderer.invoke('voice:download-model'),
+  voiceTranscribe: (wav: ArrayBuffer) => ipcRenderer.invoke('voice:transcribe', wav),
 
   // ── Auto-updater ──────────────────────────────────────────────────────────
   updaterGetVersion: () => ipcRenderer.invoke('updater:get-version'),

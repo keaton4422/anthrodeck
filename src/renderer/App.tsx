@@ -7,13 +7,17 @@ import ProjectDrawer from './components/ProjectDrawer';
 import AskUserModal from './components/AskUserModal';
 import ShareModal from './components/ShareModal';
 import GameCanvas from './components/GameCanvas';
+import TeachModal from './components/TeachModal';
 import { useClaude } from './hooks/useClaude';
 import { useVoice } from './hooks/useVoice';
+import { useLocalVoice } from './hooks/useLocalVoice';
 import { useGamepad } from './hooks/useGamepad';
 import { useStore } from './hooks/useStore';
 import { useProject } from './hooks/useProject';
 import { useTelemetry } from './hooks/useTelemetry';
-import { PendingWrite, PendingQuestion } from './types';
+import { PendingWrite, PendingQuestion, TeachRequest } from './types';
+
+interface TeachLogEntry { tool: string; why: string; timestamp: number; }
 
 const SESSION_TOKEN_BUDGET = 200_000;
 
@@ -22,6 +26,9 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pendingWrite, setPendingWrite] = useState<PendingWrite | null>(null);
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
+  const [pendingTeach, setPendingTeach] = useState<TeachRequest | null>(null);
+  const [teachRedirectSignal, setTeachRedirectSignal] = useState(0);
+  const [teachLog, setTeachLog] = useState<TeachLogEntry[]>([]);
   const [voiceRejecting, setVoiceRejecting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cockpitOpen, setCockpitOpen] = useState(false);
@@ -30,6 +37,10 @@ export default function App() {
   const [previewPort, setPreviewPort] = useStore<number>('previewPort', 5757);
   const [previewHttps, setPreviewHttps] = useStore<boolean>('previewHttps', false);
   const [cockpitMode, setCockpitMode] = useStore<string>('cockpitMode', 'cockpit-tron');
+  const [localVoice, setLocalVoice] = useStore<boolean>('localVoice', false);
+  const [localReady, setLocalReady] = useState(false);
+  const [teachMode, setTeachMode] = useStore<boolean>('teachMode', false);
+  const [teachTimeout] = useStore<number>('teachTimeout', 5);
 
   const telemetry = useTelemetry();
   const [model, setModel] = useStore<string>('model', 'claude-sonnet-5');
@@ -47,6 +58,7 @@ export default function App() {
     prunedIds,
     togglePrune,
     pruneMany,
+    rewindTo,
     clearMessages,
   } = useClaude({
     apiKey,
@@ -55,8 +67,15 @@ export default function App() {
     model,
     extendedThinking,
     effort,
+    teachMode,
+    teachTimeout,
     onPendingWrite: setPendingWrite,
     onPendingQuestion: setPendingQuestion,
+    onTeach: (req) => {
+      setPendingTeach(req);
+      setTeachRedirectSignal(0);
+      setTeachLog((prev) => [...prev, { tool: req.tool, why: req.why, timestamp: Date.now() }]);
+    },
   });
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -69,6 +88,20 @@ export default function App() {
 
   const { isListening, transcript, isSupported, startListening, stopListening } =
     useVoice(handleVoiceResult);
+  const localDict = useLocalVoice(handleVoiceResult);
+
+  // Decide the active dictation backend: local whisper when enabled AND ready, else Web Speech.
+  useEffect(() => {
+    if (!localVoice) { setLocalReady(false); return; }
+    window.electronAPI.voiceLocalStatus()
+      .then((s) => setLocalReady(s.ready))
+      .catch(() => setLocalReady(false));
+  }, [localVoice]);
+  const useLocal = localVoice && localReady;
+  const startDictation = useLocal ? localDict.startListening : startListening;
+  const stopDictation = useLocal ? localDict.stopListening : stopListening;
+  const dictationListening = useLocal ? localDict.isListening : isListening;
+  const transcribing = useLocal ? localDict.transcribing : false;
 
   const scrollChat = useCallback((delta: number) => {
     if (chatScrollRef.current) chatScrollRef.current.scrollTop += delta * 18;
@@ -116,17 +149,30 @@ export default function App() {
     setPendingQuestion(null);
   }, [pendingQuestion]);
 
-  const modalActive = !!pendingWrite || !!pendingQuestion;
+  const teachContinue = useCallback(() => {
+    if (!pendingTeach) return;
+    window.electronAPI.sendTeachDecision(pendingTeach.id, 'continue');
+    setPendingTeach(null);
+  }, [pendingTeach]);
+
+  const teachRedirect = useCallback((instruction: string) => {
+    if (!pendingTeach) return;
+    window.electronAPI.sendTeachDecision(pendingTeach.id, 'redirect', instruction);
+    setPendingTeach(null);
+  }, [pendingTeach]);
+
+  const modalActive = !!pendingWrite || !!pendingQuestion || !!pendingTeach;
   // When the cockpit game is open it owns the controller; App-level bindings stand down.
   const padBusy = modalActive || cockpitOpen;
 
   useGamepad({
     // L2 push-to-talk only drives chat when nothing else owns the pad.
-    onL2Press: () => { if (!padBusy) startListening(); },
-    onL2Release: () => { if (!padBusy) stopListening(); },
+    onL2Press: () => { if (!padBusy) startDictation(); },
+    onL2Release: () => { if (!padBusy) stopDictation(); },
     onAPress: () => {
       if (cockpitOpen) return;
-      if (pendingWrite) handleWriteAccept();
+      if (pendingTeach) teachContinue();
+      else if (pendingWrite) handleWriteAccept();
       else if (pendingQuestion) answerOption(0);
     },
     onXPress: () => {
@@ -136,6 +182,7 @@ export default function App() {
     },
     onBPress: () => {
       if (cockpitOpen) return;
+      if (pendingTeach) { setTeachRedirectSignal((s) => s + 1); return; }
       if (pendingWrite) {
         // Toggle spoken-rejection push-to-talk.
         if (voiceRejecting) {
@@ -187,7 +234,8 @@ export default function App() {
   return (
     <div className="app-root">
       <StatusBar
-        isListening={isListening}
+        isListening={dictationListening}
+        isTranscribing={transcribing}
         isStreaming={isStreaming}
         hasApiKey={!!apiKey}
         projectPath={projectPath}
@@ -214,6 +262,7 @@ export default function App() {
         onTogglePrune={togglePrune}
         onPruneMany={pruneMany}
         onShare={() => { setDrawerOpen(false); setShareOpen(true); }}
+        teachLog={teachLog}
       />
 
       {showSettings ? (
@@ -228,6 +277,10 @@ export default function App() {
           onExtendedThinkingChange={setExtendedThinking}
           effort={effort}
           onEffortChange={setEffort}
+          localVoice={localVoice}
+          onLocalVoiceChange={setLocalVoice}
+          teachMode={teachMode}
+          onTeachModeChange={setTeachMode}
         />
       ) : (
         <>
@@ -241,15 +294,16 @@ export default function App() {
             onWriteReject={handleWriteReject}
             writeDiffRef={writeDiffRef}
             voiceRejecting={voiceRejecting}
+            onRewind={rewindTo}
           />
           <InputBar
             onSend={sendMessage}
             isStreaming={isStreaming}
-            isListening={isListening}
-            transcript={transcript}
-            isVoiceSupported={isSupported}
-            onVoiceStart={startListening}
-            onVoiceStop={stopListening}
+            isListening={dictationListening}
+            transcript={useLocal ? '' : transcript}
+            isVoiceSupported={isSupported || useLocal}
+            onVoiceStart={startDictation}
+            onVoiceStop={stopDictation}
           />
         </>
       )}
@@ -257,6 +311,16 @@ export default function App() {
       {/* ask_user modal — Claude paused to ask the pilot a question */}
       {pendingQuestion && (
         <AskUserModal question={pendingQuestion} onSelect={answerQuestion} />
+      )}
+
+      {/* Teach mode — Claude is about to run a tool */}
+      {pendingTeach && (
+        <TeachModal
+          req={pendingTeach}
+          onContinue={teachContinue}
+          onRedirect={teachRedirect}
+          redirectSignal={teachRedirectSignal}
+        />
       )}
 
       {/* Share preview over LAN */}

@@ -4,6 +4,9 @@ import VoiceButton from './VoiceButton';
 import { useVoice } from '../hooks/useVoice';
 import { ChatMessage } from '../types';
 import { estimateTokens, suggestPrunes } from '../lib/pilot';
+import { useFlashcards } from '../hooks/useFlashcards';
+
+export interface TeachLogEntry { tool: string; why: string; timestamp: number; }
 
 interface Props {
   open: boolean;
@@ -20,6 +23,7 @@ interface Props {
   onTogglePrune: (id: string) => void;
   onPruneMany: (ids: string[]) => void;
   onShare: () => void;
+  teachLog: TeachLogEntry[];
 }
 
 export default function ProjectDrawer({
@@ -37,9 +41,10 @@ export default function ProjectDrawer({
   onTogglePrune,
   onPruneMany,
   onShare,
+  teachLog,
 }: Props) {
   const git = useGit(projectPath);
-  const [activeTab, setActiveTab] = useState<'files' | 'git' | 'context'>('files');
+  const [activeTab, setActiveTab] = useState<'files' | 'git' | 'context' | 'learn'>('files');
 
   // Refresh git status when drawer opens
   useEffect(() => {
@@ -198,7 +203,7 @@ export default function ProjectDrawer({
         {projectPath && (
           <>
             <div style={{ display: 'flex', borderBottom: '1px solid #1E1E1E' }}>
-              {(['files', 'git', 'context'] as const).map((tab) => (
+              {(['files', 'git', 'context', 'learn'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -396,12 +401,106 @@ export default function ProjectDrawer({
                 onPruneMany={onPruneMany}
               />
             )}
+
+            {/* Learn: teach-mode session summary + flashcard deck */}
+            {activeTab === 'learn' && (
+              <LearnTab projectPath={projectPath} teachLog={teachLog} />
+            )}
           </>
         )}
       </div>
     </>
   );
 }
+
+// ─── Learn: teach summary + flashcards ───────────────────────────────────────
+function LearnTab({ projectPath, teachLog }: { projectPath: string | null; teachLog: TeachLogEntry[] }) {
+  const { cards, busy, generate, clear } = useFlashcards(projectPath);
+  const [review, setReview] = useState(false);
+  const [idx, setIdx] = useState(0);
+
+  const card = cards[idx];
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      {/* Flashcards */}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #1E1E1E' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span style={{ color: '#666', fontSize: 11, letterSpacing: 1, fontWeight: 600 }}>
+            FLASHCARDS ({cards.length})
+          </span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            {cards.length > 0 && (
+              <button onClick={() => { setReview((r) => !r); setIdx(0); }} style={miniBtn}>
+                {review ? 'list' : 'review'}
+              </button>
+            )}
+            <button onClick={generate} disabled={busy} style={miniBtn}>{busy ? '…' : '+ card'}</button>
+            {cards.length > 0 && <button onClick={clear} style={miniBtn}>clear</button>}
+          </div>
+        </div>
+
+        {cards.length === 0 ? (
+          <div style={{ color: '#444', fontSize: 13 }}>
+            Cards appear every 10 tool calls, or tap “+ card”.
+          </div>
+        ) : review ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+            <div style={{
+              minHeight: 90, width: '100%', background: '#1A1A1A', border: '1px solid #333',
+              borderRadius: 10, padding: 14, display: 'flex', alignItems: 'center',
+              justifyContent: 'center', textAlign: 'center', color: '#ECECEC', fontSize: 14, lineHeight: 1.5,
+            }}>
+              {card?.text}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button onClick={() => setIdx((i) => (i - 1 + cards.length) % cards.length)} style={miniBtn}>‹</button>
+              <span style={{ fontSize: 12, color: '#8A8A8A' }}>{idx + 1} / {cards.length}</span>
+              <button onClick={() => setIdx((i) => (i + 1) % cards.length)} style={miniBtn}>›</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {cards.map((c) => (
+              <div key={c.id} style={{
+                background: '#161616', border: '1px solid #262626', borderRadius: 8,
+                padding: '8px 10px', fontSize: 13, color: '#CFCFCF', lineHeight: 1.45,
+              }}>
+                {c.text}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Teach-mode session summary */}
+      <div style={{ padding: '12px 16px' }}>
+        <div style={{ color: '#666', fontSize: 11, letterSpacing: 1, fontWeight: 600, marginBottom: 8 }}>
+          TEACH SUMMARY ({teachLog.length})
+        </div>
+        {teachLog.length === 0 ? (
+          <div style={{ color: '#444', fontSize: 13 }}>
+            With teach mode on, each tool’s rationale is logged here.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {teachLog.map((t, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
+                <code style={{ color: '#8FE9FF', flexShrink: 0 }}>{t.tool}</code>
+                <span style={{ color: '#AAA', lineHeight: 1.4 }}>{t.why || '(no rationale)'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const miniBtn: React.CSSProperties = {
+  background: '#1A1A1A', border: '1px solid #333', borderRadius: 6,
+  color: '#9A9A9A', fontSize: 11, cursor: 'pointer', padding: '3px 8px',
+};
 
 // ─── Context inspector + pruner ──────────────────────────────────────────────
 interface InspectorProps {

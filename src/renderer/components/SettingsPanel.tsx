@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useUpdater } from '../hooks/useUpdater';
+import { LocalVoiceStatus } from '../types';
 
 interface Props {
   apiKey: string;
@@ -12,6 +13,10 @@ interface Props {
   onExtendedThinkingChange: (v: boolean) => void;
   effort: string;
   onEffortChange: (e: string) => void;
+  localVoice: boolean;
+  onLocalVoiceChange: (v: boolean) => void;
+  teachMode: boolean;
+  onTeachModeChange: (v: boolean) => void;
 }
 
 const MODEL_OPTS: { id: string; label: string; sub: string }[] = [
@@ -33,6 +38,10 @@ export function SettingsPanel({
   onExtendedThinkingChange,
   effort,
   onEffortChange,
+  localVoice,
+  onLocalVoiceChange,
+  teachMode,
+  onTeachModeChange,
 }: Props) {
   const [draftKey, setDraftKey] = useState(apiKey);
   const [showKey, setShowKey] = useState(false);
@@ -254,6 +263,20 @@ export function SettingsPanel({
 
         <Divider />
 
+        {/* ── Voice & Assist ───────────────────────────────────────────── */}
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <label style={labelStyle}>Voice &amp; Assist</label>
+          <LocalVoiceRow enabled={localVoice} onChange={onLocalVoiceChange} />
+          <ToggleRow
+            label="Teach mode"
+            hint="Explain each tool call before it runs; A continues, B redirects by voice. Auto-continues after a few seconds."
+            value={teachMode}
+            onChange={() => onTeachModeChange(!teachMode)}
+          />
+        </section>
+
+        <Divider />
+
         {/* ── Updates ──────────────────────────────────────────────────── */}
         <section>
           <label style={labelStyle}>Updates</label>
@@ -374,6 +397,82 @@ function UpdateSection({ status, onCheck, onDownload, onInstall }: UpdateProps) 
         <code style={{ color: '#5A5A5A' }}>package.json → build.publish</code>.
         In dev (<code style={{ color: '#5A5A5A' }}>npm start</code>) changes hot-reload via Vite.
       </p>
+    </div>
+  );
+}
+
+// ─── Local voice (whisper) row ─────────────────────────────────────────────────
+function LocalVoiceRow({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+  const [status, setStatus] = useState<LocalVoiceStatus | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const refresh = () => window.electronAPI.voiceLocalStatus().then(setStatus).catch(() => setStatus(null));
+  useEffect(() => { refresh(); }, []);
+
+  const download = async () => {
+    setDownloading(true);
+    setMsg(null);
+    try {
+      const r = await window.electronAPI.voiceDownloadModel();
+      setMsg(r.message);
+      await refresh();
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <ToggleRow
+        label="Local voice (offline Whisper)"
+        hint="Transcribe on-device instead of cloud Web Speech. Needs the Whisper model downloaded."
+        value={enabled}
+        onChange={() => onChange(!enabled)}
+      />
+      {enabled && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 2 }}>
+          <div style={{ fontSize: 12, color: status?.ready ? '#52A77C' : '#D9A441' }}>
+            {status?.ready
+              ? `Ready (${status.model}).`
+              : status?.available
+                ? (status.reason ?? 'Model not downloaded.')
+                : (status?.reason ?? 'Whisper native module not installed — see README.')}
+          </div>
+          {status?.available && !status.ready && (
+            <button onClick={download} disabled={downloading} style={secondaryBtn}>
+              {downloading ? 'Downloading… (~140 MB)' : 'Download local voice'}
+            </button>
+          )}
+          {msg && <div style={{ fontSize: 12, color: '#8A8A8A' }}>{msg}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Toggle row ────────────────────────────────────────────────────────────────
+function ToggleRow({ label, hint, value, onChange }: { label: string; hint: string; value: boolean; onChange: () => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 14, color: '#ECECEC', fontWeight: 600 }}>{label}</div>
+        <div style={{ fontSize: 12, color: '#6A6A6A', marginTop: 2 }}>{hint}</div>
+      </div>
+      <button
+        onClick={onChange}
+        role="switch"
+        aria-checked={value}
+        style={{
+          width: 46, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer',
+          background: value ? '#CC785C' : '#3A3A3A', position: 'relative', flexShrink: 0,
+        }}
+      >
+        <span style={{
+          position: 'absolute', top: 3, left: value ? 23 : 3, width: 20, height: 20,
+          borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+        }} />
+      </button>
     </div>
   );
 }

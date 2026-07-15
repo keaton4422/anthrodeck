@@ -15,6 +15,20 @@ export interface PendingQuestion {
   options: { label: string; value: string }[];
 }
 
+export interface TeachRequest {
+  id: string;
+  tool: string;
+  input: Record<string, unknown>;
+  why: string;
+  timeout: number;
+}
+
+export interface Flashcard {
+  id: string;
+  text: string;
+  timestamp: number;
+}
+
 export interface TurnResult extends TokenUsage {
   confidence: Confidence | null;
 }
@@ -49,6 +63,13 @@ export interface PendingWrite {
 export interface GitOpResult {
   stdout: string;
   stderr: string;
+}
+
+export interface LocalVoiceStatus {
+  available: boolean;
+  ready: boolean;
+  model: string;
+  reason?: string;
 }
 
 export interface PreviewStatus {
@@ -93,6 +114,8 @@ declare global {
         model: string;
         extendedThinking: boolean;
         effort: string;
+        teachMode: boolean;
+        teachTimeout: number;
       }) => void;
       claudeAbort: () => void;
       onClaudeDelta: (cb: (delta: string) => void) => () => void;
@@ -104,12 +127,23 @@ declare global {
       sendWriteDecision: (id: string, accepted: boolean, feedback?: string) => void;
       onAskUser: (cb: (data: PendingQuestion) => void) => () => void;
       sendAskUserDecision: (id: string, value: string) => void;
+      onTeach: (cb: (data: TeachRequest) => void) => () => void;
+      sendTeachDecision: (id: string, action: 'continue' | 'redirect', instruction?: string) => void;
+      onFlashcard: (cb: (card: Flashcard) => void) => () => void;
       onFileWritten: (cb: (filePath: string) => void) => () => void;
       // Preview / LAN sharing
       previewStart: (opts: { port?: number; https?: boolean; devPort?: number | null }) => Promise<PreviewStatus>;
       previewStop: () => Promise<PreviewStatus>;
       previewStatus: () => Promise<PreviewStatus>;
       previewDetectDev: () => Promise<number | null>;
+      // Local voice (whisper)
+      voiceLocalStatus: () => Promise<LocalVoiceStatus>;
+      voiceDownloadModel: () => Promise<{ ok: boolean; message: string }>;
+      voiceTranscribe: (wav: ArrayBuffer) => Promise<string | null>;
+      // Flashcards
+      flashcardsGet: () => Promise<Flashcard[]>;
+      flashcardGenerate: () => Promise<Flashcard | null>;
+      flashcardsClear: () => Promise<void>;
       // Updater
       updaterGetVersion: () => Promise<string>;
       updaterCheck: () => Promise<unknown>;

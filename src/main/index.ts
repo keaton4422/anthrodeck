@@ -5,9 +5,10 @@ import os from 'os';
 import fs from 'fs';
 import Store from 'electron-store';
 import { autoUpdater } from 'electron-updater';
-import type Anthropic from '@anthropic-ai/sdk';
+import Anthropic from '@anthropic-ai/sdk';
 import { runAgentLoop } from './agentLoop';
 import { resolveInferenceConfig } from './agentLoop.helpers';
+import { getFlashcards, clearFlashcards, generateFlashcard } from './flashcards';
 import {
   startPreview,
   stopPreview,
@@ -15,6 +16,11 @@ import {
   detectDevPort,
 } from './previewServer';
 import { pickLanIp } from './network';
+import {
+  getLocalVoiceStatus,
+  downloadLocalVoiceModel,
+  transcribeWav,
+} from './whisperTranscriber';
 
 // Injected by electron-forge Vite plugin
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
@@ -183,6 +189,8 @@ ipcMain.on('claude:send', async (event, {
   model,
   extendedThinking,
   effort,
+  teachMode,
+  teachTimeout,
 }: {
   messages: Array<{ role: string; content: string }>;
   apiKey: string;
@@ -191,6 +199,8 @@ ipcMain.on('claude:send', async (event, {
   model?: string;
   extendedThinking?: boolean;
   effort?: string;
+  teachMode?: boolean;
+  teachTimeout?: number;
 }) => {
   abortRef.aborted = false;
 
@@ -200,7 +210,12 @@ ipcMain.on('claude:send', async (event, {
   }
 
   // Validate/normalize whatever the renderer sent into a safe inference config.
-  const config = resolveInferenceConfig({ model, extendedThinking, effort });
+  const base = resolveInferenceConfig({ model, extendedThinking, effort });
+  const config = {
+    ...base,
+    teachMode: !!teachMode,
+    teachTimeout: typeof teachTimeout === 'number' && teachTimeout >= 0 ? teachTimeout : 5,
+  };
 
   await runAgentLoop(
     event,
@@ -239,6 +254,27 @@ ipcMain.handle('preview:status', () => {
   return { ...status, lanIp };
 });
 ipcMain.handle('preview:detect-dev', () => detectDevPort());
+
+// ─── Local voice (whisper) IPC ────────────────────────────────────────────────
+ipcMain.handle('voice:local-status', () => getLocalVoiceStatus());
+ipcMain.handle('voice:download-model', () => downloadLocalVoiceModel());
+ipcMain.handle('voice:transcribe', async (_, wav: ArrayBuffer) => {
+  try {
+    return await transcribeWav(wav);
+  } catch {
+    return null;
+  }
+});
+
+// ─── Flashcards IPC ───────────────────────────────────────────────────────────
+ipcMain.handle('flashcards:get', () => getFlashcards(store.get('projectPath', null) as string | null));
+ipcMain.handle('flashcards:clear', () => { clearFlashcards(store.get('projectPath', null) as string | null); });
+ipcMain.handle('flashcards:generate', async () => {
+  const apiKey = store.get('apiKey', '') as string;
+  if (!apiKey) return null;
+  const client = new Anthropic({ apiKey, maxRetries: 2 });
+  return generateFlashcard(client, store.get('projectPath', null) as string | null);
+});
 
 // claude:write-decision is handled inside agentLoop via ipcMain.on (per-call listener)
 

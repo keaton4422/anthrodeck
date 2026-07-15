@@ -9,6 +9,7 @@ import {
 
 interface Props {
   isListening: boolean;
+  isTranscribing?: boolean;
   isStreaming: boolean;
   hasApiKey: boolean;
   projectPath: string | null;
@@ -92,7 +93,7 @@ function HudRow({ label, value, color, bold }: { label: string; value: number; c
   );
 }
 
-export function StatusBar({ isListening, isStreaming, hasApiKey, projectPath, usage, budget, onDrawer, onSettings, onCockpit }: Props) {
+export function StatusBar({ isListening, isTranscribing, isStreaming, hasApiKey, projectPath, usage, budget, onDrawer, onSettings, onCockpit }: Props) {
   const folderName = projectPath ? projectPath.split(/[\\/]/).pop() : null;
 
   return (
@@ -173,7 +174,12 @@ export function StatusBar({ isListening, isStreaming, hasApiKey, projectPath, us
             </span>
           </div>
         )}
-        {isStreaming && !isListening && (
+        {isTranscribing && !isListening && (
+          <span style={{ fontSize: 12, color: '#6A8CC7', fontWeight: 600, letterSpacing: '0.06em' }}>
+            …TRANSCRIBING
+          </span>
+        )}
+        {isStreaming && !isListening && !isTranscribing && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <span className="streaming-dot-1" style={{ width: 5, height: 5, borderRadius: '50%', background: '#CC785C', display: 'inline-block' }} />
             <span className="streaming-dot-2" style={{ width: 5, height: 5, borderRadius: '50%', background: '#CC785C', display: 'inline-block' }} />

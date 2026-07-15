@@ -7,11 +7,13 @@ import {
   accumulateUsage,
   emptyUsage,
   extractToolUses,
+  firstSentence,
   parseConfidence,
   textFromContent,
   type Confidence,
   type Effort,
 } from './agentLoop.helpers';
+import { recordToolCalls, setLastContext, generateFlashcard } from './flashcards';
 
 // ─── Tool definitions given to Claude ─────────────────────────────────────────
 // The last tool carries a cache_control breakpoint so the whole tools array is cached as a unit
@@ -193,6 +195,29 @@ export interface AgentLoopConfig {
   model: string;
   extendedThinking: boolean;
   effort: Effort;
+  teachMode: boolean;
+  teachTimeout: number;
+}
+
+// ─── Helper: teach-mode gate — show the pilot why a tool is about to run, wait for continue/redirect
+function askRendererForTeach(
+  win: BrowserWindow,
+  toolId: string,
+  tool: string,
+  input: Record<string, unknown>,
+  why: string,
+  timeout: number,
+): Promise<{ action: 'continue' | 'redirect'; instruction?: string }> {
+  return new Promise((resolve) => {
+    const { ipcMain } = require('electron');
+    const handler = (_: IpcMainEvent, id: string, action: 'continue' | 'redirect', instruction?: string) => {
+      if (id !== toolId) return;
+      ipcMain.removeListener('claude:teach-decision', handler);
+      resolve({ action, instruction });
+    };
+    ipcMain.on('claude:teach-decision', handler);
+    win.webContents.send('claude:teach', { id: toolId, tool, input, why, timeout });
+  });
 }
 
 // ─── Main agentic loop ─────────────────────────────────────────────────────────
@@ -238,6 +263,9 @@ Guidelines:
   let sessionUsage = emptyUsage();
   // Self-assessed confidence parsed from the final (end_turn) assistant message.
   let finalConfidence: Confidence | null = null;
+  // Flashcard bookkeeping.
+  let executedTools = 0;
+  let lastTurnText = '';
 
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     if (abortRef.aborted) {
@@ -307,7 +335,9 @@ Guidelines:
 
     if (finalMsg.stop_reason !== 'tool_use' || toolUseBlocks.length === 0) {
       // Done — no tool calls, conversation is complete. Pull the confidence tag off the end.
-      finalConfidence = parseConfidence(textFromContent(finalMsg.content)).confidence;
+      const parsed = parseConfidence(textFromContent(finalMsg.content));
+      finalConfidence = parsed.confidence;
+      lastTurnText = parsed.cleaned;
       break;
     }
 
@@ -321,10 +351,26 @@ Guidelines:
     // Process tool calls and collect results
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
+    // The model's narration ahead of this batch is the shared "why" shown in teach mode.
+    const turnWhy = firstSentence(textFromContent(finalMsg.content));
+
     for (const tb of toolUseBlocks) {
       if (abortRef.aborted) break;
 
       let resultContent: string;
+
+      // Teach-mode gate: pause before each tool (ask_user is already interactive, so skip it).
+      if (config.teachMode && win && tb.name !== 'ask_user') {
+        const decision = await askRendererForTeach(win, tb.id, tb.name, tb.input, turnWhy, config.teachTimeout);
+        if (decision.action === 'redirect') {
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: tb.id,
+            content: `User redirected instead of running ${tb.name}: ${decision.instruction || '(reconsider your approach)'}`,
+          });
+          continue;
+        }
+      }
 
       if (tb.name === 'write_file') {
         const filePath = String(tb.input.path ?? '');
@@ -392,6 +438,7 @@ Guidelines:
         tool_use_id: tb.id,
         content: resultContent,
       });
+      executedTools += 1;
 
       // Show tool activity in the chat as a subtle delta
       if (!event.sender.isDestroyed()) {
@@ -407,6 +454,18 @@ Guidelines:
 
     // Add tool results as a user turn and continue the loop
     loopMessages.push({ role: 'user', content: toolResults });
+  }
+
+  // Session flashcards: remember recent context, and mint a card when we cross a tool-count
+  // threshold. Best-effort — never blocks or fails the turn.
+  if (projectPath) {
+    try {
+      setLastContext(projectPath, lastTurnText);
+      if (recordToolCalls(projectPath, executedTools)) {
+        const card = await generateFlashcard(anthropic, projectPath);
+        if (card && !event.sender.isDestroyed()) event.sender.send('claude:flashcard', card);
+      }
+    } catch { /* ignore */ }
   }
 
   // Emit cumulative usage once, at the end of the whole turn (not per tool round-trip), so

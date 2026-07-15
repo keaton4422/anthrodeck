@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChatMessage, PendingWrite, PendingQuestion, TokenUsage } from '../types';
+import { ChatMessage, PendingWrite, PendingQuestion, TeachRequest, TokenUsage } from '../types';
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -24,8 +24,11 @@ interface UseClaudeOptions {
   model: string;
   extendedThinking: boolean;
   effort: string;
+  teachMode: boolean;
+  teachTimeout: number;
   onPendingWrite: (write: PendingWrite) => void;
   onPendingQuestion: (question: PendingQuestion) => void;
+  onTeach: (req: TeachRequest) => void;
 }
 
 export function useClaude({
@@ -35,8 +38,11 @@ export function useClaude({
   model,
   extendedThinking,
   effort,
+  teachMode,
+  teachTimeout,
   onPendingWrite,
   onPendingQuestion,
+  onTeach,
 }: UseClaudeOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -54,6 +60,8 @@ export function useClaude({
   onPendingWriteRef.current = onPendingWrite;
   const onPendingQuestionRef = useRef(onPendingQuestion);
   onPendingQuestionRef.current = onPendingQuestion;
+  const onTeachRef = useRef(onTeach);
+  onTeachRef.current = onTeach;
 
   useEffect(() => {
     const unsubDelta = window.electronAPI.onClaudeDelta((delta) => {
@@ -119,6 +127,11 @@ export function useClaude({
       onPendingQuestionRef.current(data);
     });
 
+    // teach mode: Claude is about to run a tool
+    const unsubTeach = window.electronAPI.onTeach((data) => {
+      onTeachRef.current(data);
+    });
+
     // File written toast (autonomous mode)
     const unsubWritten = window.electronAPI.onFileWritten((filePath) => {
       if (!streamingIdRef.current) return;
@@ -138,6 +151,7 @@ export function useClaude({
       unsubError();
       unsubPreview();
       unsubAsk();
+      unsubTeach();
       unsubWritten();
     };
   }, []);
@@ -181,9 +195,11 @@ export function useClaude({
         model,
         extendedThinking,
         effort,
+        teachMode,
+        teachTimeout,
       });
     },
-    [apiKey, projectPath, autonomousWrites, model, extendedThinking, effort, isStreaming]
+    [apiKey, projectPath, autonomousWrites, model, extendedThinking, effort, teachMode, teachTimeout, isStreaming]
   );
 
   const clearMessages = useCallback(() => {
@@ -215,6 +231,20 @@ export function useClaude({
     });
   }, []);
 
+  // Rewind: drop everything after the given message so the pilot can redirect from that point.
+  const rewindTo = useCallback((id: string) => {
+    if (isStreaming) {
+      window.electronAPI.claudeAbort();
+      setIsStreaming(false);
+      streamingIdRef.current = null;
+    }
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === id);
+      return idx === -1 ? prev : prev.slice(0, idx + 1);
+    });
+    setError(null);
+  }, [isStreaming]);
+
   return {
     messages,
     sendMessage,
@@ -224,6 +254,7 @@ export function useClaude({
     prunedIds,
     togglePrune,
     pruneMany,
+    rewindTo,
     clearMessages,
   };
 }

@@ -8,6 +8,7 @@ import {
   isEffort,
   parseConfidence,
   textFromContent,
+  firstSentence,
   DEFAULT_MODEL,
   DEFAULT_EFFORT,
   type RawUsage,
@@ -169,6 +170,25 @@ describe('parseConfidence', () => {
     // A tag mid-text is not treated as the turn confidence.
     const text = 'saw <confidence>high</confidence> in the middle, more after';
     expect(parseConfidence(text).confidence).toBeNull();
+  });
+});
+
+describe('firstSentence', () => {
+  it('returns the first sentence', () => {
+    expect(firstSentence('Read the file. Then edit it. Done.')).toBe('Read the file.');
+    expect(firstSentence('Running the tests now!')).toBe('Running the tests now!');
+  });
+
+  it('caps very long single sentences with an ellipsis', () => {
+    const long = 'x'.repeat(200);
+    const out = firstSentence(long, 50);
+    expect(out.length).toBe(50);
+    expect(out.endsWith('…')).toBe(true);
+  });
+
+  it('handles empty input', () => {
+    expect(firstSentence('')).toBe('');
+    expect(firstSentence('   ')).toBe('');
   });
 });
 

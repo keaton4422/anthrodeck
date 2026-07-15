@@ -100,6 +100,16 @@ export function parseConfidence(text: string): { confidence: Confidence | null; 
   return { confidence, cleaned: text.slice(0, m.index).replace(/\s+$/, '') };
 }
 
+// First sentence (or a capped prefix) of the model's narration — used as the one-line "why" shown
+// before a tool runs in teach mode.
+export function firstSentence(text: string, cap = 160): string {
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+  const m = trimmed.match(/^.*?[.!?](\s|$)/);
+  const first = (m ? m[0] : trimmed).trim();
+  return first.length > cap ? `${first.slice(0, cap - 1).trimEnd()}…` : first;
+}
+
 // ─── Model / thinking configuration ───────────────────────────────────────────
 export const MODELS = ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'] as const;
 export type ModelId = (typeof MODELS)[number];

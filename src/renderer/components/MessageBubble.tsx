@@ -4,6 +4,7 @@ import { CodeBlock } from './CodeBlock';
 
 interface Props {
   message: ChatMessage;
+  onRewind?: (id: string) => void;
 }
 
 /** Split markdown text into text and fenced-code segments */
@@ -76,7 +77,7 @@ const CONFIDENCE_STYLE: Record<'high' | 'med' | 'low', { label: string; color: s
   low: { label: 'LOW', color: '#E05252' },
 };
 
-export function MessageBubble({ message }: Props) {
+export function MessageBubble({ message, onRewind }: Props) {
   const isUser = message.role === 'user';
   const parts = useMemo(() => parseContent(message.content), [message.content]);
   const conf = message.confidence ? CONFIDENCE_STYLE[message.confidence] : null;
@@ -147,6 +148,20 @@ export function MessageBubble({ message }: Props) {
             >
               {conf.label}
             </span>
+          )}
+          {onRewind && !message.isStreaming && (
+            <button
+              onClick={() => onRewind(message.id)}
+              title="Rewind to here — drops everything after this message"
+              style={{
+                marginLeft: 'auto', background: 'none', border: 'none',
+                color: '#5A5A5A', cursor: 'pointer', fontSize: 12, padding: 0,
+              }}
+              onMouseEnter={(e) => { (e.currentTarget).style.color = '#CC785C'; }}
+              onMouseLeave={(e) => { (e.currentTarget).style.color = '#5A5A5A'; }}
+            >
+              ↶ rewind
+            </button>
           )}
         </div>
 

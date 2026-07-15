@@ -13,6 +13,7 @@ export default defineConfig({
         '@fastify/http-proxy',
         'chokidar',
         'selfsigned',
+        'nodejs-whisper',
         'child_process',
         'dns',
         'fs',
