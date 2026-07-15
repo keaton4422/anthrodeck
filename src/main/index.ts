@@ -8,6 +8,13 @@ import { autoUpdater } from 'electron-updater';
 import type Anthropic from '@anthropic-ai/sdk';
 import { runAgentLoop } from './agentLoop';
 import { resolveInferenceConfig } from './agentLoop.helpers';
+import {
+  startPreview,
+  stopPreview,
+  getPreviewStatus,
+  detectDevPort,
+} from './previewServer';
+import { pickLanIp } from './network';
 
 // Injected by electron-forge Vite plugin
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
@@ -209,6 +216,30 @@ ipcMain.on('claude:send', async (event, {
 
 ipcMain.on('claude:abort', () => { abortRef.aborted = true; });
 
+// ─── Preview / LAN sharing IPC ────────────────────────────────────────────────
+ipcMain.handle('preview:start', async (_, opts: { port?: number; https?: boolean; devPort?: number | null }) => {
+  const root = store.get('projectPath', null) as string | null;
+  const projectPath = root ?? os.homedir();
+  try {
+    return await startPreview({
+      projectPath,
+      port: opts?.port,
+      https: opts?.https,
+      devPort: opts?.devPort ?? null,
+    });
+  } catch (e) {
+    return { ...getPreviewStatus(), running: false, error: (e as Error).message };
+  }
+});
+ipcMain.handle('preview:stop', async () => { await stopPreview(); return getPreviewStatus(); });
+ipcMain.handle('preview:status', () => {
+  const status = getPreviewStatus();
+  // Surface a LAN IP even when idle so the share sheet can preview the URL.
+  const lanIp = status.lanIp ?? pickLanIp(os.networkInterfaces() as never) ?? null;
+  return { ...status, lanIp };
+});
+ipcMain.handle('preview:detect-dev', () => detectDevPort());
+
 // claude:write-decision is handled inside agentLoop via ipcMain.on (per-call listener)
 
 // ─── Auto-updater ─────────────────────────────────────────────────────────────
@@ -262,7 +293,8 @@ app.whenReady().then(() => {
   setupAutoUpdater();
 });
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { void stopPreview(); });
+app.on('window-all-closed', () => { void stopPreview(); if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) { createWindow(); setupAutoUpdater(); }
 });

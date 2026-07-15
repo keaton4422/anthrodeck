@@ -19,6 +19,7 @@ interface Props {
   prunedIds: Set<string>;
   onTogglePrune: (id: string) => void;
   onPruneMany: (ids: string[]) => void;
+  onShare: () => void;
 }
 
 export default function ProjectDrawer({
@@ -35,6 +36,7 @@ export default function ProjectDrawer({
   prunedIds,
   onTogglePrune,
   onPruneMany,
+  onShare,
 }: Props) {
   const git = useGit(projectPath);
   const [activeTab, setActiveTab] = useState<'files' | 'git' | 'context'>('files');
@@ -174,6 +176,21 @@ export default function ProjectDrawer({
                 Autonomous writes
               </span>
             </div>
+          )}
+
+          {/* Share preview over LAN */}
+          {projectPath && (
+            <button
+              onClick={onShare}
+              style={{
+                width: '100%', marginTop: 10, padding: '9px 14px',
+                background: '#1A1A1A', border: '1px solid #CC785C', borderRadius: 8,
+                color: '#CC785C', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center',
+              }}
+            >
+              <span>📡</span> Share preview
+            </button>
           )}
         </div>
 

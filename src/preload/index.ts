@@ -118,6 +118,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('claude:file-written', handler);
   },
 
+  // ── Preview / LAN sharing ─────────────────────────────────────────────────
+  previewStart: (opts: { port?: number; https?: boolean; devPort?: number | null }) =>
+    ipcRenderer.invoke('preview:start', opts),
+  previewStop: () => ipcRenderer.invoke('preview:stop'),
+  previewStatus: () => ipcRenderer.invoke('preview:status'),
+  previewDetectDev: () => ipcRenderer.invoke('preview:detect-dev'),
+
   // ── Auto-updater ──────────────────────────────────────────────────────────
   updaterGetVersion: () => ipcRenderer.invoke('updater:get-version'),
   updaterCheck: () => ipcRenderer.invoke('updater:check'),

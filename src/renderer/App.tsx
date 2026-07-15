@@ -5,6 +5,7 @@ import { InputBar } from './components/InputBar';
 import { SettingsPanel } from './components/SettingsPanel';
 import ProjectDrawer from './components/ProjectDrawer';
 import AskUserModal from './components/AskUserModal';
+import ShareModal from './components/ShareModal';
 import { useClaude } from './hooks/useClaude';
 import { useVoice } from './hooks/useVoice';
 import { useGamepad } from './hooks/useGamepad';
@@ -20,8 +21,11 @@ export default function App() {
   const [pendingWrite, setPendingWrite] = useState<PendingWrite | null>(null);
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
   const [voiceRejecting, setVoiceRejecting] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [autonomousWrites, setAutonomousWrites] = useState(false);
   const [apiKey, setApiKey] = useStore<string>('apiKey', '');
+  const [previewPort, setPreviewPort] = useStore<number>('previewPort', 5757);
+  const [previewHttps, setPreviewHttps] = useStore<boolean>('previewHttps', false);
   const [model, setModel] = useStore<string>('model', 'claude-sonnet-5');
   const [extendedThinking, setExtendedThinking] = useStore<boolean>('extendedThinking', false);
   const [effort, setEffort] = useStore<string>('effort', 'high');
@@ -181,6 +185,7 @@ export default function App() {
         prunedIds={prunedIds}
         onTogglePrune={togglePrune}
         onPruneMany={pruneMany}
+        onShare={() => { setDrawerOpen(false); setShareOpen(true); }}
       />
 
       {showSettings ? (
@@ -224,6 +229,17 @@ export default function App() {
       {/* ask_user modal — Claude paused to ask the pilot a question */}
       {pendingQuestion && (
         <AskUserModal question={pendingQuestion} onSelect={answerQuestion} />
+      )}
+
+      {/* Share preview over LAN */}
+      {shareOpen && (
+        <ShareModal
+          onClose={() => setShareOpen(false)}
+          port={previewPort}
+          onPortChange={setPreviewPort}
+          https={previewHttps}
+          onHttpsChange={setPreviewHttps}
+        />
       )}
     </div>
   );

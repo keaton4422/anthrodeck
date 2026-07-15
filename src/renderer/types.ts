@@ -51,6 +51,18 @@ export interface GitOpResult {
   stderr: string;
 }
 
+export interface PreviewStatus {
+  running: boolean;
+  url: string | null;
+  lanIp: string | null;
+  port: number;
+  https: boolean;
+  mode: 'static' | 'proxy' | 'idle';
+  servedDir: string | null;
+  devPort: number | null;
+  error?: string;
+}
+
 // Extend Window with our Electron bridge
 declare global {
   interface Window {
@@ -93,6 +105,11 @@ declare global {
       onAskUser: (cb: (data: PendingQuestion) => void) => () => void;
       sendAskUserDecision: (id: string, value: string) => void;
       onFileWritten: (cb: (filePath: string) => void) => () => void;
+      // Preview / LAN sharing
+      previewStart: (opts: { port?: number; https?: boolean; devPort?: number | null }) => Promise<PreviewStatus>;
+      previewStop: () => Promise<PreviewStatus>;
+      previewStatus: () => Promise<PreviewStatus>;
+      previewDetectDev: () => Promise<number | null>;
       // Updater
       updaterGetVersion: () => Promise<string>;
       updaterCheck: () => Promise<unknown>;
