@@ -7,6 +7,9 @@ import {
   accumulateUsage,
   emptyUsage,
   extractToolUses,
+  parseConfidence,
+  textFromContent,
+  type Confidence,
   type Effort,
 } from './agentLoop.helpers';
 
@@ -47,6 +50,29 @@ const TOOLS: Anthropic.Tool[] = [
         dir: { type: 'string', description: 'Subdirectory to list (optional, defaults to project root)' },
       },
       required: [],
+    },
+  },
+  {
+    name: 'ask_user',
+    description: 'Pause and ask the pilot a single targeted question with 2-4 answer options. Use ONLY when you are genuinely uncertain and a cheap question now would save wasted work later (cascade cost). Do not ask trivial questions or things you can reasonably infer. Returns the value of the option the pilot chose.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        question: { type: 'string', description: 'The single question to ask the pilot.' },
+        options: {
+          type: 'array',
+          description: '2 to 4 answer options.',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string', description: 'Short button label shown to the pilot.' },
+              value: { type: 'string', description: 'The value returned to you if this option is chosen.' },
+            },
+            required: ['label', 'value'],
+          },
+        },
+      },
+      required: ['question', 'options'],
     },
   },
   {
@@ -141,6 +167,27 @@ function askRendererForWrite(
   });
 }
 
+// ─── Helper: ask renderer a multiple-choice question, wait for the pilot's pick ─
+function askRendererForQuestion(
+  win: BrowserWindow,
+  toolId: string,
+  question: string,
+  options: { label: string; value: string }[],
+): Promise<string> {
+  return new Promise((resolve) => {
+    const { ipcMain } = require('electron');
+
+    const handler = (_: IpcMainEvent, id: string, value: string) => {
+      if (id !== toolId) return;
+      ipcMain.removeListener('claude:ask-user-decision', handler);
+      resolve(value);
+    };
+
+    ipcMain.on('claude:ask-user-decision', handler);
+    win.webContents.send('claude:ask-user', { id: toolId, question, options });
+  });
+}
+
 // ─── Config passed from the renderer / settings ───────────────────────────────
 export interface AgentLoopConfig {
   model: string;
@@ -172,12 +219,15 @@ You have tools to work with the user's project${projectPath ? ` at: ${projectPat
 - Use read_file to understand code before modifying it
 - Use write_file to apply changes to files
 - Use run_shell for builds, tests, deploys, git operations, installs, etc.
+- Use ask_user to ask the pilot a quick multiple-choice question when genuinely uncertain
 
 Guidelines:
 - Always read a file before overwriting it unless creating a new one
 - Write complete file contents (not partial diffs) when using write_file
 - Keep responses concise — the user reads on a handheld screen
-- Be decisive and practical: make the change, don't just explain how to do it`;
+- Be decisive and practical: make the change, don't just explain how to do it
+- Use ask_user only when you are genuinely uncertain and a cheap question would save wasted work. Don't ask trivial questions you can infer.
+- End every turn with a self-assessed confidence tag on its own final line: <confidence>high</confidence>, <confidence>med</confidence>, or <confidence>low</confidence>. Nothing after it.`;
 
   // Working copy of messages for the loop
   const loopMessages: Anthropic.MessageParam[] = [...messages];
@@ -186,6 +236,8 @@ Guidelines:
   // Cumulative token usage across every model call in this user turn (input, output, cache read,
   // cache creation, thinking). Prior code overwrote per iteration; we sum.
   let sessionUsage = emptyUsage();
+  // Self-assessed confidence parsed from the final (end_turn) assistant message.
+  let finalConfidence: Confidence | null = null;
 
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     if (abortRef.aborted) {
@@ -254,7 +306,8 @@ Guidelines:
     const toolUseBlocks = extractToolUses(finalMsg.content);
 
     if (finalMsg.stop_reason !== 'tool_use' || toolUseBlocks.length === 0) {
-      // Done — no tool calls, conversation is complete.
+      // Done — no tool calls, conversation is complete. Pull the confidence tag off the end.
+      finalConfidence = parseConfidence(textFromContent(finalMsg.content)).confidence;
       break;
     }
 
@@ -309,6 +362,27 @@ Guidelines:
             resultContent = `User rejected the change${decision.feedback ? `: ${decision.feedback}` : '. Please revise.'}`;
           }
         }
+      } else if (tb.name === 'ask_user') {
+        if (win) {
+          const question = String(tb.input.question ?? '');
+          const rawOpts = Array.isArray(tb.input.options) ? tb.input.options : [];
+          const options = rawOpts
+            .slice(0, 4)
+            .map((o) => {
+              const rec = (o && typeof o === 'object' ? o : {}) as { label?: unknown; value?: unknown };
+              const label = String(rec.label ?? rec.value ?? '');
+              const value = String(rec.value ?? rec.label ?? '');
+              return { label, value };
+            })
+            .filter((o) => o.label || o.value);
+          if (options.length === 0) {
+            resultContent = 'No options were provided to ask_user; proceed with your best judgment.';
+          } else {
+            resultContent = await askRendererForQuestion(win, tb.id, question, options);
+          }
+        } else {
+          resultContent = 'No interactive UI available; proceed with your best judgment.';
+        }
       } else {
         resultContent = await execTool(tb.name, tb.input, effectivePath);
       }
@@ -325,6 +399,7 @@ Guidelines:
           tb.name === 'read_file' ? `\n\`read: ${String(tb.input.path ?? '')}\`\n`
           : tb.name === 'list_files' ? `\n\`list_files${tb.input.dir ? ` ${String(tb.input.dir)}` : ''}\`\n`
           : tb.name === 'run_shell' ? `\n\`$ ${String(tb.input.command ?? '')}\`\n`
+          : tb.name === 'ask_user' ? `\n\`ask: ${String(tb.input.question ?? '')}\`\n`
           : '';
         if (label) event.sender.send('claude:tool-activity', label);
       }
@@ -343,6 +418,7 @@ Guidelines:
       cacheReadTokens: sessionUsage.cacheReadTokens,
       cacheCreationTokens: sessionUsage.cacheCreationTokens,
       thinkingTokens: sessionUsage.thinkingTokens,
+      confidence: finalConfidence,
     });
   }
 }

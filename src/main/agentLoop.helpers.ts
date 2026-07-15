@@ -76,6 +76,30 @@ export function extractToolUses(content: unknown): ExtractedToolUse[] {
   return out;
 }
 
+// ─── Assistant text + confidence ──────────────────────────────────────────────
+// Join the text blocks of an assistant message's content into a single string.
+export function textFromContent(content: unknown): string {
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((b) => b && typeof b === 'object' && (b as { type?: unknown }).type === 'text')
+    .map((b) => String((b as { text?: unknown }).text ?? ''))
+    .join('');
+}
+
+export type Confidence = 'high' | 'med' | 'low';
+
+// We ask the model to end each turn with a <confidence>high|med|low</confidence> tag. Pull it off
+// the end of the assistant text and return the cleaned text (tag removed) plus the parsed level.
+// Uniform across models (works whether or not extended thinking is on).
+export function parseConfidence(text: string): { confidence: Confidence | null; cleaned: string } {
+  const re = /\s*<confidence>\s*(high|medium|med|low)\s*<\/confidence>\s*$/i;
+  const m = text.match(re);
+  if (!m || m.index === undefined) return { confidence: null, cleaned: text };
+  const raw = m[1].toLowerCase();
+  const confidence: Confidence = raw === 'high' ? 'high' : raw === 'low' ? 'low' : 'med';
+  return { confidence, cleaned: text.slice(0, m.index).replace(/\s+$/, '') };
+}
+
 // ─── Model / thinking configuration ───────────────────────────────────────────
 export const MODELS = ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'] as const;
 export type ModelId = (typeof MODELS)[number];

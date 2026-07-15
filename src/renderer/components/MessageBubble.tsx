@@ -70,9 +70,17 @@ function renderText(text: string) {
   });
 }
 
+const CONFIDENCE_STYLE: Record<'high' | 'med' | 'low', { label: string; color: string }> = {
+  high: { label: 'HIGH', color: '#52A77C' },
+  med: { label: 'MED', color: '#D9A441' },
+  low: { label: 'LOW', color: '#E05252' },
+};
+
 export function MessageBubble({ message }: Props) {
   const isUser = message.role === 'user';
   const parts = useMemo(() => parseContent(message.content), [message.content]);
+  const conf = message.confidence ? CONFIDENCE_STYLE[message.confidence] : null;
+  const lowConfidence = message.confidence === 'low';
 
   return (
     <div
@@ -80,6 +88,7 @@ export function MessageBubble({ message }: Props) {
       style={{
         padding: '14px 24px',
         borderBottom: '1px solid #1E1E1E',
+        borderLeft: lowConfidence ? '3px solid rgba(224,82,82,0.6)' : '3px solid transparent',
         display: 'flex',
         gap: 14,
         alignItems: 'flex-start',
@@ -116,9 +125,29 @@ export function MessageBubble({ message }: Props) {
             marginBottom: 6,
             letterSpacing: '0.05em',
             fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
           }}
         >
           {isUser ? 'YOU' : 'CLAUDE'}
+          {conf && (
+            <span
+              title="Claude's self-assessed confidence"
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                color: conf.color,
+                border: `1px solid ${conf.color}`,
+                borderRadius: 4,
+                padding: '0 5px',
+                lineHeight: '15px',
+              }}
+            >
+              {conf.label}
+            </span>
+          )}
         </div>
 
         {parts.map((part, i) => {

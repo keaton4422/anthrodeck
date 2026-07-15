@@ -11,6 +11,8 @@ interface Props {
   pendingWrite?: PendingWrite | null;
   onWriteAccept?: () => void;
   onWriteReject?: (feedback?: string) => void;
+  writeDiffRef?: RefObject<HTMLPreElement>;
+  voiceRejecting?: boolean;
 }
 
 function EmptyState() {
@@ -85,7 +87,7 @@ function QuickPrompt({ text }: { text: string }) {
   );
 }
 
-export function ChatView({ messages, error, scrollRef, isStreaming, pendingWrite, onWriteAccept, onWriteReject }: Props) {
+export function ChatView({ messages, error, scrollRef, isStreaming, pendingWrite, onWriteAccept, onWriteReject, writeDiffRef, voiceRejecting }: Props) {
   return (
     <div
       ref={scrollRef}
@@ -115,6 +117,8 @@ export function ChatView({ messages, error, scrollRef, isStreaming, pendingWrite
             write={pendingWrite}
             onAccept={onWriteAccept}
             onReject={onWriteReject}
+            contentRef={writeDiffRef}
+            voiceRejecting={voiceRejecting}
           />
         </div>
       )}

@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       cacheReadTokens: number;
       cacheCreationTokens: number;
       thinkingTokens: number;
+      confidence: 'high' | 'med' | 'low' | null;
     }) => void,
   ) => {
     const handler = (
@@ -66,10 +67,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
         cacheReadTokens: number;
         cacheCreationTokens: number;
         thinkingTokens: number;
+        confidence: 'high' | 'med' | 'low' | null;
       },
     ) => cb(u);
     ipcRenderer.on('claude:done', handler);
     return () => ipcRenderer.removeListener('claude:done', handler);
+  },
+
+  // ask_user: Claude wants the pilot to pick between 2-4 options.
+  onAskUser: (
+    cb: (data: { id: string; question: string; options: { label: string; value: string }[] }) => void,
+  ) => {
+    const handler = (
+      _: Electron.IpcRendererEvent,
+      data: { id: string; question: string; options: { label: string; value: string }[] },
+    ) => cb(data);
+    ipcRenderer.on('claude:ask-user', handler);
+    return () => ipcRenderer.removeListener('claude:ask-user', handler);
+  },
+  sendAskUserDecision: (id: string, value: string) => {
+    ipcRenderer.send('claude:ask-user-decision', id, value);
   },
   onClaudeError: (cb: (msg: string) => void) => {
     const handler = (_: Electron.IpcRendererEvent, msg: string) => cb(msg);

@@ -1,15 +1,97 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { TokenUsage } from '../types';
+import {
+  budgetLevel,
+  budgetFraction,
+  BUDGET_COLORS,
+  formatTokens,
+} from '../lib/pilot';
 
 interface Props {
   isListening: boolean;
   isStreaming: boolean;
   hasApiKey: boolean;
   projectPath: string | null;
+  usage: TokenUsage;
+  budget: number;
   onDrawer: () => void;
   onSettings: () => void;
 }
 
-export function StatusBar({ isListening, isStreaming, hasApiKey, projectPath, onDrawer, onSettings }: Props) {
+// Compact cumulative-token HUD with a hover breakdown. The pilot's fuel gauge.
+function TokenHUD({ usage, budget }: { usage: TokenUsage; budget: number }) {
+  const [hover, setHover] = useState(false);
+  const total =
+    usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheCreationTokens;
+  const level = budgetLevel(total, budget);
+  const color = BUDGET_COLORS[level];
+  const frac = budgetFraction(total, budget);
+
+  return (
+    <div
+      style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8 }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <div style={{ width: 90, height: 6, background: '#2A2A2A', borderRadius: 3, overflow: 'hidden' }}>
+        <div
+          style={{
+            width: `${frac * 100}%`,
+            height: '100%',
+            background: color,
+            borderRadius: 3,
+            transition: 'width 0.3s ease, background 0.3s ease',
+          }}
+        />
+      </div>
+      <span style={{ fontSize: 11, color: '#8A8A8A', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+        {formatTokens(total)}
+        <span style={{ color: '#555' }}> / {formatTokens(budget)}</span>
+      </span>
+
+      {hover && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 8px)',
+            right: 0,
+            zIndex: 60,
+            background: '#1A1A1A',
+            border: '1px solid #3A3A3A',
+            borderRadius: 8,
+            padding: '10px 12px',
+            width: 200,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 5,
+            boxShadow: '0 6px 20px rgba(0,0,0,0.5)',
+          }}
+        >
+          <HudRow label="Input" value={usage.inputTokens} color="#ECECEC" />
+          <HudRow label="Output" value={usage.outputTokens} color="#ECECEC" />
+          <HudRow label="Cache read (free)" value={usage.cacheReadTokens} color="#52A77C" />
+          <HudRow label="Cache write" value={usage.cacheCreationTokens} color="#9A9A9A" />
+          <HudRow label="Thinking" value={usage.thinkingTokens} color="#6A8CC7" />
+          <div style={{ height: 1, background: '#2A2A2A', margin: '2px 0' }} />
+          <HudRow label="Total" value={total} color={color} bold />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HudRow({ label, value, color, bold }: { label: string; value: number; color: string; bold?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+      <span style={{ color: '#8A8A8A' }}>{label}</span>
+      <span style={{ color, fontFamily: 'monospace', fontWeight: bold ? 700 : 400 }}>
+        {formatTokens(value)}
+      </span>
+    </div>
+  );
+}
+
+export function StatusBar({ isListening, isStreaming, hasApiKey, projectPath, usage, budget, onDrawer, onSettings }: Props) {
   const folderName = projectPath ? projectPath.split(/[\\/]/).pop() : null;
 
   return (
@@ -101,6 +183,7 @@ export function StatusBar({ isListening, isStreaming, hasApiKey, projectPath, on
         {!hasApiKey && !isListening && !isStreaming && (
           <span style={{ fontSize: 12, color: '#E05252' }}>⚠ No API key</span>
         )}
+        {hasApiKey && <TokenHUD usage={usage} budget={budget} />}
         <button
           onClick={onSettings}
           style={{

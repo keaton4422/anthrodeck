@@ -1,9 +1,22 @@
+export type Confidence = 'high' | 'med' | 'low';
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
   isStreaming?: boolean;
+  confidence?: Confidence;
+}
+
+export interface PendingQuestion {
+  id: string;
+  question: string;
+  options: { label: string; value: string }[];
+}
+
+export interface TurnResult extends TokenUsage {
+  confidence: Confidence | null;
 }
 
 export interface ShellResult {
@@ -72,11 +85,13 @@ declare global {
       claudeAbort: () => void;
       onClaudeDelta: (cb: (delta: string) => void) => () => void;
       onClaudeThinkingDelta: (cb: (delta: string) => void) => () => void;
-      onClaudeDone: (cb: (usage: TokenUsage) => void) => () => void;
+      onClaudeDone: (cb: (result: TurnResult) => void) => () => void;
       onClaudeError: (cb: (error: string) => void) => () => void;
       onClaudeToolActivity: (cb: (label: string) => void) => () => void;
       onWritePreview: (cb: (data: PendingWrite) => void) => () => void;
       sendWriteDecision: (id: string, accepted: boolean, feedback?: string) => void;
+      onAskUser: (cb: (data: PendingQuestion) => void) => () => void;
+      sendAskUserDecision: (id: string, value: string) => void;
       onFileWritten: (cb: (filePath: string) => void) => () => void;
       // Updater
       updaterGetVersion: () => Promise<string>;

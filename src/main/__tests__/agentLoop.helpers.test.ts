@@ -6,6 +6,8 @@ import {
   resolveInferenceConfig,
   isModelId,
   isEffort,
+  parseConfidence,
+  textFromContent,
   DEFAULT_MODEL,
   DEFAULT_EFFORT,
   type RawUsage,
@@ -122,6 +124,51 @@ describe('resolveInferenceConfig', () => {
 
   it('coerces extendedThinking to a boolean', () => {
     expect(resolveInferenceConfig({ extendedThinking: undefined }).extendedThinking).toBe(false);
+  });
+});
+
+describe('textFromContent', () => {
+  it('joins text blocks and ignores non-text blocks', () => {
+    const content = [
+      { type: 'thinking', thinking: 'x', signature: 's' },
+      { type: 'text', text: 'Hello ' },
+      { type: 'tool_use', id: 't', name: 'n', input: {} },
+      { type: 'text', text: 'world' },
+    ];
+    expect(textFromContent(content)).toBe('Hello world');
+  });
+
+  it('returns empty string for non-arrays', () => {
+    expect(textFromContent(null)).toBe('');
+    expect(textFromContent('nope')).toBe('');
+  });
+});
+
+describe('parseConfidence', () => {
+  it('extracts a trailing high/med/low tag and strips it', () => {
+    expect(parseConfidence('Done.\n<confidence>high</confidence>')).toEqual({
+      confidence: 'high',
+      cleaned: 'Done.',
+    });
+    expect(parseConfidence('Fixed it. <confidence>low</confidence>')).toEqual({
+      confidence: 'low',
+      cleaned: 'Fixed it.',
+    });
+  });
+
+  it('normalizes "medium" to "med"', () => {
+    expect(parseConfidence('ok <confidence>medium</confidence>').confidence).toBe('med');
+    expect(parseConfidence('ok <confidence>MED</confidence>').confidence).toBe('med');
+  });
+
+  it('returns null + unchanged text when no tag present', () => {
+    expect(parseConfidence('no tag here')).toEqual({ confidence: null, cleaned: 'no tag here' });
+  });
+
+  it('only matches a tag at the very end', () => {
+    // A tag mid-text is not treated as the turn confidence.
+    const text = 'saw <confidence>high</confidence> in the middle, more after';
+    expect(parseConfidence(text).confidence).toBeNull();
   });
 });
 

@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useGit } from '../hooks/useGit';
 import VoiceButton from './VoiceButton';
 import { useVoice } from '../hooks/useVoice';
+import { ChatMessage } from '../types';
+import { estimateTokens, suggestPrunes } from '../lib/pilot';
 
 interface Props {
   open: boolean;
@@ -13,6 +15,10 @@ interface Props {
   autonomousWrites: boolean;
   onToggleAutonomous: () => void;
   onFileClick: (file: string) => void;
+  messages: ChatMessage[];
+  prunedIds: Set<string>;
+  onTogglePrune: (id: string) => void;
+  onPruneMany: (ids: string[]) => void;
 }
 
 export default function ProjectDrawer({
@@ -25,9 +31,13 @@ export default function ProjectDrawer({
   autonomousWrites,
   onToggleAutonomous,
   onFileClick,
+  messages,
+  prunedIds,
+  onTogglePrune,
+  onPruneMany,
 }: Props) {
   const git = useGit(projectPath);
-  const [activeTab, setActiveTab] = useState<'files' | 'git'>('files');
+  const [activeTab, setActiveTab] = useState<'files' | 'git' | 'context'>('files');
 
   // Refresh git status when drawer opens
   useEffect(() => {
@@ -171,7 +181,7 @@ export default function ProjectDrawer({
         {projectPath && (
           <>
             <div style={{ display: 'flex', borderBottom: '1px solid #1E1E1E' }}>
-              {(['files', 'git'] as const).map((tab) => (
+              {(['files', 'git', 'context'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -359,9 +369,105 @@ export default function ProjectDrawer({
                 </div>
               </div>
             )}
+
+            {/* Context inspector + pruner */}
+            {activeTab === 'context' && (
+              <ContextInspector
+                messages={messages}
+                prunedIds={prunedIds}
+                onTogglePrune={onTogglePrune}
+                onPruneMany={onPruneMany}
+              />
+            )}
           </>
         )}
       </div>
     </>
+  );
+}
+
+// ─── Context inspector + pruner ──────────────────────────────────────────────
+interface InspectorProps {
+  messages: ChatMessage[];
+  prunedIds: Set<string>;
+  onTogglePrune: (id: string) => void;
+  onPruneMany: (ids: string[]) => void;
+}
+
+function ContextInspector({ messages, prunedIds, onTogglePrune, onPruneMany }: InspectorProps) {
+  const suggested = suggestPrunes(
+    messages.map((m) => ({ id: m.id, role: m.role, content: m.content })),
+  ).filter((id) => !prunedIds.has(id));
+
+  const activeTokens = messages
+    .filter((m) => !prunedIds.has(m.id))
+    .reduce((sum, m) => sum + estimateTokens(m.content), 0);
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      {/* Summary + suggested prunes */}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #1E1E1E' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#8A8A8A' }}>
+          <span>Active context (est.)</span>
+          <span style={{ fontFamily: 'monospace', color: '#ECECEC' }}>~{activeTokens.toLocaleString()} tok</span>
+        </div>
+        {suggested.length > 0 && (
+          <button
+            onClick={() => onPruneMany(suggested)}
+            style={{
+              width: '100%', marginTop: 10, padding: '8px 0', borderRadius: 7,
+              border: '1px solid #D9A441', background: 'rgba(217,164,65,0.1)',
+              color: '#D9A441', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            Prune {suggested.length} superseded {suggested.length === 1 ? 'read' : 'reads'}
+          </button>
+        )}
+      </div>
+
+      {/* Message list */}
+      {messages.length === 0 ? (
+        <div style={{ color: '#444', fontSize: 13, padding: '12px 16px' }}>No conversation yet</div>
+      ) : (
+        messages.map((m) => {
+          const pruned = prunedIds.has(m.id);
+          const snippet = m.content.replace(/\s+/g, ' ').trim().slice(0, 70) || '(empty)';
+          return (
+            <div
+              key={m.id}
+              onClick={() => onTogglePrune(m.id)}
+              title={pruned ? 'Pruned from next request — tap to restore' : 'Tap to prune from next request'}
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 8,
+                padding: '8px 16px', cursor: 'pointer',
+                borderBottom: '1px solid #161616',
+                opacity: pruned ? 0.4 : 1,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: '0.05em',
+                  color: m.role === 'user' ? '#CC785C' : '#52A77C',
+                  minWidth: 34, paddingTop: 2,
+                }}
+              >
+                {m.role === 'user' ? 'YOU' : 'CLAUDE'}
+              </span>
+              <span
+                style={{
+                  flex: 1, fontSize: 12, color: '#AAA', lineHeight: 1.4,
+                  textDecoration: pruned ? 'line-through' : 'none',
+                }}
+              >
+                {snippet}
+              </span>
+              <span style={{ fontSize: 10, color: '#666', fontFamily: 'monospace', paddingTop: 2 }}>
+                {estimateTokens(m.content)}
+              </span>
+            </div>
+          );
+        })
+      )}
+    </div>
   );
 }

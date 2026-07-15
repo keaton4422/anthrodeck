@@ -7,9 +7,11 @@ interface Props {
   write: PendingWrite;
   onAccept: () => void;
   onReject: (feedback?: string) => void;
+  contentRef?: React.Ref<HTMLPreElement>;
+  voiceRejecting?: boolean;
 }
 
-export default function WritePreview({ write, onAccept, onReject }: Props) {
+export default function WritePreview({ write, onAccept, onReject, contentRef, voiceRejecting }: Props) {
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -49,22 +51,43 @@ export default function WritePreview({ write, onAccept, onReject }: Props) {
         <span style={{ color: '#555', fontSize: 12 }}>{lineCount} lines</span>
       </div>
 
-      {/* Content preview */}
-      <pre style={{
-        margin: 0,
-        padding: '12px 14px',
-        maxHeight: 280,
-        overflowY: 'auto',
-        fontSize: 12,
-        lineHeight: 1.5,
-        color: '#C8C8C8',
-        fontFamily: 'monospace',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-all',
-        background: '#111',
-      }}>
+      {/* Content preview (D-pad up/down scrolls this via the forwarded ref) */}
+      <pre
+        ref={contentRef}
+        style={{
+          margin: 0,
+          padding: '12px 14px',
+          maxHeight: 280,
+          overflowY: 'auto',
+          fontSize: 12,
+          lineHeight: 1.5,
+          color: '#C8C8C8',
+          fontFamily: 'monospace',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-all',
+          background: '#111',
+        }}
+      >
         {write.content}
       </pre>
+
+      {/* Gamepad hint / voice-reject indicator */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '6px 14px', fontSize: 11, color: '#6A6A6A',
+        borderTop: '1px solid #201A17', background: '#151210',
+      }}>
+        {voiceRejecting ? (
+          <span style={{ color: '#E05252', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#E05252', display: 'inline-block', animation: 'blink 0.8s step-end infinite' }} />
+            Listening — speak your change, press B again to send
+          </span>
+        ) : (
+          <span>
+            <b style={{ color: '#52A77C' }}>A</b> apply · <b style={{ color: '#6A8CC7' }}>X</b> reject · <b style={{ color: '#E05252' }}>B</b> reject with voice · D-pad scroll
+          </span>
+        )}
+      </div>
 
       {/* Action buttons or feedback */}
       {!showFeedback ? (
