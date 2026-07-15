@@ -6,11 +6,13 @@ import { SettingsPanel } from './components/SettingsPanel';
 import ProjectDrawer from './components/ProjectDrawer';
 import AskUserModal from './components/AskUserModal';
 import ShareModal from './components/ShareModal';
+import GameCanvas from './components/GameCanvas';
 import { useClaude } from './hooks/useClaude';
 import { useVoice } from './hooks/useVoice';
 import { useGamepad } from './hooks/useGamepad';
 import { useStore } from './hooks/useStore';
 import { useProject } from './hooks/useProject';
+import { useTelemetry } from './hooks/useTelemetry';
 import { PendingWrite, PendingQuestion } from './types';
 
 const SESSION_TOKEN_BUDGET = 200_000;
@@ -22,10 +24,14 @@ export default function App() {
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
   const [voiceRejecting, setVoiceRejecting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [cockpitOpen, setCockpitOpen] = useState(false);
   const [autonomousWrites, setAutonomousWrites] = useState(false);
   const [apiKey, setApiKey] = useStore<string>('apiKey', '');
   const [previewPort, setPreviewPort] = useStore<number>('previewPort', 5757);
   const [previewHttps, setPreviewHttps] = useStore<boolean>('previewHttps', false);
+  const [cockpitMode, setCockpitMode] = useStore<string>('cockpitMode', 'cockpit-tron');
+
+  const telemetry = useTelemetry();
   const [model, setModel] = useStore<string>('model', 'claude-sonnet-5');
   const [extendedThinking, setExtendedThinking] = useStore<boolean>('extendedThinking', false);
   const [effort, setEffort] = useStore<string>('effort', 'high');
@@ -68,12 +74,27 @@ export default function App() {
     if (chatScrollRef.current) chatScrollRef.current.scrollTop += delta * 18;
   }, []);
 
+  // Feed cumulative session tokens to the cockpit telemetry (drives trail length / progress).
+  useEffect(() => {
+    telemetry.setSessionTokens(
+      sessionUsage.inputTokens + sessionUsage.outputTokens +
+      sessionUsage.cacheReadTokens + sessionUsage.cacheCreationTokens,
+    );
+  }, [sessionUsage, telemetry]);
+
+  // Clearing while streaming is an abort — that's a "crash" event for the cockpit.
+  const handleClear = useCallback(() => {
+    if (isStreaming) telemetry.emit({ type: 'crash' });
+    clearMessages();
+  }, [isStreaming, clearMessages, telemetry]);
+
   const handleWriteAccept = useCallback(() => {
     if (!pendingWrite) return;
     window.electronAPI.sendWriteDecision(pendingWrite.id, true);
     setPendingWrite(null);
     setVoiceRejecting(false);
-  }, [pendingWrite]);
+    telemetry.emit({ type: 'boost' }); // approving a write is a boost
+  }, [pendingWrite, telemetry]);
 
   const handleWriteReject = useCallback((feedback?: string) => {
     if (!pendingWrite) return;
@@ -96,20 +117,25 @@ export default function App() {
   }, [pendingQuestion]);
 
   const modalActive = !!pendingWrite || !!pendingQuestion;
+  // When the cockpit game is open it owns the controller; App-level bindings stand down.
+  const padBusy = modalActive || cockpitOpen;
 
   useGamepad({
-    // L2 push-to-talk only drives chat when no approval modal is up.
-    onL2Press: () => { if (!modalActive) startListening(); },
-    onL2Release: () => { if (!modalActive) stopListening(); },
+    // L2 push-to-talk only drives chat when nothing else owns the pad.
+    onL2Press: () => { if (!padBusy) startListening(); },
+    onL2Release: () => { if (!padBusy) stopListening(); },
     onAPress: () => {
+      if (cockpitOpen) return;
       if (pendingWrite) handleWriteAccept();
       else if (pendingQuestion) answerOption(0);
     },
     onXPress: () => {
+      if (cockpitOpen) return;
       if (pendingWrite) handleWriteReject();
       else if (pendingQuestion) answerOption(2);
     },
     onBPress: () => {
+      if (cockpitOpen) return;
       if (pendingWrite) {
         // Toggle spoken-rejection push-to-talk.
         if (voiceRejecting) {
@@ -125,13 +151,14 @@ export default function App() {
       }
     },
     onYPress: () => {
+      if (cockpitOpen) return;
       if (pendingQuestion) answerOption(3);
       else setDrawerOpen((s) => !s);
     },
-    onStartPress: () => setShowSettings((s) => !s),
-    onDpadUp: () => { if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop -= 48; },
-    onDpadDown: () => { if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop += 48; },
-    onScrollY: scrollChat,
+    onStartPress: () => { if (!cockpitOpen) setShowSettings((s) => !s); },
+    onDpadUp: () => { if (!cockpitOpen && pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop -= 48; },
+    onDpadDown: () => { if (!cockpitOpen && pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop += 48; },
+    onScrollY: (d) => { if (!cockpitOpen) scrollChat(d); },
   });
 
   function answerOption(index: number) {
@@ -168,6 +195,7 @@ export default function App() {
         budget={SESSION_TOKEN_BUDGET}
         onDrawer={() => setDrawerOpen((s) => !s)}
         onSettings={() => setShowSettings((s) => !s)}
+        onCockpit={() => setCockpitOpen((s) => !s)}
       />
 
       {/* Project drawer (slides in from left, over content) */}
@@ -192,7 +220,7 @@ export default function App() {
         <SettingsPanel
           apiKey={apiKey}
           onSave={async (key) => { await setApiKey(key); setShowSettings(false); }}
-          onClear={clearMessages}
+          onClear={handleClear}
           onClose={() => setShowSettings(false)}
           model={model}
           onModelChange={setModel}
@@ -239,6 +267,17 @@ export default function App() {
           onPortChange={setPreviewPort}
           https={previewHttps}
           onHttpsChange={setPreviewHttps}
+        />
+      )}
+
+      {/* Cockpit game layer — pauses when an approval modal is up */}
+      {cockpitOpen && (
+        <GameCanvas
+          onClose={() => setCockpitOpen(false)}
+          selectedId={cockpitMode}
+          onSelect={setCockpitMode}
+          telemetry={telemetry}
+          paused={modalActive}
         />
       )}
     </div>

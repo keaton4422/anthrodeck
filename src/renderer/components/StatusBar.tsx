@@ -16,6 +16,7 @@ interface Props {
   budget: number;
   onDrawer: () => void;
   onSettings: () => void;
+  onCockpit: () => void;
 }
 
 // Compact cumulative-token HUD with a hover breakdown. The pilot's fuel gauge.
@@ -91,7 +92,7 @@ function HudRow({ label, value, color, bold }: { label: string; value: number; c
   );
 }
 
-export function StatusBar({ isListening, isStreaming, hasApiKey, projectPath, usage, budget, onDrawer, onSettings }: Props) {
+export function StatusBar({ isListening, isStreaming, hasApiKey, projectPath, usage, budget, onDrawer, onSettings, onCockpit }: Props) {
   const folderName = projectPath ? projectPath.split(/[\\/]/).pop() : null;
 
   return (
@@ -184,6 +185,19 @@ export function StatusBar({ isListening, isStreaming, hasApiKey, projectPath, us
           <span style={{ fontSize: 12, color: '#E05252' }}>⚠ No API key</span>
         )}
         {hasApiKey && <TokenHUD usage={usage} budget={budget} />}
+        <button
+          onClick={onCockpit}
+          title="Cockpit game layer"
+          style={{
+            background: 'none', border: '1px solid #3A3A3A', borderRadius: 6,
+            padding: '4px 10px', color: '#9A9A9A', cursor: 'pointer', fontSize: 15,
+            transition: 'all 0.15s', lineHeight: 1,
+          }}
+          onMouseEnter={(e) => { (e.currentTarget).style.color = '#CC785C'; (e.currentTarget).style.borderColor = '#CC785C'; }}
+          onMouseLeave={(e) => { (e.currentTarget).style.color = '#9A9A9A'; (e.currentTarget).style.borderColor = '#3A3A3A'; }}
+        >
+          🎮
+        </button>
         <button
           onClick={onSettings}
           style={{
