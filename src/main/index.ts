@@ -5,7 +5,9 @@ import os from 'os';
 import fs from 'fs';
 import Store from 'electron-store';
 import { autoUpdater } from 'electron-updater';
+import type Anthropic from '@anthropic-ai/sdk';
 import { runAgentLoop } from './agentLoop';
+import { resolveInferenceConfig } from './agentLoop.helpers';
 
 // Injected by electron-forge Vite plugin
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
@@ -171,11 +173,17 @@ ipcMain.on('claude:send', async (event, {
   apiKey,
   projectPath,
   autonomousWrites,
+  model,
+  extendedThinking,
+  effort,
 }: {
   messages: Array<{ role: string; content: string }>;
   apiKey: string;
   projectPath: string | null;
   autonomousWrites: boolean;
+  model?: string;
+  extendedThinking?: boolean;
+  effort?: string;
 }) => {
   abortRef.aborted = false;
 
@@ -184,12 +192,16 @@ ipcMain.on('claude:send', async (event, {
     return;
   }
 
+  // Validate/normalize whatever the renderer sent into a safe inference config.
+  const config = resolveInferenceConfig({ model, extendedThinking, effort });
+
   await runAgentLoop(
     event,
-    messages as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+    messages as unknown as Anthropic.MessageParam[],
     apiKey,
     projectPath,
     autonomousWrites,
+    config,
     mainWindow,
     abortRef,
   );

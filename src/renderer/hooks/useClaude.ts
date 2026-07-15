@@ -9,10 +9,21 @@ interface UseClaudeOptions {
   apiKey: string;
   projectPath: string | null;
   autonomousWrites: boolean;
+  model: string;
+  extendedThinking: boolean;
+  effort: string;
   onPendingWrite: (write: PendingWrite) => void;
 }
 
-export function useClaude({ apiKey, projectPath, autonomousWrites, onPendingWrite }: UseClaudeOptions) {
+export function useClaude({
+  apiKey,
+  projectPath,
+  autonomousWrites,
+  model,
+  extendedThinking,
+  effort,
+  onPendingWrite,
+}: UseClaudeOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,9 +130,17 @@ export function useClaude({ apiKey, projectPath, autonomousWrites, onPendingWrit
         content: m.content,
       }));
 
-      window.electronAPI.claudeSend({ messages: history, apiKey, projectPath, autonomousWrites });
+      window.electronAPI.claudeSend({
+        messages: history,
+        apiKey,
+        projectPath,
+        autonomousWrites,
+        model,
+        extendedThinking,
+        effort,
+      });
     },
-    [apiKey, projectPath, autonomousWrites, isStreaming]
+    [apiKey, projectPath, autonomousWrites, model, extendedThinking, effort, isStreaming]
   );
 
   const clearMessages = useCallback(() => {

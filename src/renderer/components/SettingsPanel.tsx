@@ -6,9 +6,34 @@ interface Props {
   onSave: (key: string) => void;
   onClear: () => void;
   onClose: () => void;
+  model: string;
+  onModelChange: (m: string) => void;
+  extendedThinking: boolean;
+  onExtendedThinkingChange: (v: boolean) => void;
+  effort: string;
+  onEffortChange: (e: string) => void;
 }
 
-export function SettingsPanel({ apiKey, onSave, onClear, onClose }: Props) {
+const MODEL_OPTS: { id: string; label: string; sub: string }[] = [
+  { id: 'claude-sonnet-5', label: 'Sonnet 5', sub: 'Balanced · default · lower cost' },
+  { id: 'claude-opus-4-8', label: 'Opus 4.8', sub: 'Most capable · hardest turns' },
+  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', sub: 'Fastest · cheapest' },
+];
+
+const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+export function SettingsPanel({
+  apiKey,
+  onSave,
+  onClear,
+  onClose,
+  model,
+  onModelChange,
+  extendedThinking,
+  onExtendedThinkingChange,
+  effort,
+  onEffortChange,
+}: Props) {
   const [draftKey, setDraftKey] = useState(apiKey);
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -127,9 +152,101 @@ export function SettingsPanel({ apiKey, onSave, onClear, onClose }: Props) {
 
         <Divider />
 
+        {/* ── Model & Reasoning ────────────────────────────────────────── */}
+        <section>
+          <label style={labelStyle}>Model</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+            {MODEL_OPTS.map((m) => {
+              const active = model === m.id;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => onModelChange(m.id)}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                    gap: 2, padding: '10px 14px', borderRadius: 8, cursor: 'pointer',
+                    textAlign: 'left', transition: 'all 0.15s',
+                    border: `1px solid ${active ? '#CC785C' : '#3A3A3A'}`,
+                    background: active ? 'rgba(204,120,92,0.12)' : '#242424',
+                  }}
+                >
+                  <span style={{ fontSize: 14, fontWeight: 600, color: active ? '#CC785C' : '#ECECEC' }}>
+                    {m.label}
+                    <span style={{ color: '#6A6A6A', fontWeight: 400, marginLeft: 8, fontSize: 11 }}>{m.id}</span>
+                  </span>
+                  <span style={{ fontSize: 12, color: '#8A8A8A' }}>{m.sub}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Extended thinking toggle */}
+          <div
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              marginTop: 16,
+            }}
+          >
+            <div>
+              <span style={{ fontSize: 14, color: '#ECECEC', fontWeight: 600 }}>Extended thinking</span>
+              <p style={{ fontSize: 12, color: '#6A6A6A', marginTop: 2 }}>
+                Adaptive reasoning before answering. Best on Opus for hard turns.
+              </p>
+            </div>
+            <button
+              onClick={() => onExtendedThinkingChange(!extendedThinking)}
+              role="switch"
+              aria-checked={extendedThinking}
+              style={{
+                width: 46, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer',
+                background: extendedThinking ? '#CC785C' : '#3A3A3A',
+                position: 'relative', transition: 'background 0.15s', flexShrink: 0,
+              }}
+            >
+              <span
+                style={{
+                  position: 'absolute', top: 3, left: extendedThinking ? 23 : 3,
+                  width: 20, height: 20, borderRadius: '50%', background: '#fff',
+                  transition: 'left 0.15s',
+                }}
+              />
+            </button>
+          </div>
+
+          {/* Effort selector */}
+          <div style={{ marginTop: 16 }}>
+            <span style={{ fontSize: 14, color: '#ECECEC', fontWeight: 600 }}>Effort</span>
+            <p style={{ fontSize: 12, color: '#6A6A6A', marginTop: 2, marginBottom: 8 }}>
+              How much the model deliberates and how many tools it uses.
+            </p>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {EFFORT_OPTS.map((e) => {
+                const active = effort === e;
+                return (
+                  <button
+                    key={e}
+                    onClick={() => onEffortChange(e)}
+                    style={{
+                      flex: 1, padding: '8px 4px', borderRadius: 7, cursor: 'pointer',
+                      fontSize: 12, fontWeight: active ? 600 : 400, textTransform: 'capitalize',
+                      transition: 'all 0.15s',
+                      border: `1px solid ${active ? '#CC785C' : '#3A3A3A'}`,
+                      background: active ? 'rgba(204,120,92,0.12)' : '#242424',
+                      color: active ? '#CC785C' : '#9A9A9A',
+                    }}
+                  >
+                    {e}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <Divider />
+
         {/* ── App Info ─────────────────────────────────────────────────── */}
         <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <Row label="Model" value="claude-opus-4-6" />
           <Row label="Voice" value="Hold L2 trigger or mic button — release to send" />
           <Row label="Controller" value="L2=speak · B/Start=settings · R-stick=scroll" />
           <Row label="Dev reload" value="npm start → React changes live-reload. Type 'rs' to restart main." />

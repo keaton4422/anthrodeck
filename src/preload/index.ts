@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     apiKey: string;
     projectPath: string | null;
     autonomousWrites: boolean;
+    model: string;
+    extendedThinking: boolean;
+    effort: string;
   }) => ipcRenderer.send('claude:send', data),
 
   claudeAbort: () => ipcRenderer.send('claude:abort'),
@@ -38,8 +41,33 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('claude:delta', handler);
     return () => ipcRenderer.removeListener('claude:delta', handler);
   },
-  onClaudeDone: (cb: (usage: { inputTokens: number; outputTokens: number }) => void) => {
-    const handler = (_: Electron.IpcRendererEvent, u: { inputTokens: number; outputTokens: number }) => cb(u);
+
+  // Extended-thinking reasoning stream (separate channel from the answer text).
+  onClaudeThinkingDelta: (cb: (text: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, text: string) => cb(text);
+    ipcRenderer.on('claude:thinking-delta', handler);
+    return () => ipcRenderer.removeListener('claude:thinking-delta', handler);
+  },
+
+  onClaudeDone: (
+    cb: (usage: {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
+      thinkingTokens: number;
+    }) => void,
+  ) => {
+    const handler = (
+      _: Electron.IpcRendererEvent,
+      u: {
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheCreationTokens: number;
+        thinkingTokens: number;
+      },
+    ) => cb(u);
     ipcRenderer.on('claude:done', handler);
     return () => ipcRenderer.removeListener('claude:done', handler);
   },

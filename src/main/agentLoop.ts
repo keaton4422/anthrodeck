@@ -3,10 +3,17 @@ import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
-
-const client = new Anthropic();
+import {
+  accumulateUsage,
+  emptyUsage,
+  extractToolUses,
+  type Effort,
+} from './agentLoop.helpers';
 
 // ─── Tool definitions given to Claude ─────────────────────────────────────────
+// The last tool carries a cache_control breakpoint so the whole tools array is cached as a unit
+// (render order is tools -> system -> messages, so caching here + on the system block gives us a
+// stable, reusable prefix). Keeping the tool list deterministic is what makes the cache hit.
 const TOOLS: Anthropic.Tool[] = [
   {
     name: 'read_file',
@@ -52,6 +59,8 @@ const TOOLS: Anthropic.Tool[] = [
       },
       required: ['command'],
     },
+    // Cache breakpoint on the final tool -> caches the entire tools array.
+    cache_control: { type: 'ephemeral' },
   },
 ];
 
@@ -80,14 +89,13 @@ function listFilesRecursive(dir: string, rootDir: string, depth = 0, maxDepth = 
 // ─── Helper: execute tool calls that don't need user review ───────────────────
 function execTool(
   name: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  input: any,
+  input: Record<string, unknown>,
   projectPath: string,
 ): Promise<string> {
   return new Promise((resolve) => {
     if (name === 'read_file') {
       try {
-        const abs = path.join(projectPath, input.path);
+        const abs = path.join(projectPath, String(input.path ?? ''));
         const content = fs.readFileSync(abs, 'utf-8');
         resolve(content);
       } catch (e) {
@@ -95,14 +103,14 @@ function execTool(
       }
     } else if (name === 'list_files') {
       try {
-        const base = input.dir ? path.join(projectPath, input.dir) : projectPath;
+        const base = input.dir ? path.join(projectPath, String(input.dir)) : projectPath;
         const files = listFilesRecursive(base, projectPath);
         resolve(files.join('\n') || '(empty directory)');
       } catch (e) {
         resolve(`Error listing files: ${(e as Error).message}`);
       }
     } else if (name === 'run_shell') {
-      exec(input.command, { cwd: projectPath, timeout: 60000 }, (err, stdout, stderr) => {
+      exec(String(input.command ?? ''), { cwd: projectPath, timeout: 60000 }, (err, stdout, stderr) => {
         const out = [stdout, stderr].filter(Boolean).join('\n');
         resolve(out || (err ? `Error: ${err.message}` : '(no output)'));
       });
@@ -133,6 +141,13 @@ function askRendererForWrite(
   });
 }
 
+// ─── Config passed from the renderer / settings ───────────────────────────────
+export interface AgentLoopConfig {
+  model: string;
+  extendedThinking: boolean;
+  effort: Effort;
+}
+
 // ─── Main agentic loop ─────────────────────────────────────────────────────────
 export async function runAgentLoop(
   event: IpcMainEvent,
@@ -140,12 +155,16 @@ export async function runAgentLoop(
   apiKey: string,
   projectPath: string | null,
   autonomousWrites: boolean,
+  config: AgentLoopConfig,
   win: BrowserWindow | null,
   abortRef: { aborted: boolean },
 ) {
-  const anthropic = new Anthropic({ apiKey });
+  // maxRetries: the SDK already backs off 429/529 with jitter; bumping from the default 2 to 4
+  // hardens bursty handheld usage. Default 10-minute timeout is left in place.
+  const anthropic = new Anthropic({ apiKey, maxRetries: 4 });
   const effectivePath = projectPath ?? process.env.HOME ?? '/tmp';
 
+  // Frozen system prompt (no per-request/volatile interpolation ahead of the cache breakpoint).
   const systemPrompt = `You are AntroDeck — an AI coding assistant built into a Steam Deck. You help the user code, create, deploy, and accomplish anything through voice and touch.
 
 You have tools to work with the user's project${projectPath ? ` at: ${projectPath}` : ''}.
@@ -164,70 +183,67 @@ Guidelines:
   const loopMessages: Anthropic.MessageParam[] = [...messages];
   const MAX_ITERATIONS = 20;
 
+  // Cumulative token usage across every model call in this user turn (input, output, cache read,
+  // cache creation, thinking). Prior code overwrote per iteration; we sum.
+  let sessionUsage = emptyUsage();
+
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     if (abortRef.aborted) {
       event.sender.send('claude:error', 'Aborted');
       return;
     }
 
-    let responseText = '';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const toolUseBlocks: any[] = [];
-    let stopReason = 'end_turn';
+    let finalMsg: Anthropic.Message;
 
     try {
-      const stream = await anthropic.messages.stream({
-        model: 'claude-opus-4-6',
-        max_tokens: 8192,
-        system: systemPrompt,
+      const streamParams: Anthropic.MessageStreamParams = {
+        model: config.model,
+        // Generous ceiling so adaptive thinking has room without truncating the answer (we stream,
+        // so HTTP timeouts are not a concern).
+        max_tokens: 32000,
+        system: [
+          { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
+        ],
         tools: projectPath ? TOOLS : [],
         messages: loopMessages,
-      });
+        output_config: { effort: config.effort },
+      };
+      // Adaptive thinking replaces the deprecated budget_tokens knob (which now 400s on current
+      // models). display: 'summarized' surfaces readable reasoning for the Phase 1 thinking HUD.
+      if (config.extendedThinking) {
+        streamParams.thinking = { type: 'adaptive', display: 'summarized' };
+      }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let currentToolBlock: any = null;
-      let currentToolInput = '';
+      const stream = anthropic.messages.stream(streamParams);
 
       for await (const event_ of stream) {
         if (abortRef.aborted) break;
 
-        if (event_.type === 'content_block_start') {
-          if (event_.content_block.type === 'tool_use') {
-            currentToolBlock = { id: event_.content_block.id, name: event_.content_block.name };
-            currentToolInput = '';
-          }
-        } else if (event_.type === 'content_block_delta') {
+        if (event_.type === 'content_block_delta') {
           if (event_.delta.type === 'text_delta') {
-            responseText += event_.delta.text;
             if (!event.sender.isDestroyed()) {
               event.sender.send('claude:delta', event_.delta.text);
             }
-          } else if (event_.delta.type === 'input_json_delta' && currentToolBlock) {
-            currentToolInput += event_.delta.partial_json;
-          }
-        } else if (event_.type === 'content_block_stop') {
-          if (currentToolBlock) {
-            try {
-              currentToolBlock.input = JSON.parse(currentToolInput || '{}');
-            } catch {
-              currentToolBlock.input = {};
+          } else if (event_.delta.type === 'thinking_delta') {
+            // Extended-thinking reasoning stream. Phase 1 surfaces this in the UI; for now it is
+            // forwarded on its own channel so nothing has to change here later.
+            if (!event.sender.isDestroyed()) {
+              event.sender.send('claude:thinking-delta', event_.delta.thinking);
             }
-            toolUseBlocks.push(currentToolBlock);
-            currentToolBlock = null;
-            currentToolInput = '';
-          }
-        } else if (event_.type === 'message_delta') {
-          stopReason = event_.delta.stop_reason ?? 'end_turn';
-        } else if (event_.type === 'message_stop') {
-          const finalMsg = await stream.finalMessage();
-          if (!event.sender.isDestroyed()) {
-            event.sender.send('claude:done', {
-              inputTokens: finalMsg.usage.input_tokens,
-              outputTokens: finalMsg.usage.output_tokens,
-            });
           }
         }
       }
+
+      if (abortRef.aborted) {
+        event.sender.send('claude:error', 'Aborted');
+        return;
+      }
+
+      // The assembled message carries the full, already-parsed content — text, thinking blocks
+      // (with signatures, needed to replay them on tool-use turns), and tool_use blocks — plus
+      // usage for this call.
+      finalMsg = await stream.finalMessage();
+      sessionUsage = accumulateUsage(sessionUsage, finalMsg.usage);
     } catch (e) {
       if (!event.sender.isDestroyed()) {
         event.sender.send('claude:error', (e as Error).message);
@@ -235,25 +251,22 @@ Guidelines:
       return;
     }
 
-    // Build the assistant message content
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const assistantContent: any[] = [];
-    if (responseText) assistantContent.push({ type: 'text', text: responseText });
-    for (const tb of toolUseBlocks) {
-      assistantContent.push({ type: 'tool_use', id: tb.id, name: tb.name, input: tb.input });
-    }
+    const toolUseBlocks = extractToolUses(finalMsg.content);
 
-    if (stopReason !== 'tool_use' || toolUseBlocks.length === 0) {
-      // Done — no tool calls, conversation is complete
+    if (finalMsg.stop_reason !== 'tool_use' || toolUseBlocks.length === 0) {
+      // Done — no tool calls, conversation is complete.
       break;
     }
 
-    // Add assistant's response to loop messages
-    loopMessages.push({ role: 'assistant', content: assistantContent });
+    // Echo the assistant turn back verbatim (thinking blocks included, unchanged) so multi-turn
+    // continuity holds.
+    loopMessages.push({
+      role: 'assistant',
+      content: finalMsg.content as unknown as Anthropic.ContentBlockParam[],
+    });
 
     // Process tool calls and collect results
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const toolResults: any[] = [];
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
     for (const tb of toolUseBlocks) {
       if (abortRef.aborted) break;
@@ -261,8 +274,8 @@ Guidelines:
       let resultContent: string;
 
       if (tb.name === 'write_file') {
-        const filePath: string = tb.input.path ?? '';
-        const content: string = tb.input.content ?? '';
+        const filePath = String(tb.input.path ?? '');
+        const content = String(tb.input.content ?? '');
 
         if (autonomousWrites || !win) {
           // Write directly without asking
@@ -271,7 +284,6 @@ Guidelines:
             fs.mkdirSync(path.dirname(abs), { recursive: true });
             fs.writeFileSync(abs, content, 'utf-8');
             resultContent = `Written successfully: ${filePath}`;
-            // Notify renderer so it can show a toast
             if (!event.sender.isDestroyed()) {
               event.sender.send('claude:file-written', filePath);
             }
@@ -310,9 +322,9 @@ Guidelines:
       // Show tool activity in the chat as a subtle delta
       if (!event.sender.isDestroyed()) {
         const label =
-          tb.name === 'read_file' ? `\n\`read: ${tb.input.path}\`\n`
-          : tb.name === 'list_files' ? `\n\`list_files${tb.input.dir ? ` ${tb.input.dir}` : ''}\`\n`
-          : tb.name === 'run_shell' ? `\n\`$ ${tb.input.command}\`\n`
+          tb.name === 'read_file' ? `\n\`read: ${String(tb.input.path ?? '')}\`\n`
+          : tb.name === 'list_files' ? `\n\`list_files${tb.input.dir ? ` ${String(tb.input.dir)}` : ''}\`\n`
+          : tb.name === 'run_shell' ? `\n\`$ ${String(tb.input.command ?? '')}\`\n`
           : '';
         if (label) event.sender.send('claude:tool-activity', label);
       }
@@ -320,5 +332,17 @@ Guidelines:
 
     // Add tool results as a user turn and continue the loop
     loopMessages.push({ role: 'user', content: toolResults });
+  }
+
+  // Emit cumulative usage once, at the end of the whole turn (not per tool round-trip), so
+  // streaming stays active across tool calls and the HUD sees true session totals.
+  if (!event.sender.isDestroyed()) {
+    event.sender.send('claude:done', {
+      inputTokens: sessionUsage.inputTokens,
+      outputTokens: sessionUsage.outputTokens,
+      cacheReadTokens: sessionUsage.cacheReadTokens,
+      cacheCreationTokens: sessionUsage.cacheCreationTokens,
+      thinkingTokens: sessionUsage.thinkingTokens,
+    });
   }
 }

@@ -18,6 +18,9 @@ export default function App() {
   const [pendingWrite, setPendingWrite] = useState<PendingWrite | null>(null);
   const [autonomousWrites, setAutonomousWrites] = useState(false);
   const [apiKey, setApiKey] = useStore<string>('apiKey', '');
+  const [model, setModel] = useStore<string>('model', 'claude-sonnet-5');
+  const [extendedThinking, setExtendedThinking] = useStore<boolean>('extendedThinking', false);
+  const [effort, setEffort] = useStore<string>('effort', 'high');
 
   const { projectPath, files, openFolder, refreshFiles } = useProject();
 
@@ -25,6 +28,9 @@ export default function App() {
     apiKey,
     projectPath,
     autonomousWrites,
+    model,
+    extendedThinking,
+    effort,
     onPendingWrite: setPendingWrite,
   });
 
@@ -111,6 +117,12 @@ export default function App() {
           onSave={async (key) => { await setApiKey(key); setShowSettings(false); }}
           onClear={clearMessages}
           onClose={() => setShowSettings(false)}
+          model={model}
+          onModelChange={setModel}
+          extendedThinking={extendedThinking}
+          onExtendedThinkingChange={setExtendedThinking}
+          effort={effort}
+          onEffortChange={setEffort}
         />
       ) : (
         <>

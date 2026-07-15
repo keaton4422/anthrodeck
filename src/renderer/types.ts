@@ -15,7 +15,13 @@ export interface ShellResult {
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  thinkingTokens: number;
 }
+
+export type ModelId = 'claude-opus-4-8' | 'claude-sonnet-5' | 'claude-haiku-4-5';
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export type ContentPart =
   | { type: 'text'; text: string }
@@ -59,9 +65,13 @@ declare global {
         apiKey: string;
         projectPath: string | null;
         autonomousWrites: boolean;
+        model: string;
+        extendedThinking: boolean;
+        effort: string;
       }) => void;
       claudeAbort: () => void;
       onClaudeDelta: (cb: (delta: string) => void) => () => void;
+      onClaudeThinkingDelta: (cb: (delta: string) => void) => () => void;
       onClaudeDone: (cb: (usage: TokenUsage) => void) => () => void;
       onClaudeError: (cb: (error: string) => void) => () => void;
       onClaudeToolActivity: (cb: (label: string) => void) => () => void;
