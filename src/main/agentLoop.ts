@@ -14,6 +14,8 @@ import {
   type Effort,
 } from './agentLoop.helpers';
 import { recordToolCalls, setLastContext, generateFlashcard } from './flashcards';
+import { detectDevPortFromOutput } from './network';
+import { setDetectedDevPort } from './previewServer';
 
 // ─── Tool definitions given to Claude ─────────────────────────────────────────
 // The last tool carries a cache_control breakpoint so the whole tools array is cached as a unit
@@ -140,6 +142,11 @@ function execTool(
     } else if (name === 'run_shell') {
       exec(String(input.command ?? ''), { cwd: projectPath, timeout: 60000 }, (err, stdout, stderr) => {
         const out = [stdout, stderr].filter(Boolean).join('\n');
+        // Sniff a dev-server port out of the output (works for the buffered output a long-running
+        // `vite dev` / `next dev` emits before the 60s timeout kills it) so Share preview can
+        // proxy it without blind port probing.
+        const devPort = detectDevPortFromOutput(out);
+        if (devPort) setDetectedDevPort(devPort);
         resolve(out || (err ? `Error: ${err.message}` : '(no output)'));
       });
     } else {

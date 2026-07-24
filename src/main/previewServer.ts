@@ -229,15 +229,36 @@ export function getPreviewStatus(): PreviewStatus {
   return state;
 }
 
-// Probe common dev-server ports on localhost; return the first that answers.
-export function detectDevPort(): Promise<number | null> {
+// Port sniffed from a dev server's stdout via run_shell (see network.detectDevPortFromOutput).
+// Preferred over blind probing because it identifies the port the agent actually started.
+let sniffedDevPort: number | null = null;
+
+export function setDetectedDevPort(port: number | null): void {
+  sniffedDevPort = port;
+}
+
+export function getDetectedDevPort(): number | null {
+  return sniffedDevPort;
+}
+
+// Find a running dev server. Prefers a port sniffed from run_shell stdout; otherwise probes the
+// common defaults. `exclude` keeps us from ever proxying AntroDeck's OWN renderer dev server
+// (electron-forge serves it on Vite's 5173 in dev, which is also the first port we'd probe).
+export function detectDevPort(exclude: number[] = []): Promise<number | null> {
+  if (sniffedDevPort && !exclude.includes(sniffedDevPort)) {
+    return Promise.resolve(sniffedDevPort);
+  }
+
+  const candidates = DEV_PORTS.filter((p) => !exclude.includes(p));
+  if (candidates.length === 0) return Promise.resolve(null);
+
   return new Promise((resolve) => {
-    let remaining = DEV_PORTS.length;
+    let remaining = candidates.length;
     let found: number | null = null;
 
     const done = () => { if (--remaining === 0) resolve(found); };
 
-    for (const port of DEV_PORTS) {
+    for (const port of candidates) {
       const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: 500 }, (res) => {
         res.destroy();
         if (found === null) found = port;

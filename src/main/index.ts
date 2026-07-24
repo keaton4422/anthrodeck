@@ -253,7 +253,21 @@ ipcMain.handle('preview:status', () => {
   const lanIp = status.lanIp ?? pickLanIp(os.networkInterfaces() as never) ?? null;
   return { ...status, lanIp };
 });
-ipcMain.handle('preview:detect-dev', () => detectDevPort());
+// Never proxy AntroDeck's own renderer dev server: in `npm start`, electron-forge serves it on
+// Vite's default port (5173) — which is also the first port we'd otherwise probe.
+function ownDevServerPorts(): number[] {
+  try {
+    const url = MAIN_WINDOW_VITE_DEV_SERVER_URL;
+    if (!url) return [];
+    const parsed = new URL(url);
+    const port = Number(parsed.port);
+    return Number.isInteger(port) && port > 0 ? [port] : [];
+  } catch {
+    return [];
+  }
+}
+
+ipcMain.handle('preview:detect-dev', () => detectDevPort(ownDevServerPorts()));
 
 // ─── Local voice (whisper) IPC ────────────────────────────────────────────────
 ipcMain.handle('voice:local-status', () => getLocalVoiceStatus());

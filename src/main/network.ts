@@ -58,6 +58,32 @@ export function pickLanIp(
   return best ? best.addr : null;
 }
 
+// Parse a dev-server port out of a command's stdout. Dev servers announce themselves in a handful
+// of shapes — Vite's "Local: http://localhost:5173/", Next's "started server on 0.0.0.0:3000",
+// generic "listening on port 4321". Pure so it can be unit-tested against real banner text.
+export function detectDevPortFromOutput(output: string): number | null {
+  if (!output) return null;
+
+  const patterns: RegExp[] = [
+    // http://localhost:5173 / http://127.0.0.1:3000 / http://0.0.0.0:8080
+    /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):(\d{2,5})/gi,
+    // "listening on port 4321" / "server on port 3000"
+    /\bon port\s+(\d{2,5})\b/gi,
+    // "started server on 0.0.0.0:3000"
+    /\bserver on\s+[\w.:]*?:(\d{2,5})\b/gi,
+  ];
+
+  for (const re of patterns) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(output)) !== null) {
+      const port = Number(m[1]);
+      if (Number.isInteger(port) && port >= 1024 && port <= 65535) return port;
+    }
+  }
+  return null;
+}
+
 // Choose the port to bind: a valid 1024-65535 integer, else the default.
 export function normalizePort(raw: unknown, fallback = 5757): number {
   const n = typeof raw === 'number' ? raw : parseInt(String(raw ?? ''), 10);

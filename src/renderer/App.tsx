@@ -281,6 +281,10 @@ export default function App() {
           onLocalVoiceChange={setLocalVoice}
           teachMode={teachMode}
           onTeachModeChange={setTeachMode}
+          previewPort={previewPort}
+          onPreviewPortChange={setPreviewPort}
+          previewHttps={previewHttps}
+          onPreviewHttpsChange={setPreviewHttps}
         />
       ) : (
         <>

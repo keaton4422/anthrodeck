@@ -17,6 +17,10 @@ interface Props {
   onLocalVoiceChange: (v: boolean) => void;
   teachMode: boolean;
   onTeachModeChange: (v: boolean) => void;
+  previewPort: number;
+  onPreviewPortChange: (p: number) => void;
+  previewHttps: boolean;
+  onPreviewHttpsChange: (v: boolean) => void;
 }
 
 const MODEL_OPTS: { id: string; label: string; sub: string }[] = [
@@ -42,7 +46,12 @@ export function SettingsPanel({
   onLocalVoiceChange,
   teachMode,
   onTeachModeChange,
+  previewPort,
+  onPreviewPortChange,
+  previewHttps,
+  onPreviewHttpsChange,
 }: Props) {
+  const [portDraft, setPortDraft] = useState(String(previewPort));
   const [draftKey, setDraftKey] = useState(apiKey);
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -272,6 +281,42 @@ export function SettingsPanel({
             hint="Explain each tool call before it runs; A continues, B redirects by voice. Auto-continues after a few seconds."
             value={teachMode}
             onChange={() => onTeachModeChange(!teachMode)}
+          />
+        </section>
+
+        <Divider />
+
+        {/* ── Sharing ──────────────────────────────────────────────────── */}
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <label style={labelStyle}>Sharing</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, color: '#ECECEC', fontWeight: 600 }}>Preview port</div>
+              <div style={{ fontSize: 12, color: '#6A6A6A', marginTop: 2 }}>
+                Port the LAN preview server listens on.
+              </div>
+            </div>
+            <input
+              value={portDraft}
+              onChange={(e) => {
+                const v = e.target.value.replace(/[^0-9]/g, '');
+                setPortDraft(v);
+                const n = parseInt(v, 10);
+                if (Number.isInteger(n) && n >= 1024 && n <= 65535) onPreviewPortChange(n);
+              }}
+              placeholder="5757"
+              style={{
+                width: 90, background: '#242424', border: '1px solid #3A3A3A', borderRadius: 8,
+                padding: '8px 10px', color: '#ECECEC', fontSize: 14, outline: 'none',
+                fontFamily: 'monospace', textAlign: 'center',
+              }}
+            />
+          </div>
+          <ToggleRow
+            label="Self-signed HTTPS"
+            hint="Serve the preview over https so mobile web can request camera / mic / gyro. The phone will warn about the certificate."
+            value={previewHttps}
+            onChange={() => onPreviewHttpsChange(!previewHttps)}
           />
         </section>
 

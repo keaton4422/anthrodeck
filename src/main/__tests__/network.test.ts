@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { pickLanIp, normalizePort } from '../network';
-import { pickServeDir, OUTPUT_DIRS } from '../previewServer';
+import { pickLanIp, normalizePort, detectDevPortFromOutput } from '../network';
+import { pickServeDir, OUTPUT_DIRS, DEV_PORTS } from '../previewServer';
 
 describe('pickLanIp', () => {
   it('picks a real private LAN IPv4 over loopback and virtual interfaces', () => {
@@ -63,6 +63,52 @@ describe('normalizePort', () => {
     expect(normalizePort('abc')).toBe(5757);
     expect(normalizePort(undefined)).toBe(5757);
     expect(normalizePort(null, 3000)).toBe(3000);
+  });
+});
+
+describe('detectDevPortFromOutput', () => {
+  it('parses the Vite banner', () => {
+    const out = [
+      '  VITE v5.4.0  ready in 412 ms',
+      '',
+      '  ➜  Local:   http://localhost:5173/',
+      '  ➜  Network: use --host to expose',
+    ].join('\n');
+    expect(detectDevPortFromOutput(out)).toBe(5173);
+  });
+
+  it('parses the Next.js banner', () => {
+    expect(detectDevPortFromOutput('ready - started server on 0.0.0.0:3000, url: http://localhost:3000'))
+      .toBe(3000);
+  });
+
+  it('parses a generic "listening on port" line', () => {
+    expect(detectDevPortFromOutput('Server listening on port 4321')).toBe(4321);
+  });
+
+  it('parses 127.0.0.1 URLs', () => {
+    expect(detectDevPortFromOutput('Serving at http://127.0.0.1:8080/')).toBe(8080);
+  });
+
+  it('returns null when there is no port', () => {
+    expect(detectDevPortFromOutput('added 42 packages in 3s')).toBeNull();
+    expect(detectDevPortFromOutput('')).toBeNull();
+  });
+
+  it('ignores out-of-range ports', () => {
+    expect(detectDevPortFromOutput('http://localhost:80/')).toBeNull();
+  });
+});
+
+describe('dev-port probe list', () => {
+  it('includes the ports we expect to proxy', () => {
+    expect(DEV_PORTS).toContain(5173); // vite
+    expect(DEV_PORTS).toContain(3000); // next
+  });
+
+  it('does not overlap the preview server default port', () => {
+    // Guards against the preview server trying to proxy itself.
+    expect(DEV_PORTS).not.toContain(normalizePort(undefined));
   });
 });
 
