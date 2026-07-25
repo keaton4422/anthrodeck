@@ -1,6 +1,6 @@
 {
   "name": "anthrodeck",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Steam Deck AI Coding Assistant",
   "main": ".vite/build/main/index.js",
   "scripts": {
@@ -19,6 +19,7 @@
     "@electron-forge/maker-zip": "^7.4.0",
     "@electron-forge/plugin-auto-unpack-natives": "^7.4.0",
     "@electron-forge/plugin-vite": "^7.4.0",
+    "@reforged/maker-appimage": "^4.1.1",
     "@types/node": "^20.0.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.0",

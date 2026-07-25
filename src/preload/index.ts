@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fsList: (dir?: string) => ipcRenderer.invoke('fs:list', dir),
   fsRead: (relPath: string) => ipcRenderer.invoke('fs:read', relPath),
   fsWrite: (relPath: string, content: string) => ipcRenderer.invoke('fs:write', relPath, content),
+  writeUndo: () => ipcRenderer.invoke('write:undo'),
 
   // ── Git ────────────────────────────────────────────────────────────────────
   gitStatus: () => ipcRenderer.invoke('git:status'),

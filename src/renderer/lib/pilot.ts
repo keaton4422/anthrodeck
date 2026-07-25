@@ -38,6 +38,23 @@ export function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
+// Inline tool-activity lines the agent loop appends to an assistant bubble, e.g. `read: src/App.tsx`,
+// `$ npm test`, `✓ wrote: x.ts`. D-pad left collapses them so long tool runs stay readable.
+const TOOL_LINE = /^\s*`(?:read:|list_files|\$ |ask:|✓ wrote:)[^`]*`\s*$/;
+
+export function stripToolLines(content: string): string {
+  return content
+    .split('\n')
+    .filter((line) => !TOOL_LINE.test(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+export function countToolLines(content: string): number {
+  return content.split('\n').filter((line) => TOOL_LINE.test(line)).length;
+}
+
 interface PrunableMessage {
   id: string;
   role: string;

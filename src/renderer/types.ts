@@ -99,6 +99,7 @@ declare global {
       fsList: (dir?: string) => Promise<string[]>;
       fsRead: (relPath: string) => Promise<string>;
       fsWrite: (relPath: string, content: string) => Promise<void>;
+      writeUndo: () => Promise<{ ok: boolean; message: string; relPath?: string }>;
       // Git
       gitStatus: () => Promise<GitOpResult>;
       gitAddAndCommit: (message: string) => Promise<GitOpResult>;

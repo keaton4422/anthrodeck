@@ -26,13 +26,31 @@ Open **Settings (⚙)** and paste an Anthropic API key (stored locally via `elec
 model (Sonnet 5 default; Opus 4.8 for hard turns; Haiku 4.5 for speed), toggle extended thinking,
 and choose an effort level.
 
+## Install on Steam Deck
+
+SteamOS is Arch-based with a read-only rootfs, so a `.deb` isn't the easy path. Grab a release from
+GitHub and pick:
+
+- **AppImage (recommended)** — `chmod +x AntroDeck-*.AppImage` and run it.
+- **Linux zip** — extract, run the `anthrodeck` binary.
+- `.deb` is for regular Debian/Ubuntu machines.
+
 ## Controls
 
 - **L2** — hold to talk (push-to-talk); release to send.
 - **Y** — project drawer · **B / Start** — settings · **right stick** — scroll.
-- **Write approval**: **A** apply · **X** reject · **B** reject with voice · **D-pad** scroll the diff.
+- **L3** — project drawer · **R3** — settings.
+- **D-pad ← / →** — collapse / expand tool detail lines in the transcript.
+- **Write approval**: **A** apply · **X** reject · **B** reject with voice · **D-pad ↑↓** scroll the diff.
 - **ask_user / teach prompts**: face buttons **A/B/X/Y** map to the on-screen options.
+- **L1 + face button** — meta chords: **A** git status · **B** git commit · **X** run tests ·
+  **Y** undo last write.
+- **Hold Select** — radial menu (git status / run tests / deploy / undo write / prune context); aim
+  with the right stick, release to pick. Map **trackpad center-click → Select** in Steam Input to get
+  the trackpad radial.
 - **🎮 (status bar)** — open the cockpit game layer.
+
+Haptics and sound cues are on by default and can be muted in Settings.
 
 ## Local voice (offline Whisper) on Steam Deck
 
@@ -73,5 +91,12 @@ axis with no extra configuration. Without a gyro mapping, the sticks steer norma
 
 ## Package targets
 
-Electron Forge builds a `.deb` and zip (see `forge.config.ts`). The Steam Deck can install the
-`.deb`, or side-load. Whisper's native binaries are Linux x86_64 — matching SteamOS.
+Electron Forge builds a zip (all platforms), a `.deb`, and an **AppImage** for Linux — see
+`forge.config.ts`. Whisper's native binaries are Linux x86_64, matching SteamOS.
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds win32 + linux and publishes a
+GitHub Release with the artifacts.
+
+> **Auto-update caveat:** electron-forge's makers don't emit the `latest*.yml` metadata that
+> `electron-updater` expects, so in-app update checks report "no update metadata published yet".
+> Download new releases from GitHub manually until publishing moves to electron-builder.

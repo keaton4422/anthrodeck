@@ -16,6 +16,7 @@ import {
 import { recordToolCalls, setLastContext, generateFlashcard } from './flashcards';
 import { detectDevPortFromOutput } from './network';
 import { setDetectedDevPort } from './previewServer';
+import { recordWrite } from './writeHistory';
 
 // ─── Tool definitions given to Claude ─────────────────────────────────────────
 // The last tool carries a cache_control breakpoint so the whole tools array is cached as a unit
@@ -387,6 +388,7 @@ Guidelines:
           // Write directly without asking
           try {
             const abs = path.join(effectivePath, filePath);
+            recordWrite(abs, filePath);
             fs.mkdirSync(path.dirname(abs), { recursive: true });
             fs.writeFileSync(abs, content, 'utf-8');
             resultContent = `Written successfully: ${filePath}`;
@@ -402,6 +404,7 @@ Guidelines:
           if (decision.accepted) {
             try {
               const abs = path.join(effectivePath, filePath);
+              recordWrite(abs, filePath);
               fs.mkdirSync(path.dirname(abs), { recursive: true });
               fs.writeFileSync(abs, content, 'utf-8');
               resultContent = `Written successfully: ${filePath}`;

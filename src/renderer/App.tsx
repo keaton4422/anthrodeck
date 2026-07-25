@@ -8,6 +8,18 @@ import AskUserModal from './components/AskUserModal';
 import ShareModal from './components/ShareModal';
 import GameCanvas from './components/GameCanvas';
 import TeachModal from './components/TeachModal';
+import RadialMenu from './components/RadialMenu';
+import { useFeedback } from './hooks/useFeedback';
+import {
+  resolveChord,
+  radialIndexFromStick,
+  commandForAction,
+  RADIAL_ITEMS,
+  CHORD_LABELS,
+  type FaceButton,
+  type RadialAction,
+} from './lib/controls';
+import { suggestPrunes } from './lib/pilot';
 import { useClaude } from './hooks/useClaude';
 import { useVoice } from './hooks/useVoice';
 import { useLocalVoice } from './hooks/useLocalVoice';
@@ -41,8 +53,20 @@ export default function App() {
   const [localReady, setLocalReady] = useState(false);
   const [teachMode, setTeachMode] = useStore<boolean>('teachMode', false);
   const [teachTimeout] = useStore<number>('teachTimeout', 5);
+  const [haptics, setHaptics] = useStore<boolean>('haptics', true);
+  const [sound, setSound] = useStore<boolean>('sound', true);
+  const [collapseTools, setCollapseTools] = useState(false);
+  const [radialOpen, setRadialOpen] = useState(false);
+  const [radialIndex, setRadialIndex] = useState<number | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   const telemetry = useTelemetry();
+  const fireFeedback = useFeedback({ haptics, sound });
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 3200);
+  }, []);
   const [model, setModel] = useStore<string>('model', 'claude-sonnet-5');
   const [extendedThinking, setExtendedThinking] = useStore<boolean>('extendedThinking', false);
   const [effort, setEffort] = useStore<string>('effort', 'high');
@@ -115,6 +139,55 @@ export default function App() {
     );
   }, [sessionUsage, telemetry]);
 
+  // Haptic + audio cues on engine events. Subscribes alongside useClaude (IPC allows multiple
+  // listeners) so feedback stays decoupled from conversation state.
+  useEffect(() => {
+    const unsubTool = window.electronAPI.onClaudeToolActivity(() => fireFeedback('tool-success'));
+    const unsubErr = window.electronAPI.onClaudeError(() => fireFeedback('tool-error'));
+    const unsubDone = window.electronAPI.onClaudeDone(() => fireFeedback('message-complete'));
+    const unsubWritten = window.electronAPI.onFileWritten(() => fireFeedback('write-applied'));
+    return () => { unsubTool(); unsubErr(); unsubDone(); unsubWritten(); };
+  }, [fireFeedback]);
+
+  // Meta actions reachable from the L1 chords and the radial menu.
+  const runAction = useCallback(async (action: RadialAction) => {
+    if (action === 'undo-write') {
+      const r = await window.electronAPI.writeUndo();
+      showToast(r.message);
+      fireFeedback(r.ok ? 'write-applied' : 'tool-error');
+      return;
+    }
+    if (action === 'prune-context') {
+      const ids = suggestPrunes(
+        messages.map((m) => ({ id: m.id, role: m.role, content: m.content })),
+      ).filter((id) => !prunedIds.has(id));
+      if (ids.length === 0) { showToast('Nothing to prune.'); return; }
+      pruneMany(ids);
+      showToast(`Pruned ${ids.length} superseded ${ids.length === 1 ? 'read' : 'reads'}.`);
+      fireFeedback('tool-success');
+      return;
+    }
+    if (action === 'git-commit') {
+      // Commit needs a message — hand off to the drawer's git tab rather than guessing one.
+      setDrawerOpen(true);
+      showToast('Opened git panel — dictate a commit message.');
+      return;
+    }
+    const cmd = commandForAction(action);
+    if (!cmd) return;
+    if (!projectPath) { showToast('Open a project first.'); return; }
+    showToast(`${CHORD_LABELS[action as keyof typeof CHORD_LABELS] ?? action}…`);
+    try {
+      const res = await window.electronAPI.runShell(cmd, 'bash');
+      const out = (res.stdout || res.stderr || res.error || '(no output)').trim();
+      showToast(out.split('\n').slice(0, 3).join(' · ').slice(0, 200) || '(no output)');
+      fireFeedback(res.error ? 'tool-error' : 'tool-success');
+    } catch (e) {
+      showToast(`Failed: ${(e as Error).message}`);
+      fireFeedback('tool-error');
+    }
+  }, [projectPath, prunedIds, pruneMany, showToast, fireFeedback, messages]);
+
   // Clearing while streaming is an abort — that's a "crash" event for the cockpit.
   const handleClear = useCallback(() => {
     if (isStreaming) telemetry.emit({ type: 'crash' });
@@ -165,23 +238,43 @@ export default function App() {
   // When the cockpit game is open it owns the controller; App-level bindings stand down.
   const padBusy = modalActive || cockpitOpen;
 
+  // L1 + face button fires a meta action instead of the button's normal job. Returns true when the
+  // chord consumed the press.
+  const tryChord = useCallback((modifier: boolean, button: FaceButton): boolean => {
+    const action = resolveChord(modifier, button);
+    if (!action) return false;
+    void runAction(action);
+    return true;
+  }, [runAction]);
+
   useGamepad({
     // L2 push-to-talk only drives chat when nothing else owns the pad.
-    onL2Press: () => { if (!padBusy) startDictation(); },
-    onL2Release: () => { if (!padBusy) stopDictation(); },
-    onAPress: () => {
+    onL2Press: () => {
+      if (padBusy) return;
+      startDictation();
+      fireFeedback('voice-start');
+    },
+    onL2Release: () => {
+      if (padBusy) return;
+      stopDictation();
+      fireFeedback('voice-stop');
+    },
+    onAPress: (mod) => {
       if (cockpitOpen) return;
+      if (tryChord(mod, 'A')) return;
       if (pendingTeach) teachContinue();
       else if (pendingWrite) handleWriteAccept();
       else if (pendingQuestion) answerOption(0);
     },
-    onXPress: () => {
+    onXPress: (mod) => {
       if (cockpitOpen) return;
+      if (tryChord(mod, 'X')) return;
       if (pendingWrite) handleWriteReject();
       else if (pendingQuestion) answerOption(2);
     },
-    onBPress: () => {
+    onBPress: (mod) => {
       if (cockpitOpen) return;
+      if (tryChord(mod, 'B')) return;
       if (pendingTeach) { setTeachRedirectSignal((s) => s + 1); return; }
       if (pendingWrite) {
         // Toggle spoken-rejection push-to-talk.
@@ -197,14 +290,33 @@ export default function App() {
         setShowSettings((s) => !s);
       }
     },
-    onYPress: () => {
+    onYPress: (mod) => {
       if (cockpitOpen) return;
+      if (tryChord(mod, 'Y')) return;
       if (pendingQuestion) answerOption(3);
       else setDrawerOpen((s) => !s);
     },
     onStartPress: () => { if (!cockpitOpen) setShowSettings((s) => !s); },
+    // L3 / R3 — quick panel toggles.
+    onL3Press: () => { if (!cockpitOpen && !modalActive) setDrawerOpen((s) => !s); },
+    onR3Press: () => { if (!cockpitOpen && !modalActive) setShowSettings((s) => !s); },
+    // D-pad: up/down scrolls a pending diff; left/right collapses/expands tool detail lines.
     onDpadUp: () => { if (!cockpitOpen && pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop -= 48; },
     onDpadDown: () => { if (!cockpitOpen && pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop += 48; },
+    onDpadLeft: () => { if (!cockpitOpen && !pendingWrite) setCollapseTools(true); },
+    onDpadRight: () => { if (!cockpitOpen && !pendingWrite) setCollapseTools(false); },
+    // Radial menu: hold Select (Steam Input can map trackpad center-click here), aim, release.
+    onRadialOpen: () => { if (!cockpitOpen && !modalActive) { setRadialOpen(true); setRadialIndex(null); } },
+    onRadialAim: (x, y) => { if (radialOpen) setRadialIndex(radialIndexFromStick(x, y, RADIAL_ITEMS.length)); },
+    onRadialClose: () => {
+      if (!radialOpen) return;
+      setRadialOpen(false);
+      if (radialIndex !== null) {
+        const item = RADIAL_ITEMS[radialIndex];
+        if (item) void runAction(item.action);
+      }
+      setRadialIndex(null);
+    },
     onScrollY: (d) => { if (!cockpitOpen) scrollChat(d); },
   });
 
@@ -285,6 +397,10 @@ export default function App() {
           onPreviewPortChange={setPreviewPort}
           previewHttps={previewHttps}
           onPreviewHttpsChange={setPreviewHttps}
+          haptics={haptics}
+          onHapticsChange={setHaptics}
+          sound={sound}
+          onSoundChange={setSound}
         />
       ) : (
         <>
@@ -299,6 +415,7 @@ export default function App() {
             writeDiffRef={writeDiffRef}
             voiceRejecting={voiceRejecting}
             onRewind={rewindTo}
+            collapseTools={collapseTools}
           />
           <InputBar
             onSend={sendMessage}
@@ -336,6 +453,23 @@ export default function App() {
           https={previewHttps}
           onHttpsChange={setPreviewHttps}
         />
+      )}
+
+      {/* Radial menu (hold Select / trackpad center-click) */}
+      {radialOpen && <RadialMenu selected={radialIndex} />}
+
+      {/* Transient toast for chord / radial results */}
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 90, maxWidth: '80%',
+          background: '#1A1A1A', border: '1px solid #3A3A3A', borderRadius: 10,
+          padding: '10px 16px', color: '#ECECEC', fontSize: 13,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.5)', pointerEvents: 'none',
+          whiteSpace: 'pre-wrap', fontFamily: 'monospace',
+        }}>
+          {toast}
+        </div>
       )}
 
       {/* Cockpit game layer — pauses when an approval modal is up */}

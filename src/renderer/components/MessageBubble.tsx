@@ -1,10 +1,12 @@
 import React, { useMemo } from 'react';
 import { ChatMessage, ContentPart } from '../types';
 import { CodeBlock } from './CodeBlock';
+import { stripToolLines, countToolLines } from '../lib/pilot';
 
 interface Props {
   message: ChatMessage;
   onRewind?: (id: string) => void;
+  collapseTools?: boolean;
 }
 
 /** Split markdown text into text and fenced-code segments */
@@ -77,9 +79,16 @@ const CONFIDENCE_STYLE: Record<'high' | 'med' | 'low', { label: string; color: s
   low: { label: 'LOW', color: '#E05252' },
 };
 
-export function MessageBubble({ message, onRewind }: Props) {
+export function MessageBubble({ message, onRewind, collapseTools }: Props) {
   const isUser = message.role === 'user';
-  const parts = useMemo(() => parseContent(message.content), [message.content]);
+  const hiddenTools = useMemo(
+    () => (collapseTools ? countToolLines(message.content) : 0),
+    [collapseTools, message.content],
+  );
+  const parts = useMemo(
+    () => parseContent(collapseTools ? stripToolLines(message.content) : message.content),
+    [message.content, collapseTools],
+  );
   const conf = message.confidence ? CONFIDENCE_STYLE[message.confidence] : null;
   const lowConfidence = message.confidence === 'low';
 
@@ -183,6 +192,12 @@ export function MessageBubble({ message, onRewind }: Props) {
             </p>
           );
         })}
+
+        {hiddenTools > 0 && (
+          <div style={{ fontSize: 11, color: '#5A5A5A', marginTop: 6, fontStyle: 'italic' }}>
+            {hiddenTools} tool {hiddenTools === 1 ? 'step' : 'steps'} hidden — D-pad right to expand
+          </div>
+        )}
 
         {/* Streaming cursor */}
         {message.isStreaming && message.content === '' && (

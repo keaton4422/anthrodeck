@@ -21,6 +21,10 @@ interface Props {
   onPreviewPortChange: (p: number) => void;
   previewHttps: boolean;
   onPreviewHttpsChange: (v: boolean) => void;
+  haptics: boolean;
+  onHapticsChange: (v: boolean) => void;
+  sound: boolean;
+  onSoundChange: (v: boolean) => void;
 }
 
 const MODEL_OPTS: { id: string; label: string; sub: string }[] = [
@@ -50,6 +54,10 @@ export function SettingsPanel({
   onPreviewPortChange,
   previewHttps,
   onPreviewHttpsChange,
+  haptics,
+  onHapticsChange,
+  sound,
+  onSoundChange,
 }: Props) {
   const [portDraft, setPortDraft] = useState(String(previewPort));
   const [draftKey, setDraftKey] = useState(apiKey);
@@ -281,6 +289,18 @@ export function SettingsPanel({
             hint="Explain each tool call before it runs; A continues, B redirects by voice. Auto-continues after a few seconds."
             value={teachMode}
             onChange={() => onTeachModeChange(!teachMode)}
+          />
+          <ToggleRow
+            label="Haptics"
+            hint="Controller rumble on tool success, errors, and completed messages."
+            value={haptics}
+            onChange={() => onHapticsChange(!haptics)}
+          />
+          <ToggleRow
+            label="Sound cues"
+            hint="Chime on complete, low tone on error, tick on voice start/stop."
+            value={sound}
+            onChange={() => onSoundChange(!sound)}
           />
         </section>
 

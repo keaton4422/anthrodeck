@@ -14,6 +14,7 @@ interface Props {
   writeDiffRef?: RefObject<HTMLPreElement>;
   voiceRejecting?: boolean;
   onRewind?: (id: string) => void;
+  collapseTools?: boolean;
 }
 
 function EmptyState() {
@@ -88,7 +89,7 @@ function QuickPrompt({ text }: { text: string }) {
   );
 }
 
-export function ChatView({ messages, error, scrollRef, isStreaming, pendingWrite, onWriteAccept, onWriteReject, writeDiffRef, voiceRejecting, onRewind }: Props) {
+export function ChatView({ messages, error, scrollRef, isStreaming, pendingWrite, onWriteAccept, onWriteReject, writeDiffRef, voiceRejecting, onRewind, collapseTools }: Props) {
   return (
     <div
       ref={scrollRef}
@@ -106,7 +107,7 @@ export function ChatView({ messages, error, scrollRef, isStreaming, pendingWrite
       ) : (
         <>
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} onRewind={onRewind} />
+            <MessageBubble key={msg.id} message={msg} onRewind={onRewind} collapseTools={collapseTools} />
           ))}
         </>
       )}

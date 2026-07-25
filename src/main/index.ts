@@ -9,6 +9,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { runAgentLoop } from './agentLoop';
 import { resolveInferenceConfig } from './agentLoop.helpers';
 import { getFlashcards, clearFlashcards, generateFlashcard } from './flashcards';
+import { undoLastWrite, recordWrite } from './writeHistory';
 import {
   startPreview,
   stopPreview,
@@ -111,9 +112,13 @@ ipcMain.handle('fs:write', (_, relPath: string, content: string) => {
   const root = store.get('projectPath', null) as string | null;
   if (!root) throw new Error('No project open');
   const abs = path.join(root, relPath);
+  recordWrite(abs, relPath);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, content, 'utf-8');
 });
+
+// Undo the most recent file write (L1+Y chord / radial menu).
+ipcMain.handle('write:undo', () => undoLastWrite());
 
 // ─── Git IPC ──────────────────────────────────────────────────────────────────
 function runGit(command: string, cwd: string): Promise<{ stdout: string; stderr: string }> {
@@ -300,6 +305,15 @@ function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  // Point the updater at the GitHub releases explicitly. electron-forge (unlike electron-builder)
+  // does not bake an app-update.yml into the package, so without this the updater throws
+  // "app-update.yml not found" before it ever reaches the network.
+  try {
+    autoUpdater.setFeedURL({ provider: 'github', owner: 'keaton4422', repo: 'anthrodeck' });
+  } catch (e) {
+    mainWindow?.webContents.send('updater:error', (e as Error).message);
+  }
+
   autoUpdater.on('update-available', (info) => {
     mainWindow?.webContents.send('updater:update-available', { version: info.version });
   });
@@ -318,7 +332,17 @@ function setupAutoUpdater() {
     mainWindow?.webContents.send('updater:ready', { version: info.version });
   });
   autoUpdater.on('error', (err) => {
-    mainWindow?.webContents.send('updater:error', err.message);
+    // Forge's makers (zip/deb/AppImage) don't publish the latest*.yml metadata electron-updater
+    // expects, so a missing-metadata 404 is expected until publishing moves to electron-builder.
+    // Surface it as actionable guidance instead of a raw stack.
+    const raw = err?.message ?? String(err);
+    const missingMeta = /404|latest.*\.yml|ENOENT|Cannot find/i.test(raw);
+    mainWindow?.webContents.send(
+      'updater:error',
+      missingMeta
+        ? 'No update metadata published yet — download the latest release from GitHub manually.'
+        : raw,
+    );
   });
 
   setTimeout(() => autoUpdater.checkForUpdates(), 3000);
