@@ -28,12 +28,91 @@ and choose an effort level.
 
 ## Install on Steam Deck
 
-SteamOS is Arch-based with a read-only rootfs, so a `.deb` isn't the easy path. Grab a release from
-GitHub and pick:
+SteamOS is Arch-based with a read-only rootfs, so the `.deb` isn't the easy path — use the
+**AppImage**. (The `.deb` is published for ordinary Debian/Ubuntu machines; the Linux zip works too
+if you'd rather extract and run the `anthrodeck` binary.)
 
-- **AppImage (recommended)** — `chmod +x AntroDeck-*.AppImage` and run it.
-- **Linux zip** — extract, run the `anthrodeck` binary.
-- `.deb` is for regular Debian/Ubuntu machines.
+> **Plugging the Deck into a PC over USB-C does not mount it as a drive.** The Deck doesn't act as a
+> USB mass-storage gadget, so you can't drag the file across. Use one of the three routes below.
+
+### 1. Download it on the Deck (simplest — no PC involved)
+
+**Steam button → Power → Switch to Desktop**, then open Konsole:
+
+```sh
+mkdir -p ~/Applications && cd ~/Applications
+curl -LO https://github.com/keaton4422/anthrodeck/releases/latest/download/AntroDeck-x64.AppImage
+chmod +x AntroDeck-*.AppImage
+./AntroDeck-*.AppImage
+```
+
+If the versioned filename differs, grab the exact URL from the
+[latest release](https://github.com/keaton4422/anthrodeck/releases/latest). Or just download it in
+the browser and, in Dolphin, right-click → **Properties → Permissions → ✅ Is executable**.
+
+### 2. From this PC over the network
+
+SSH is present but off by default. On the Deck (Desktop Mode), give the `deck` user a password once
+and enable it:
+
+```sh
+passwd
+sudo systemctl enable --now sshd
+```
+
+Then from the PC (`ip addr` on the Deck gives you the address):
+
+```sh
+scp AntroDeck-*.AppImage deck@<deck-ip>:~/Applications/
+```
+
+### 3. USB stick / microSD
+
+Copy the AppImage onto a stick and plug it into the Deck's USB-C port (a dock or hub helps), or
+write it to the microSD card.
+
+## Run it from Game Mode — this is the recommended way
+
+Adding it to Steam isn't cosmetic; it's how the controller actually works.
+
+1. Desktop Mode → **Steam → Games → Add a Non-Steam Game to My Library → Browse** → pick the AppImage.
+2. Back in Game Mode, open it from your library.
+3. Press **STEAM → Controller icon** and choose a **Gamepad** template (e.g. "Gamepad with Joystick
+   Trackpad").
+
+Why it matters: in Desktop Mode the Deck's sticks and buttons behave as mouse and keyboard, so the
+browser Gamepad API sees nothing and none of the pad bindings work. Launched through Steam, Steam
+Input presents a standard gamepad and everything lights up. It's also the only way to get the
+optional **gyro → right stick** mapping that gives the flight mode tilt steering (add a Gyro action
+in the controller layout and bind it to Joystick Move).
+
+Text entry — including the API key — uses the Steam on-screen keyboard: **STEAM + X**.
+
+## Signing in
+
+There's no account. Open **Settings (⚙)** and paste an **Anthropic API key** from
+[console.anthropic.com](https://console.anthropic.com). It's stored locally on the Deck via
+`electron-store` and never leaves the device except in calls to Anthropic's API.
+
+## Updating
+
+In-app auto-update is **not working yet** (see the caveat under Package targets), so grab the new
+AppImage from the releases page and replace the old one. If you added it to Steam by filename,
+either keep the filename stable or update the shortcut's target.
+
+## Publishing to the Steam store
+
+Worth separating two things that sound alike:
+
+- **In your Steam library** — that's the Non-Steam Game shortcut above. Free, instant, and what you
+  almost certainly want. It shows up in Game Mode with full controller support.
+- **On the Steam Store, publicly** — that's Steam Direct: a Steamworks account, business and tax
+  paperwork, a **$100 USD recoupable fee per title**, store assets, and Valve review before release.
+  Steam Deck "Verified" status is a further, separate certification pass.
+
+Store publishing is a poor fit here regardless of cost: AntroDeck is a developer tool rather than a
+game, and it requires each user to supply their own paid Anthropic API key — which is awkward
+against storefront expectations. The Non-Steam shortcut gets you the same Game Mode experience.
 
 ## Controls
 
