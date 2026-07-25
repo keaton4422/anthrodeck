@@ -1,5 +1,6 @@
 import { GameMode, GameInput, TelemetryFrame, GameIntent, IntentCarrier } from '../types';
 import { project, depthAlpha, makeRng, approach, clamp } from '../lib3d';
+import { VAPOR, drawSunsetSky, neon, drawScanlines } from '../vapor';
 
 // FLIGHT COCKPIT — the mode the whole "human as pilot" idea is actually about.
 //
@@ -106,7 +107,7 @@ export function createMode(): GameMode<FlightState> {
     id: 'cockpit-flight',
     name: 'Flight Cockpit',
     kind: 'telemetry',
-    blurb: 'Fly the Claude ship through the engine loops · RT fires · shoot the red escort drones to prune stale context, dodge debris · autopilot flies it, hand-flown gates score double · D-pad up = cockpit/chase view',
+    blurb: 'Fly the Claude ship through the engine loops · RT fires · shoot the red escort drones to prune stale context, dodge debris · autopilot flies it, hand-flown gates score double · D-pad up swaps cockpit/chase view',
 
     init(w, h): FlightState {
       const s: FlightState = {
@@ -117,7 +118,7 @@ export function createMode(): GameMode<FlightState> {
         nextRingZ: RING_GAP,
         hull: 1, score: 0, passed: 0, missed: 0, handFlown: 0,
         shake: 0, boostT: 0,
-        view: 'chase', prevToggle: false,
+        view: 'cockpit', prevToggle: false,
         finished: false, destroyed: false,
         rngState: 0x1a2b3c4d, tick: 0, intents: [],
       };
@@ -317,8 +318,10 @@ export function createMode(): GameMode<FlightState> {
       ctx.save();
       ctx.translate(shakeX, shakeY);
 
-      ctx.fillStyle = '#05070B';
+      // Vaporwave sky + low slit-sun sitting on the corridor's horizon.
+      ctx.fillStyle = VAPOR.deep;
       ctx.fillRect(-20, -20, w + 40, h + 40);
+      drawSunsetSky(ctx, w, h, h * 0.46, { sun: true });
 
       const speedFrac = clamp((s.speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED), 0, 1);
 
@@ -332,7 +335,7 @@ export function createMode(): GameMode<FlightState> {
         if (a <= 0.01) continue;
         const p = project(-s.shipX, -s.shipY, dz, w, h);
         const half = CORRIDOR * 1.35 * p.scale;
-        ctx.strokeStyle = `rgba(90,130,180,${a * 0.5})`;
+        ctx.strokeStyle = `rgba(138,79,255,${a * 0.75})`;
         ctx.lineWidth = 1;
         ctx.strokeRect(p.x - half, p.y - half * 0.72, half * 2, half * 1.44);
       }
@@ -351,7 +354,7 @@ export function createMode(): GameMode<FlightState> {
         if (a <= 0.01) continue;
         const p = project(0, FLOOR_Y - s.shipY, dz, w, h);
         const halfW = CORRIDOR * 2.6 * p.scale;
-        ctx.strokeStyle = `rgba(80,120,165,${a})`;
+        ctx.strokeStyle = `rgba(255,46,151,${a})`;
         ctx.beginPath();
         ctx.moveTo(p.x - s.shipX * p.scale - halfW, p.y);
         ctx.lineTo(p.x - s.shipX * p.scale + halfW, p.y);
@@ -360,7 +363,7 @@ export function createMode(): GameMode<FlightState> {
       // Longitudinal rails converging to the vanishing point.
       for (const lane of [-2, -1, 0, 1, 2]) {
         const lx = lane * CORRIDOR * 1.15;
-        ctx.strokeStyle = 'rgba(80,120,165,0.28)';
+        ctx.strokeStyle = 'rgba(5,217,232,0.45)';
         ctx.beginPath();
         let started = false;
         for (let i = 1; i < 20; i++) {
@@ -374,7 +377,7 @@ export function createMode(): GameMode<FlightState> {
 
       // Speed streaks — how fast the engine is streaming, read as motion.
       if (speedFrac > 0.05) {
-        ctx.strokeStyle = `rgba(143,233,255,${0.08 + speedFrac * 0.32})`;
+        ctx.strokeStyle = `rgba(139,247,255,${0.10 + speedFrac * 0.36})`;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         for (let i = 0; i < 26; i++) {
@@ -407,18 +410,20 @@ export function createMode(): GameMode<FlightState> {
         const color =
           r.state === 'missed' ? `rgba(224,82,82,${a * 0.8})`
           : r.state === 'passed' ? `rgba(82,167,124,${a * 0.5})`
-          : isNext ? `rgba(204,120,92,${a})`
-          : `rgba(143,233,255,${a * 0.75})`;
+          : isNext ? `rgba(255,46,151,${a})`
+          : `rgba(5,217,232,${a * 0.8})`;
 
         ctx.strokeStyle = color;
         ctx.lineWidth = isNext ? 3 : 2;
-        ctx.beginPath();
-        ctx.ellipse(p.x, p.y, rad, rad * 0.82, 0, 0, Math.PI * 2);
-        ctx.stroke();
+        neon(ctx, isNext ? VAPOR.magenta : VAPOR.cyan, isNext ? 18 : 9, () => {
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, rad, rad * 0.82, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        });
 
         // The gate you're actually aiming at gets tick marks so it reads instantly.
         if (isNext) {
-          ctx.strokeStyle = `rgba(204,120,92,${a})`;
+          ctx.strokeStyle = `rgba(255,106,213,${a})`;
           ctx.lineWidth = 2;
           ctx.beginPath();
           for (let k = 0; k < 4; k++) {
@@ -461,14 +466,25 @@ export function createMode(): GameMode<FlightState> {
         ctx.fillRect(p.x - size * 0.62, p.y - size * 0.08, size * 0.16, size * 0.16);
         ctx.fillRect(p.x + size * 0.46, p.y - size * 0.08, size * 0.16, size * 0.16);
       }
+      // Bolts are drawn between two DEPTHS, not as a screen-space stick: a tracer in a corridor has
+      // to converge toward the vanishing point or it reads as pasted on.
       for (const b of s.bolts) {
-        const dz = b.z - s.z;
-        if (dz <= 6 || dz > FAR) continue;
-        const p = project(b.x - s.shipX, b.y - s.shipY, dz, w, h);
-        const len = Math.max(3, 90 * p.scale);
-        ctx.strokeStyle = `rgba(255,236,150,${depthAlpha(dz, FAR)})`;
-        ctx.lineWidth = Math.max(1.5, 7 * p.scale);
-        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x, p.y - len); ctx.stroke();
+        const dzHead = b.z - s.z;
+        const dzTail = dzHead - 300;
+        if (dzHead <= 6 || dzHead > FAR) continue;
+        const head = project(b.x - s.shipX, b.y - s.shipY, dzHead, w, h);
+        const tail = project(b.x - s.shipX, b.y - s.shipY, Math.max(8, dzTail), w, h);
+        const a = depthAlpha(dzHead, FAR);
+        const g = ctx.createLinearGradient(tail.x, tail.y, head.x, head.y);
+        g.addColorStop(0, `rgba(255,78,139,0)`);
+        g.addColorStop(1, `rgba(255,236,190,${a})`);
+        ctx.strokeStyle = g;
+        ctx.lineWidth = Math.max(1.2, 9 * head.scale);
+        ctx.lineCap = 'round';
+        neon(ctx, VAPOR.sunHot, 12, () => {
+          ctx.beginPath(); ctx.moveTo(tail.x, tail.y); ctx.lineTo(head.x, head.y); ctx.stroke();
+        });
+        ctx.lineCap = 'butt';
       }
 
       // ── The ship ────────────────────────────────────────────────────────────
@@ -508,6 +524,7 @@ export function createMode(): GameMode<FlightState> {
       ctx.fillText('HULL', 18, by + 16);
 
       ctx.restore();
+      drawScanlines(ctx, w, h, 0.05);
 
       if (s.destroyed || s.finished) {
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -553,87 +570,77 @@ function drawShipExterior(
   ctx.translate(cx, cy);
   ctx.rotate(bank * 0.32);
 
-  const accent = manual ? '#CC785C' : '#8FE9FF';
+  const accent = manual ? '#CC785C' : VAPOR.cyan;
   const glow = boost ? 1 : 0.5;
 
-  // Thin nacelles on long, raked pylons — the mass is pushed outboard and back so the ship reads
-  // as fast standing still.
-  for (const sx of [-1, 1]) {
-    ctx.strokeStyle = HULL_DARK;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(sx * 7, -4); ctx.lineTo(sx * 22, 6);
-    ctx.stroke();
-
+  // Four S-foils in an X, engines at the roots. Seen from behind, the upper pair sweeps up-and-out
+  // and the lower pair down-and-out.
+  const foils: [number, number, number, number][] = [
+    [-1, -1, -34, -20], [1, -1, 34, -20],
+    [-1, 1, -34, 20], [1, 1, 34, 20],
+  ];
+  for (const [sx, sy, tipX, tipY] of foils) {
     ctx.fillStyle = HULL_DARK;
     ctx.beginPath();
-    ctx.roundRect(sx * 22 - 4.5, -6, 9, 30, 4);
-    ctx.fill();
-    ctx.fillStyle = HULL;
-    ctx.fillRect(sx * 22 - 4.5, -2, 9, 3);
+    ctx.moveTo(sx * 6, sy * 3);
+    ctx.lineTo(tipX, tipY);
+    ctx.lineTo(tipX + sx * -3, tipY + sy * 7);
+    ctx.lineTo(sx * 6, sy * 3 + sy * 8);
+    ctx.closePath(); ctx.fill();
 
-    const g = ctx.createRadialGradient(sx * 22, 25, 1, sx * 22, 25, 14 + glow * 16);
+    // Cannon at each tip.
+    ctx.fillStyle = HULL;
+    ctx.fillRect(tipX + (sx < 0 ? -2 : -2), tipY - 1, 4, 12);
+    ctx.fillStyle = accent;
+    ctx.fillRect(tipX - 1.5, tipY + 9, 3, 3);
+
+    // Engine cylinder at the wing root.
+    const ex = sx * 13;
+    const ey = sy * 9;
+    ctx.fillStyle = HULL_DARK;
+    ctx.beginPath(); ctx.roundRect(ex - 5, ey - 4, 10, 18, 3); ctx.fill();
+    const g = ctx.createRadialGradient(ex, ey + 15, 1, ex, ey + 15, 11 + glow * 12);
     g.addColorStop(0, `rgba(255,211,106,${glow})`);
     g.addColorStop(1, 'rgba(255,211,106,0)');
     ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(sx * 22, 25, 14 + glow * 16, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = `rgba(255,240,200,${0.55 + glow * 0.45})`;
-    ctx.fillRect(sx * 22 - 3, 22, 6, 3);
+    ctx.beginPath(); ctx.arc(ex, ey + 15, 11 + glow * 12, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(255,244,214,${0.55 + glow * 0.45})`;
+    ctx.fillRect(ex - 3, ey + 12, 6, 3);
   }
 
-  // Low swept strakes rather than slab fins.
-  ctx.fillStyle = HULL_DARK;
-  for (const sx of [-1, 1]) {
-    ctx.beginPath();
-    ctx.moveTo(sx * 6, 0);
-    ctx.lineTo(sx * 30, 12);
-    ctx.lineTo(sx * 28, 16);
-    ctx.lineTo(sx * 6, 8);
-    ctx.closePath(); ctx.fill();
-  }
-
-  // Long, narrow spine — a lifting body, not a wedge.
+  // Central fuselage: long, narrow, with a tapered nose.
   ctx.fillStyle = HULL;
   ctx.beginPath();
-  ctx.moveTo(0, -30);
-  ctx.lineTo(6, -16);
-  ctx.lineTo(9, 14);
-  ctx.lineTo(-9, 14);
-  ctx.lineTo(-6, -16);
+  ctx.moveTo(0, -34);
+  ctx.lineTo(5, -22);
+  ctx.lineTo(7, 16);
+  ctx.lineTo(-7, 16);
+  ctx.lineTo(-5, -22);
   ctx.closePath(); ctx.fill();
 
-  // Shadowed flank gives it a rolled edge instead of reading flat.
-  ctx.fillStyle = 'rgba(25,31,40,0.35)';
+  ctx.fillStyle = 'rgba(20,26,34,0.35)';
   ctx.beginPath();
-  ctx.moveTo(0, -30); ctx.lineTo(6, -16); ctx.lineTo(9, 14); ctx.lineTo(0, 14);
+  ctx.moveTo(0, -34); ctx.lineTo(5, -22); ctx.lineTo(7, 16); ctx.lineTo(0, 16);
   ctx.closePath(); ctx.fill();
 
   ctx.strokeStyle = HULL_LINE;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(-7, -4); ctx.lineTo(7, -4);
-  ctx.moveTo(-8, 5); ctx.lineTo(8, 5);
+  ctx.moveTo(-6, -6); ctx.lineTo(6, -6);
+  ctx.moveTo(-6.5, 4); ctx.lineTo(6.5, 4);
   ctx.stroke();
 
-  // Canopy: a slim blister set well forward.
+  // Canopy blister.
   ctx.fillStyle = GLASS;
   ctx.beginPath();
-  ctx.moveTo(-3.5, -25);
-  ctx.lineTo(3.5, -25);
-  ctx.lineTo(5, -12);
-  ctx.lineTo(-5, -12);
+  ctx.moveTo(-3.5, -26);
+  ctx.lineTo(3.5, -26);
+  ctx.lineTo(4.5, -14);
+  ctx.lineTo(-4.5, -14);
   ctx.closePath(); ctx.fill();
   ctx.strokeStyle = accent;
   ctx.lineWidth = 1.1;
-  ctx.stroke();
-
-  // Accent chines running the length of the hull.
-  ctx.strokeStyle = accent;
-  ctx.lineWidth = 1.6;
-  ctx.beginPath();
-  ctx.moveTo(-6, -16); ctx.lineTo(-9, 13);
-  ctx.moveTo(6, -16); ctx.lineTo(9, 13);
-  ctx.stroke();
+  neon(ctx, accent, 8, () => ctx.stroke());
 
   ctx.restore();
 }

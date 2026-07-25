@@ -1,4 +1,5 @@
 import { GameMode, GameInput, TelemetryFrame, GameIntent, IntentCarrier } from '../types';
+import { VAPOR, drawSunsetSky, neon, drawScanlines } from '../vapor';
 
 // ENGINE RUNNER — you drive a blue JDM-style hero coupe (long hood, low roof, big rear wing;
 // evoked, not badged — no marks or model names).
@@ -32,8 +33,8 @@ export const REGION_LENGTH = 4000;
 export const REGIONS: Region[] = [
   {
     name: 'WANGAN ・ TOKYO',
-    sky: '#070912', verge: '#10141F', asphalt: '#1A1E28',
-    divider: 'rgba(235,235,235,0.32)', edge: 'rgba(235,235,235,0.6)', rail: 'rgba(150,165,185,0.5)',
+    sky: '#05020C', verge: '#070312', asphalt: '#0C0818',
+    divider: 'rgba(255,106,213,0.42)', edge: 'rgba(139,247,255,0.7)', rail: 'rgba(255,46,151,0.55)',
     prop: (ctx, x, y, side, seed) => {           // neon towers + sodium lamps
       const hgt = 40 + (seed % 60);
       ctx.fillStyle = '#0E1220';
@@ -53,8 +54,8 @@ export const REGIONS: Region[] = [
   },
   {
     name: 'AUTOBAHN ・ DEUTSCHLAND',
-    sky: '#0B1014', verge: '#121A16', asphalt: '#20242A',
-    divider: 'rgba(240,240,240,0.34)', edge: 'rgba(245,245,245,0.68)', rail: 'rgba(170,180,190,0.6)',
+    sky: '#04060F', verge: '#050A12', asphalt: '#0A0E18',
+    divider: 'rgba(139,247,255,0.38)', edge: 'rgba(230,240,255,0.7)', rail: 'rgba(138,79,255,0.55)',
     prop: (ctx, x, y, _side, seed) => {          // dense pine
       const hgt = 46 + (seed % 34);
       ctx.fillStyle = '#241B12';
@@ -71,8 +72,8 @@ export const REGIONS: Region[] = [
   },
   {
     name: 'DESERT RUN ・ ARIZONA',
-    sky: '#160E0A', verge: '#2A1A10', asphalt: '#262024',
-    divider: 'rgba(240,200,90,0.5)', edge: 'rgba(245,235,220,0.55)', rail: 'rgba(150,120,90,0.45)',
+    sky: '#0E0413', verge: '#110616', asphalt: '#100A18',
+    divider: 'rgba(255,178,94,0.6)', edge: 'rgba(255,220,190,0.6)', rail: 'rgba(255,78,139,0.5)',
     prop: (ctx, x, y, _side, seed) => {          // saguaro + mesa
       if (seed % 3 === 0) {
         ctx.fillStyle = '#3A2418';
@@ -91,8 +92,8 @@ export const REGIONS: Region[] = [
   },
   {
     name: 'PASSO ALPINO ・ ITALIA',
-    sky: '#0A0F14', verge: '#161C1E', asphalt: '#22262C',
-    divider: 'rgba(240,240,240,0.3)', edge: 'rgba(245,245,245,0.6)', rail: 'rgba(190,195,200,0.7)',
+    sky: '#050514', verge: '#070A14', asphalt: '#0C0F1A',
+    divider: 'rgba(230,240,255,0.34)', edge: 'rgba(200,230,255,0.65)', rail: 'rgba(139,247,255,0.6)',
     prop: (ctx, x, y, _side, seed) => {          // peaks with snow caps
       const hgt = 60 + (seed % 70);
       ctx.fillStyle = '#1B2430';
@@ -107,8 +108,8 @@ export const REGIONS: Region[] = [
   },
   {
     name: 'COAST ROAD ・ PACIFICA',
-    sky: '#08131A', verge: '#123040', asphalt: '#1E242A',
-    divider: 'rgba(240,220,120,0.42)', edge: 'rgba(245,245,245,0.6)', rail: 'rgba(160,175,185,0.55)',
+    sky: '#04041A', verge: '#04101C', asphalt: '#0A0E1A',
+    divider: 'rgba(255,178,94,0.5)', edge: 'rgba(255,106,213,0.6)', rail: 'rgba(5,217,232,0.6)',
     prop: (ctx, x, y, _side, seed) => {          // palms over water
       ctx.fillStyle = '#0D2E42';
       ctx.fillRect(x - 50, y - 6, 100, 6);
@@ -186,6 +187,18 @@ const HERO_MASS = 1650;      // the hero is the heavy one — that's why it wins
 const RESTITUTION = 0.32;    // sheet metal crumples; very little bounce comes back
 
 function clampDt(dt: number): number { return Math.max(0, Math.min(dt, 0.05)); }
+
+// Mild perspective for a ~80-degree helicopter chase angle: things near the top of the frame are
+// further away, so they narrow toward the road's centre and shrink. Gameplay maths stays in flat
+// road space — only rendering is projected — which keeps collisions exact.
+const PERSP_TOP = 0.62;
+export function perspAt(y: number, h: number): number {
+  const t = Math.max(0, Math.min(1, y / h));
+  return PERSP_TOP + (1 - PERSP_TOP) * t;
+}
+function projX(x: number, y: number, w: number, h: number): number {
+  return w / 2 + (x - w / 2) * perspAt(y, h);
+}
 function roadLeft(w: number): number { return w * 0.15; }
 function roadRight(w: number): number { return w * 0.85; }
 export function laneCenter(w: number, lane: number): number {
@@ -372,56 +385,95 @@ export function createMode(): GameMode<RacerState> {
 
       ctx.fillStyle = reg.sky;
       ctx.fillRect(0, 0, w, h);
+      // Sun on the horizon behind the scenery; the verge only fills below it.
+      const horizon = h * 0.06;   // the road runs almost to the top — this is a chase cam, not a vista
+      drawSunsetSky(ctx, w, h, horizon, { sun: false });
       ctx.fillStyle = reg.verge;
-      ctx.fillRect(0, 0, w, h);
+      ctx.fillRect(0, horizon, w, h - horizon);
+      // Road as a trapezoid — narrower at the far end.
+      ctx.fillStyle = reg.asphalt;
+      ctx.beginPath();
+      ctx.moveTo(projX(l, horizon, w, h), horizon);
+      ctx.lineTo(projX(r, horizon, w, h), horizon);
+      ctx.lineTo(projX(r, h, w, h), h);
+      ctx.lineTo(projX(l, h, w, h), h);
+      ctx.closePath(); ctx.fill();
 
       // Roadside scenery, scrolling with the road.
       const propGap = 190;
       const propOff = s.distance % propGap;
       for (let i = -1; i < Math.ceil(h / propGap) + 1; i++) {
         const y = i * propGap + propOff;
-        if (y < -60 || y > h + 60) continue;
+        if (y < horizon - 40 || y > h + 60) continue;
         const seed = Math.abs(Math.floor((s.distance - propOff) / propGap) + i) * 2654435761 % 997;
-        reg.prop(ctx, l - 78, y, -1, seed);
-        reg.prop(ctx, r + 78, y, 1, seed + 37);
+        const k = perspAt(y, h);
+        ctx.save();
+        ctx.translate(projX(l - 78, y, w, h), y); ctx.scale(k, k);
+        reg.prop(ctx, 0, 0, -1, seed); ctx.restore();
+        ctx.save();
+        ctx.translate(projX(r + 78, y, w, h), y); ctx.scale(k, k);
+        reg.prop(ctx, 0, 0, 1, seed + 37); ctx.restore();
       }
 
-      ctx.fillStyle = reg.asphalt;
-      ctx.fillRect(l, 0, r - l, h);
 
       // Asphalt texture bands — cheap, but they give the surface grain.
       ctx.fillStyle = 'rgba(255,255,255,0.012)';
       const band = 90;
-      for (let y = -band + (s.distance % band); y < h; y += band) ctx.fillRect(l, y, r - l, band / 2);
+      for (let y = horizon + (s.distance % band); y < h; y += band) {
+        ctx.fillRect(projX(l, y, w, h), y, projX(r, y, w, h) - projX(l, y, w, h), band / 2);
+      }
 
       // Guard rails, with posts that stream past faster as throughput rises.
       const postGap = 46;
       const off = s.distance % postGap;
       ctx.fillStyle = reg.rail;
-      ctx.fillRect(l - 32, 0, 4, h);
-      ctx.fillRect(r + 28, 0, 4, h);
+      neon(ctx, VAPOR.magenta, 8, () => {
+        for (const [ex, sgn] of [[l - 32, -1], [r + 28, 1]] as const) {
+          ctx.beginPath();
+          ctx.moveTo(projX(ex, horizon, w, h), horizon);
+          ctx.lineTo(projX(ex + 4 * sgn, horizon, w, h), horizon);
+          ctx.lineTo(projX(ex + 4 * sgn, h, w, h), h);
+          ctx.lineTo(projX(ex, h, w, h), h);
+          ctx.closePath(); ctx.fill();
+        }
+      });
       ctx.fillStyle = `rgba(204,120,92,${0.3 + speedFrac * 0.4})`;
       const streak = 10 + speedFrac * 40;
-      for (let y = -postGap + off; y < h; y += postGap) {
+      for (let y = horizon + off - postGap; y < h; y += postGap) {
+        if (y < horizon) continue;
         ctx.fillRect(l - 30, y, 3, streak);
         ctx.fillRect(r + 29, y, 3, streak);
       }
 
       // Edge lines + dashed lane dividers.
       ctx.fillStyle = reg.edge;
-      ctx.fillRect(l + 2, 0, 3, h);
-      ctx.fillRect(r - 5, 0, 3, h);
+      neon(ctx, VAPOR.cyan, 6, () => {
+        for (const ex of [l + 2, r - 5]) {
+          ctx.beginPath();
+          ctx.moveTo(projX(ex, horizon, w, h), horizon);
+          ctx.lineTo(projX(ex + 3, horizon, w, h), horizon);
+          ctx.lineTo(projX(ex + 3, h, w, h), h);
+          ctx.lineTo(projX(ex, h, w, h), h);
+          ctx.closePath(); ctx.fill();
+        }
+      });
       ctx.fillStyle = reg.divider;
       const dash = 36;
       const dashOff = s.distance % (dash * 2);
       for (let i = 1; i < LANES; i++) {
         const x = l + ((r - l) / LANES) * i;
-        for (let y = -dash * 2 + dashOff; y < h; y += dash * 2) ctx.fillRect(x - 1.5, y, 3, dash);
+        for (let y = horizon + dashOff - dash * 2; y < h; y += dash * 2) {
+          if (y < horizon) continue;
+          const k = perspAt(y, h);
+          ctx.fillRect(projX(x, y, w, h) - 1.5 * k, y, 3 * k, dash * k);
+        }
       }
 
       for (const c of s.cars) {
+        const k = perspAt(c.y, h);
         ctx.save();
-        ctx.translate(c.x, c.y);
+        ctx.translate(projX(c.x, c.y, w, h), c.y);
+        ctx.scale(k, k);
         if (c.spin > 0) ctx.rotate(c.rot);
         if (c.kind === 'hunter') drawCar(ctx, '#D93A3A', '#6E1616', false, c.dents);
         else drawCar(ctx, '#7C8794', '#3A424C', false, c.dents);
@@ -430,17 +482,21 @@ export function createMode(): GameMode<RacerState> {
 
       // Hero car.
       ctx.save();
-      ctx.translate(s.laneX, carY);
+      ctx.translate(projX(s.laneX, carY, w, h), carY);
+      ctx.scale(perspAt(carY, h), perspAt(carY, h));
       drawCar(ctx, s.boostT > 0 ? '#5FD0FF' : '#2E6DE0', '#123A78', true, s.damage);
       ctx.restore();
       if (s.boostT > 0) {
         ctx.fillStyle = 'rgba(255,211,106,0.8)';
         ctx.beginPath();
-        ctx.moveTo(s.laneX - 8, carY + CAR_H / 2);
-        ctx.lineTo(s.laneX + 8, carY + CAR_H / 2);
-        ctx.lineTo(s.laneX, carY + CAR_H / 2 + 30);
+        const px = projX(s.laneX, carY, w, h);
+        ctx.moveTo(px - 8, carY + CAR_H / 2);
+        ctx.lineTo(px + 8, carY + CAR_H / 2);
+        ctx.lineTo(px, carY + CAR_H / 2 + 30);
         ctx.closePath(); ctx.fill();
       }
+
+      drawScanlines(ctx, w, h, 0.05);
 
       // Region banner, and a heads-up as the next country approaches.
       ctx.textAlign = 'center';

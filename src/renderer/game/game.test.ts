@@ -154,16 +154,16 @@ describe('flight cockpit', () => {
     expect(mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'done' }]), 0.016).finished).toBe(true);
   });
 
-  it('toggles between chase and cockpit views on a D-pad up edge', () => {
+  it('starts in first person and toggles to chase on a D-pad up edge', () => {
     let s: FlightState = mode.init(W, H);
-    expect(s.view).toBe('chase');
+    expect(s.view).toBe('cockpit');   // it's the cockpit mode — you start inside it
     s = mode.step(s, input({ up: true }), EMPTY_TELEMETRY, 0.016);
-    expect(s.view).toBe('cockpit');
+    expect(s.view).toBe('chase');
     s = mode.step(s, input({ up: true }), EMPTY_TELEMETRY, 0.016); // held — must not flip back
-    expect(s.view).toBe('cockpit');
+    expect(s.view).toBe('chase');
     s = mode.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.016);
     s = mode.step(s, input({ up: true }), EMPTY_TELEMETRY, 0.016);
-    expect(s.view).toBe('chase');
+    expect(s.view).toBe('cockpit');
   });
 
   it('higher throughput flies faster', () => {
@@ -294,6 +294,40 @@ describe('road regions', () => {
   });
 });
 
+describe('swarm protocol (formation shooter)', () => {
+  const mode = GAME_MODES.find((m) => m.id === 'freeplay-swarm')!;
+
+  it('is discovered by the registry', () => {
+    expect(mode).toBeTruthy();
+    expect(mode.kind).toBe('freeplay');
+  });
+
+  it('opens with a full wave that sweeps in before forming up', () => {
+    const s = mode.init(W, H) as never as { attackers: { phase: string }[] };
+    expect(s.attackers.length).toBeGreaterThan(0);
+    expect(s.attackers.every((a) => a.phase === 'entering')).toBe(true);
+  });
+
+  it('attackers reach formation, then peel off to dive', () => {
+    let s = mode.init(W, H);
+    for (let i = 0; i < 400; i++) s = mode.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.016);
+    const st = s as never as { attackers: { phase: string }[] };
+    expect(st.attackers.some((a) => a.phase === 'formed' || a.phase === 'diving')).toBe(true);
+  });
+
+  it('firing spawns a friendly shot', () => {
+    const s = mode.step(mode.init(W, H), input({ fire: true }), EMPTY_TELEMETRY, 0.016);
+    const st = s as never as { shots: { hostile: boolean }[] };
+    expect(st.shots.some((x) => !x.hostile)).toBe(true);
+  });
+
+  it('scores and reports terminal state', () => {
+    const s = mode.init(W, H);
+    expect(typeof mode.score?.(s)).toBe('number');
+    expect(mode.isOver?.(s)).toBe(false);
+  });
+});
+
 describe('grid cycles', () => {
   const mode = createGrid();
 
@@ -407,7 +441,10 @@ describe('render does not throw', () => {
     return new Proxy(target, {
       get: (t, p) => {
         if (p in t) return t[p as string];
-        if (p === 'createRadialGradient') return () => ({ addColorStop: noop });
+        // Gradient factories must return an object with addColorStop, not a bare noop.
+        if (p === 'createRadialGradient' || p === 'createLinearGradient' || p === 'createConicGradient') {
+          return () => ({ addColorStop: noop });
+        }
         return noop;
       },
       set: (t, p, v) => { t[p as string] = v; return true; },

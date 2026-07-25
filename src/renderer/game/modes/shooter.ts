@@ -1,4 +1,5 @@
 import { GameMode, GameInput, TelemetryFrame, GameIntent, IntentCarrier } from '../types';
+import { VAPOR, neon, drawScanlines } from '../vapor';
 
 // BELT CLEARANCE — a classic rock-splitter, done properly: three discrete size tiers, each hit
 // splitting into two of the next size down, and a fresh wave once the field is clear.
@@ -197,14 +198,35 @@ export function createMode(): GameMode<ShooterState> {
     },
 
     render(ctx, s, w, h) {
-      ctx.fillStyle = '#07080C';
+      // Nebula field: indigo core bleeding to magenta at the edges.
+      const bg = ctx.createRadialGradient(w * 0.5, h * 0.45, 10, w * 0.5, h * 0.45, Math.max(w, h) * 0.75);
+      bg.addColorStop(0, VAPOR.night);
+      bg.addColorStop(0.55, VAPOR.deep);
+      bg.addColorStop(1, VAPOR.deep);
+      ctx.fillStyle = bg;
       ctx.fillRect(0, 0, w, h);
+      // A distant slit-sun planet for depth.
+      const pg = ctx.createLinearGradient(0, h * 0.12, 0, h * 0.34);
+      pg.addColorStop(0, 'rgba(255,178,94,0.30)');
+      pg.addColorStop(1, 'rgba(255,46,151,0.16)');
+      ctx.fillStyle = pg;
+      ctx.beginPath(); ctx.arc(w * 0.78, h * 0.24, Math.min(w, h) * 0.14, 0, Math.PI * 2); ctx.fill();
+
+      // Starfield — the belt was reading as near-empty black without it.
+      for (let i = 0; i < 90; i++) {
+        const sd = (i * 2654435761) >>> 0;
+        const sx = (sd % 1000) / 1000 * w;
+        const sy = ((sd >> 10) % 1000) / 1000 * h;
+        const tw = 0.35 + ((sd >> 4) % 100) / 100 * 0.5;
+        ctx.fillStyle = i % 7 === 0 ? `rgba(255,106,213,${tw})` : `rgba(200,225,255,${tw * 0.7})`;
+        ctx.fillRect(sx, sy, 1.6, 1.6);
+      }
 
       // Rocks: jagged polygons derived from the seed so each looks distinct but is deterministic.
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = 2.6;
       for (const r of s.rocks) {
         const rad = TIER_R[r.tier];
-        ctx.strokeStyle = r.tier === 2 ? '#B9C4D0' : r.tier === 1 ? '#94A2B2' : '#74808E';
+        ctx.strokeStyle = r.tier === 2 ? VAPOR.iceBlue : r.tier === 1 ? '#B98BFF' : VAPOR.pink;
         ctx.beginPath();
         const pts = 9;
         for (let i = 0; i <= pts; i++) {
@@ -215,12 +237,12 @@ export function createMode(): GameMode<ShooterState> {
           if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.closePath();
-        ctx.stroke();
+        neon(ctx, r.tier === 2 ? VAPOR.cyan : VAPOR.magenta, 10, () => ctx.stroke());
       }
 
-      ctx.fillStyle = '#FFD36A';
+      ctx.fillStyle = VAPOR.sun;
       for (const b of s.bullets) {
-        ctx.beginPath(); ctx.arc(b.x, b.y, 2.5, 0, Math.PI * 2); ctx.fill();
+        neon(ctx, VAPOR.sunHot, 10, () => { ctx.beginPath(); ctx.arc(b.x, b.y, 2.5, 0, Math.PI * 2); ctx.fill(); });
       }
 
       // Ship — blinks while invulnerable after a hit.
@@ -232,6 +254,8 @@ export function createMode(): GameMode<ShooterState> {
         drawTug(ctx);
         ctx.restore();
       }
+
+      drawScanlines(ctx, w, h, 0.05);
 
       if (s.gameOver) {
         ctx.fillStyle = 'rgba(0,0,0,0.58)';
@@ -261,20 +285,19 @@ export function createMode(): GameMode<ShooterState> {
 // pods on stubby pylons, and a mining yoke slung out front. Asymmetry and visible function are the
 // point; nothing here is a triangle.
 function drawTug(ctx: CanvasRenderingContext2D) {
-  const HULL = '#9AA6B4';
-  const SHADE = '#59636F';
-  const TRIM = '#CC785C';
+  const HULL = '#B4C0CE';
+  const SHADE = '#5C6675';
+  const TRIM = VAPOR.magenta;
 
   // Mining yoke — two forward tines that read as the business end.
   ctx.strokeStyle = SHADE;
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(6, -6); ctx.lineTo(17, -9);
-  ctx.moveTo(6, 6); ctx.lineTo(17, 9);
+  ctx.moveTo(8, -8); ctx.lineTo(22, -12);
+  ctx.moveTo(8, 8); ctx.lineTo(22, 12);
   ctx.stroke();
   ctx.fillStyle = TRIM;
-  ctx.fillRect(16, -11, 3, 4);
-  ctx.fillRect(16, 7, 3, 4);
+  neon(ctx, VAPOR.magenta, 8, () => { ctx.fillRect(21, -15, 4, 5); ctx.fillRect(21, 10, 4, 5); });
 
   // Outrigger pods on pylons.
   for (const sy of [-1, 1]) {
@@ -285,19 +308,19 @@ function drawTug(ctx: CanvasRenderingContext2D) {
     ctx.stroke();
     ctx.fillStyle = SHADE;
     ctx.beginPath();
-    ctx.roundRect(-12, sy * 9 - 3.5, 15, 7, 2);
+    ctx.roundRect(-15, sy * 11 - 4.5, 19, 9, 3);
     ctx.fill();
-    ctx.fillStyle = 'rgba(255,211,106,0.85)';   // thruster mouth
-    ctx.fillRect(-13.5, sy * 9 - 2, 2.5, 4);
+    ctx.fillStyle = VAPOR.sun;   // thruster mouth
+    neon(ctx, VAPOR.sun, 9, () => ctx.fillRect(-17, sy * 11 - 2.5, 3, 5));
   }
 
   // Main hull — a blunt slab, wider at the stern.
   ctx.fillStyle = HULL;
   ctx.beginPath();
-  ctx.moveTo(9, -5);
-  ctx.lineTo(9, 5);
-  ctx.lineTo(-10, 7);
-  ctx.lineTo(-10, -7);
+  ctx.moveTo(12, -6);
+  ctx.lineTo(12, 6);
+  ctx.lineTo(-13, 9);
+  ctx.lineTo(-13, -9);
   ctx.closePath();
   ctx.fill();
 
@@ -312,11 +335,11 @@ function drawTug(ctx: CanvasRenderingContext2D) {
   // Offset cabin bulb, sitting proud of the hull on one side.
   ctx.fillStyle = SHADE;
   ctx.beginPath();
-  ctx.roundRect(-1, -8.5, 8, 6, 2.5);
+  ctx.roundRect(-1, -11, 10, 7, 3);
   ctx.fill();
-  ctx.fillStyle = '#1B3A4A';
-  ctx.fillRect(1, -7.5, 5, 3);
+  ctx.fillStyle = '#12303F';
+  ctx.fillRect(1, -9.5, 7, 4);
   ctx.strokeStyle = TRIM;
-  ctx.lineWidth = 1;
-  ctx.strokeRect(1, -7.5, 5, 3);
+  ctx.lineWidth = 1.2;
+  neon(ctx, VAPOR.magenta, 7, () => ctx.strokeRect(1, -9.5, 7, 4));
 }

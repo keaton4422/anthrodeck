@@ -1,4 +1,5 @@
 import { GameMode, GameInput, TelemetryFrame, GameIntent, IntentCarrier } from '../types';
+import { VAPOR, neon, drawScanlines } from '../vapor';
 
 // GRID CYCLES — an original lightcycle game (no borrowed names, characters or marks; the only
 // shared idea is "vehicle leaves a solid wall", which is the genre itself).
@@ -104,10 +105,10 @@ export function createMode(): GameMode<GridState> {
     init(w, h): GridState {
       const cols = Math.max(20, Math.floor(w / CELL));
       const rows = Math.max(20, Math.floor(h / CELL));
-      const player = spawn(cols, rows, 0, '#38C6E0');
+      const player = spawn(cols, rows, 0, VAPOR.cyan);
       const rivals = [
-        spawn(cols, rows, 1, '#E0864F'),
-        spawn(cols, rows, 2, '#C75AE0'),
+        spawn(cols, rows, 1, VAPOR.magenta),
+        spawn(cols, rows, 2, VAPOR.violet),
       ];
       const occupied = new Set<number>();
       occupied.add(key(player.x, player.y));
@@ -215,11 +216,14 @@ export function createMode(): GameMode<GridState> {
     },
 
     render(ctx, s, w, h) {
-      ctx.fillStyle = '#06080B';
+      // Deep violet arena with a neon floor.
+      // Flat near-black field. A vertical gradient here lit the bottom of the arena and made the
+      // playfield read as unbalanced when it isn't — the arena is symmetric, so its ground should be.
+      ctx.fillStyle = VAPOR.deep;
       ctx.fillRect(0, 0, w, h);
 
       // Arena floor grid.
-      ctx.strokeStyle = 'rgba(60,110,150,0.13)';
+      ctx.strokeStyle = 'rgba(138,79,255,0.22)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let x = 0; x <= s.cols; x += 4) { ctx.moveTo(x * CELL, 0); ctx.lineTo(x * CELL, s.rows * CELL); }
@@ -227,17 +231,17 @@ export function createMode(): GameMode<GridState> {
       ctx.stroke();
 
       // Arena wall.
-      ctx.strokeStyle = 'rgba(143,233,255,0.5)';
       ctx.lineWidth = 2;
-      ctx.strokeRect(1, 1, s.cols * CELL - 2, s.rows * CELL - 2);
+      ctx.strokeStyle = VAPOR.magenta;
+      neon(ctx, VAPOR.magenta, 14, () => ctx.strokeRect(1, 1, s.cols * CELL - 2, s.rows * CELL - 2));
 
       // Data nodes.
       for (const n of s.nodes) {
         const px = n.x * CELL + CELL / 2;
         const py = n.y * CELL + CELL / 2;
         const pulse = 0.6 + Math.sin(s.tick * 0.15 + n.x) * 0.3;
-        ctx.fillStyle = `rgba(217,164,65,${pulse})`;
-        ctx.beginPath(); ctx.arc(px, py, CELL * 0.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = `rgba(139,247,255,${pulse})`;
+        neon(ctx, VAPOR.cyan, 12, () => { ctx.beginPath(); ctx.arc(px, py, CELL * 0.5, 0, Math.PI * 2); ctx.fill(); });
       }
 
       const drawCycle = (c: Cycle) => {
@@ -245,12 +249,15 @@ export function createMode(): GameMode<GridState> {
           ctx.strokeStyle = c.alive ? c.color : 'rgba(90,90,90,0.5)';
           ctx.lineWidth = CELL * 0.7;
           ctx.lineJoin = 'round';
-          ctx.beginPath();
-          ctx.moveTo(c.trail[0] * CELL + CELL / 2, c.trail[1] * CELL + CELL / 2);
-          for (let i = 2; i < c.trail.length; i += 2) {
-            ctx.lineTo(c.trail[i] * CELL + CELL / 2, c.trail[i + 1] * CELL + CELL / 2);
-          }
-          ctx.stroke();
+          const path = () => {
+            ctx.beginPath();
+            ctx.moveTo(c.trail[0] * CELL + CELL / 2, c.trail[1] * CELL + CELL / 2);
+            for (let i = 2; i < c.trail.length; i += 2) {
+              ctx.lineTo(c.trail[i] * CELL + CELL / 2, c.trail[i + 1] * CELL + CELL / 2);
+            }
+            ctx.stroke();
+          };
+          if (c.alive) neon(ctx, c.color, 12, path); else path();
         }
         if (c.alive) {
           ctx.fillStyle = '#FFFFFF';
@@ -259,6 +266,7 @@ export function createMode(): GameMode<GridState> {
       };
       for (const r of s.rivals) drawCycle(r);
       drawCycle(s.player);
+      drawScanlines(ctx, w, h, 0.05);
 
       if (s.crashed || s.finished) {
         ctx.fillStyle = 'rgba(0,0,0,0.58)';
