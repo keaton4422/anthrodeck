@@ -188,16 +188,40 @@ const RESTITUTION = 0.32;    // sheet metal crumples; very little bounce comes b
 
 function clampDt(dt: number): number { return Math.max(0, Math.min(dt, 0.05)); }
 
-// Mild perspective for a ~80-degree helicopter chase angle: things near the top of the frame are
-// further away, so they narrow toward the road's centre and shrink. Gameplay maths stays in flat
-// road space — only rendering is projected — which keeps collisions exact.
-const PERSP_TOP = 0.62;
+// Perspective for a ~80-degree helicopter chase angle. This is a RECIPROCAL (1/z) falloff, not a
+// linear ramp: a linear one made the road bend oddly and, worse, made traffic appear to change
+// speed as it came down the screen. Under 1/z, distant things compress and everything accelerates
+// toward the camera the way it actually does.
+//
+// Gameplay maths stays in flat road space — only rendering is projected — so collisions stay exact.
+const CAM_COMPRESS = 0.85;
 export function perspAt(y: number, h: number): number {
-  const t = Math.max(0, Math.min(1, y / h));
-  return PERSP_TOP + (1 - PERSP_TOP) * t;
+  const u = Math.max(0, Math.min(1, (h - y) / h));   // 0 at the bumper, 1 at the far end
+  return 1 / (1 + u * CAM_COMPRESS);
 }
 function projX(x: number, y: number, w: number, h: number): number {
   return w / 2 + (x - w / 2) * perspAt(y, h);
+}
+
+// A road-space band drawn as a polyline: with a curved projection the edges are no longer straight,
+// so sampling keeps them flush with the lane dashes and scenery.
+function fillBand(
+  ctx: CanvasRenderingContext2D,
+  x0: number, x1: number, yTop: number, yBot: number, w: number, h: number,
+) {
+  const STEPS = 16;
+  ctx.beginPath();
+  for (let i = 0; i <= STEPS; i++) {
+    const y = yTop + ((yBot - yTop) * i) / STEPS;
+    const px = projX(x0, y, w, h);
+    if (i === 0) ctx.moveTo(px, y); else ctx.lineTo(px, y);
+  }
+  for (let i = STEPS; i >= 0; i--) {
+    const y = yTop + ((yBot - yTop) * i) / STEPS;
+    ctx.lineTo(projX(x1, y, w, h), y);
+  }
+  ctx.closePath();
+  ctx.fill();
 }
 function roadLeft(w: number): number { return w * 0.15; }
 function roadRight(w: number): number { return w * 0.85; }
@@ -386,18 +410,13 @@ export function createMode(): GameMode<RacerState> {
       ctx.fillStyle = reg.sky;
       ctx.fillRect(0, 0, w, h);
       // Sun on the horizon behind the scenery; the verge only fills below it.
-      const horizon = h * 0.06;   // the road runs almost to the top — this is a chase cam, not a vista
+      const horizon = h * 0.10;   // the road runs nearly to the top — a chase cam, not a vista
       drawSunsetSky(ctx, w, h, horizon, { sun: false });
       ctx.fillStyle = reg.verge;
       ctx.fillRect(0, horizon, w, h - horizon);
       // Road as a trapezoid — narrower at the far end.
       ctx.fillStyle = reg.asphalt;
-      ctx.beginPath();
-      ctx.moveTo(projX(l, horizon, w, h), horizon);
-      ctx.lineTo(projX(r, horizon, w, h), horizon);
-      ctx.lineTo(projX(r, h, w, h), h);
-      ctx.lineTo(projX(l, h, w, h), h);
-      ctx.closePath(); ctx.fill();
+      fillBand(ctx, l, r, horizon, h, w, h);
 
       // Roadside scenery, scrolling with the road.
       const propGap = 190;
@@ -420,7 +439,8 @@ export function createMode(): GameMode<RacerState> {
       ctx.fillStyle = 'rgba(255,255,255,0.012)';
       const band = 90;
       for (let y = horizon + (s.distance % band); y < h; y += band) {
-        ctx.fillRect(projX(l, y, w, h), y, projX(r, y, w, h) - projX(l, y, w, h), band / 2);
+        const yb = Math.min(h, y + band / 2);
+        fillBand(ctx, l, r, y, yb, w, h);
       }
 
       // Guard rails, with posts that stream past faster as throughput rises.
@@ -428,14 +448,8 @@ export function createMode(): GameMode<RacerState> {
       const off = s.distance % postGap;
       ctx.fillStyle = reg.rail;
       neon(ctx, VAPOR.magenta, 8, () => {
-        for (const [ex, sgn] of [[l - 32, -1], [r + 28, 1]] as const) {
-          ctx.beginPath();
-          ctx.moveTo(projX(ex, horizon, w, h), horizon);
-          ctx.lineTo(projX(ex + 4 * sgn, horizon, w, h), horizon);
-          ctx.lineTo(projX(ex + 4 * sgn, h, w, h), h);
-          ctx.lineTo(projX(ex, h, w, h), h);
-          ctx.closePath(); ctx.fill();
-        }
+        fillBand(ctx, l - 32, l - 28, horizon, h, w, h);
+        fillBand(ctx, r + 28, r + 32, horizon, h, w, h);
       });
       ctx.fillStyle = `rgba(204,120,92,${0.3 + speedFrac * 0.4})`;
       const streak = 10 + speedFrac * 40;
@@ -448,14 +462,8 @@ export function createMode(): GameMode<RacerState> {
       // Edge lines + dashed lane dividers.
       ctx.fillStyle = reg.edge;
       neon(ctx, VAPOR.cyan, 6, () => {
-        for (const ex of [l + 2, r - 5]) {
-          ctx.beginPath();
-          ctx.moveTo(projX(ex, horizon, w, h), horizon);
-          ctx.lineTo(projX(ex + 3, horizon, w, h), horizon);
-          ctx.lineTo(projX(ex + 3, h, w, h), h);
-          ctx.lineTo(projX(ex, h, w, h), h);
-          ctx.closePath(); ctx.fill();
-        }
+        fillBand(ctx, l + 2, l + 5, horizon, h, w, h);
+        fillBand(ctx, r - 5, r - 2, horizon, h, w, h);
       });
       ctx.fillStyle = reg.divider;
       const dash = 36;

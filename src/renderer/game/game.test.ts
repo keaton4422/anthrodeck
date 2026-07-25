@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { GAME_MODES, getMode } from './registry';
 import { createMode as createFlight, type FlightState } from './modes/flight';
-import { createMode as createRacer, type RacerState, REGIONS, REGION_LENGTH, regionAt } from './modes/racer';
+import { createMode as createRacer, type RacerState, REGIONS, REGION_LENGTH, regionAt, perspAt } from './modes/racer';
 import { createMode as createGrid, type GridState } from './modes/gridcycles';
 import { createMode as createBelt, type ShooterState } from './modes/shooter';
 import { NEUTRAL_INPUT, EMPTY_TELEMETRY, GameInput, TelemetryFrame, GameIntent } from './types';
@@ -270,6 +270,38 @@ describe('engine runner (cars)', () => {
     const s = stepN(mode, tel({ streaming: true, tokensPerSec: 30 }), 120);
     expect(typeof mode.score?.(s)).toBe('number');
     expect(mode.isOver?.(s)).toBe(false);
+  });
+});
+
+describe('chase camera', () => {
+  const H = 640;
+
+  it('is full scale at the bumper and compresses toward the far end', () => {
+    expect(perspAt(H, H)).toBeCloseTo(1, 3);
+    expect(perspAt(0, H)).toBeLessThan(1);
+    expect(perspAt(0, H)).toBeGreaterThan(0.4);   // still readable, not a pinhole
+  });
+
+  it('is monotonic — no kinks for the eye to catch', () => {
+    let prev = perspAt(0, H);
+    for (let y = 0; y <= H; y += 8) {
+      const k = perspAt(y, H);
+      expect(k).toBeGreaterThanOrEqual(prev - 1e-9);
+      prev = k;
+    }
+  });
+
+  it('falls off reciprocally, not linearly — the midpoint sits below the linear average', () => {
+    // A 1/z camera compresses distance faster than a straight ramp; that difference is exactly
+    // what stops traffic looking like it changes speed as it comes down the screen.
+    const mid = perspAt(H / 2, H);
+    const linearMid = (perspAt(0, H) + perspAt(H, H)) / 2;
+    expect(mid).toBeLessThan(linearMid);
+  });
+
+  it('clamps outside the frame instead of inverting', () => {
+    expect(perspAt(-500, H)).toBeGreaterThan(0);
+    expect(perspAt(H * 3, H)).toBeCloseTo(1, 3);
   });
 });
 
