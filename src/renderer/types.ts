@@ -72,6 +72,14 @@ export interface LocalVoiceStatus {
   reason?: string;
 }
 
+export interface PairingSession {
+  active: boolean;
+  url: string | null;
+  code: string | null;
+  expiresAt: number | null;
+  error?: string;
+}
+
 export interface PreviewStatus {
   running: boolean;
   url: string | null;
@@ -145,6 +153,10 @@ declare global {
       flashcardsGet: () => Promise<Flashcard[]>;
       flashcardGenerate: () => Promise<Flashcard | null>;
       flashcardsClear: () => Promise<void>;
+      // API key pairing
+      pairStart: () => Promise<PairingSession>;
+      pairStop: () => Promise<PairingSession>;
+      onPairReceived: (cb: () => void) => () => void;
       // Updater
       updaterGetVersion: () => Promise<string>;
       updaterCheck: () => Promise<unknown>;

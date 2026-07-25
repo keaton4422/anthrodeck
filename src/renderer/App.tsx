@@ -398,6 +398,10 @@ export default function App() {
         <SettingsPanel
           apiKey={apiKey}
           onSave={async (key) => { await setApiKey(key); setShowSettings(false); }}
+          onPaired={async () => {
+            const k = (await window.electronAPI.storeGet('apiKey')) as string | undefined;
+            if (k) await setApiKey(k);
+          }}
           onClear={handleClear}
           onClose={() => setShowSettings(false)}
           model={model}

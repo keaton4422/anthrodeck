@@ -86,13 +86,44 @@ Input presents a standard gamepad and everything lights up. It's also the only w
 optional **gyro → right stick** mapping that gives the flight mode tilt steering (add a Gyro action
 in the controller layout and bind it to Joystick Move).
 
-Text entry — including the API key — uses the Steam on-screen keyboard: **STEAM + X**.
+Text entry uses the Steam on-screen keyboard: **STEAM + X**. For the API key specifically, don't —
+use pairing (below) instead.
 
 ## Signing in
 
-There's no account. Open **Settings (⚙)** and paste an **Anthropic API key** from
+There's no account, and no "sign in with Google" — the Anthropic API authenticates with an API key,
+not an OAuth identity. You can *log into* console.anthropic.com with Google, but what you leave with
+is a key. Open **Settings (⚙)** and give AnthroDeck that key from
 [console.anthropic.com](https://console.anthropic.com). It's stored locally on the Deck via
 `electron-store` and never leaves the device except in calls to Anthropic's API.
+
+### Pairing — get the key onto the Deck without typing it
+
+An `sk-ant-...` key is 100-odd case-sensitive characters, and the Deck's on-screen keyboard makes
+that genuinely miserable. So don't type it:
+
+1. **Settings → "Send key from my phone or PC"**. The Deck shows a QR code, a URL and a 6-digit code.
+2. Scan the QR (or open the URL) on a phone or laptop that already has the key on its clipboard.
+3. Paste the key, enter the 6-digit code, hit send. Done — the Deck saves it immediately.
+
+The pairing window is deliberately narrow, because it accepts a secret over the network:
+
+| Guard | Behaviour |
+| --- | --- |
+| Lifetime | 5 minutes, then the server shuts itself down |
+| Teardown | Closes on success, on cancel, on timeout, and when the app quits |
+| Code gate | 6 random digits shown only on the Deck's screen |
+| Brute force | 5 wrong codes closes the window entirely |
+| Key handling | Validated in main and written straight to `electron-store` — never touches the renderer |
+
+It's plaintext HTTP on your **local network** — fine at home, not on shared or public Wi-Fi. If
+you're somewhere untrusted, type the key by hand or use `STEAM + X` with a paired Bluetooth keyboard.
+
+**Two lower-tech alternatives** if you'd rather not run a server at all:
+
+- **Desktop Mode + clipboard.** Switch to Desktop Mode, open a browser, log into the Anthropic
+  console, copy the key, and paste it into AnthroDeck with `Ctrl+V`. No typing either.
+- **A Bluetooth keyboard.** Pairs in Deck settings and works everywhere in the UI.
 
 ## Updating
 

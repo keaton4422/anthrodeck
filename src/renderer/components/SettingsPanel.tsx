@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useUpdater } from '../hooks/useUpdater';
 import { LocalVoiceStatus } from '../types';
+import { PairKeyPanel } from './PairKeyPanel';
 
 interface Props {
   apiKey: string;
   onSave: (key: string) => void;
+  // A paired key is written to electron-store by MAIN; this asks the app to re-read it.
+  onPaired: () => void;
   onClear: () => void;
   onClose: () => void;
   model: string;
@@ -38,6 +41,7 @@ const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 export function SettingsPanel({
   apiKey,
   onSave,
+  onPaired,
   onClear,
   onClose,
   model,
@@ -174,6 +178,8 @@ export function SettingsPanel({
           >
             {saved ? '✓ Saved!' : 'Save API Key'}
           </button>
+
+          <PairKeyPanel onPaired={onPaired} />
         </section>
 
         <Divider />

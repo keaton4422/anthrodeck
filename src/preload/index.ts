@@ -156,6 +156,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   voiceDownloadModel: () => ipcRenderer.invoke('voice:download-model'),
   voiceTranscribe: (wav: ArrayBuffer) => ipcRenderer.invoke('voice:transcribe', wav),
 
+  // ── API key pairing ───────────────────────────────────────────────────────
+  pairStart: () => ipcRenderer.invoke('pair:start'),
+  pairStop: () => ipcRenderer.invoke('pair:stop'),
+  onPairReceived: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on('pair:received', handler);
+    return () => ipcRenderer.removeListener('pair:received', handler);
+  },
+
   // ── Auto-updater ──────────────────────────────────────────────────────────
   updaterGetVersion: () => ipcRenderer.invoke('updater:get-version'),
   updaterCheck: () => ipcRenderer.invoke('updater:check'),

@@ -17,6 +17,7 @@ import {
   detectDevPort,
 } from './previewServer';
 import { pickLanIp } from './network';
+import { startPairing, stopPairing } from './pairingServer';
 import {
   getLocalVoiceStatus,
   downloadLocalVoiceModel,
@@ -285,6 +286,21 @@ ipcMain.handle('voice:transcribe', async (_, wav: ArrayBuffer) => {
   }
 });
 
+// ─── Key pairing IPC ──────────────────────────────────────────────────────────
+// Saves the key straight into electron-store in MAIN, so a paired key never has to travel back
+// through the renderer just to be persisted.
+ipcMain.handle('pair:start', async () => {
+  try {
+    return await startPairing((key) => {
+      store.set('apiKey', key);
+      mainWindow?.webContents.send('pair:received');
+    });
+  } catch (e) {
+    return { active: false, url: null, code: null, expiresAt: null, error: (e as Error).message };
+  }
+});
+ipcMain.handle('pair:stop', () => stopPairing());
+
 // ─── Flashcards IPC ───────────────────────────────────────────────────────────
 ipcMain.handle('flashcards:get', () => getFlashcards(store.get('projectPath', null) as string | null));
 ipcMain.handle('flashcards:clear', () => { clearFlashcards(store.get('projectPath', null) as string | null); });
@@ -367,7 +383,7 @@ app.whenReady().then(() => {
   setupAutoUpdater();
 });
 
-app.on('before-quit', () => { void stopPreview(); });
+app.on('before-quit', () => { void stopPreview(); void stopPairing(); });
 app.on('window-all-closed', () => { void stopPreview(); if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) { createWindow(); setupAutoUpdater(); }

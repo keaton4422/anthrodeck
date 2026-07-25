@@ -1,6 +1,6 @@
 {
   "name": "anthrodeck",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "description": "Steam Deck AI Coding Assistant",
   "main": ".vite/build/main/index.js",
   "scripts": {
