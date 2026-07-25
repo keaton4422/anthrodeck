@@ -59,6 +59,24 @@ export const NEUTRAL_INPUT: GameInput = {
   fire: false, boost: false, up: false, down: false, left: false, right: false,
 };
 
+// ─── Intents: how a game acts ON the agent session ────────────────────────────
+//
+// A mode isn't only a visualization — destroying the right object can do real work. `step()` stays
+// pure by pushing intents onto its own state; the game loop drains and dispatches them.
+//
+// SAFETY: only non-destructive intents exist here on purpose. Approving a file write or committing
+// code from a game would mean a stray flick of the stick could ship a change — so those are
+// deliberately not exposed. Pruning stale context is reversible and is the "clean up extra data"
+// job the pilot can genuinely help with.
+export type GameIntent =
+  | { type: 'prune-stale' }        // drop one agent-suggested superseded context item
+  | { type: 'focus-question' };    // surface a pending ask_user to the pilot
+
+// States that can act on the session carry an intent queue. The loop clears it after dispatch.
+export interface IntentCarrier {
+  intents?: GameIntent[];
+}
+
 export interface GameMode<S = unknown> {
   id: string;
   name: string;
@@ -70,4 +88,7 @@ export interface GameMode<S = unknown> {
   render(ctx: CanvasRenderingContext2D, state: S, width: number, height: number): void;
   // Short status line for the overlay HUD (score / speed / state).
   hud(state: S): string;
+  // Optional scoring contract. A mode that implements both gets persistent high scores for free.
+  score?(state: S): number;
+  isOver?(state: S): boolean;
 }

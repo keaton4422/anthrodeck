@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { GameMode, GameInput, NEUTRAL_INPUT } from '../game/types';
+import { GameMode, GameInput, GameIntent, NEUTRAL_INPUT } from '../game/types';
 import { TelemetryController } from './useTelemetry';
 
 const DEAD = 0.18;
@@ -16,7 +16,14 @@ export function useGameLoop(
   active: boolean,
   paused: boolean,
   restartKey: number,
+  onIntents?: (intents: GameIntent[]) => void,
+  onGameOver?: (score: number) => void,
 ) {
+  const onIntentsRef = useRef(onIntents);
+  onIntentsRef.current = onIntents;
+  const onGameOverRef = useRef(onGameOver);
+  onGameOverRef.current = onGameOver;
+  const reportedRef = useRef(false);
   const keys = useRef<Record<string, boolean>>({});
   const stateRef = useRef<unknown>(null);
   const hudRef = useRef<string>('');
@@ -40,6 +47,7 @@ export function useGameLoop(
     const canvas = canvasRef.current;
     if (!mode || !canvas) return;
     stateRef.current = mode.init(canvas.width, canvas.height);
+    reportedRef.current = false;
   }, [mode, restartKey, canvasRef]);
 
   useEffect(() => {
@@ -97,6 +105,20 @@ export function useGameLoop(
             const tel = telemetry.getFrame();
             stateRef.current = mode.step(stateRef.current as never, input, tel, dt);
             hudRef.current = mode.hud(stateRef.current as never);
+
+            // Drain any intents the mode raised this step — this is how destroying the right thing
+            // in a game does real work on the session (see game/types.ts).
+            const carrier = stateRef.current as { intents?: GameIntent[] };
+            if (carrier?.intents?.length) {
+              onIntentsRef.current?.(carrier.intents);
+              stateRef.current = { ...(stateRef.current as object), intents: [] };
+            }
+
+            // Report the final score once, the first frame the run ends.
+            if (!reportedRef.current && mode.isOver?.(stateRef.current as never)) {
+              reportedRef.current = true;
+              onGameOverRef.current?.(mode.score?.(stateRef.current as never) ?? 0);
+            }
           }
           mode.render(ctx, stateRef.current as never, canvas.width, canvas.height);
         }

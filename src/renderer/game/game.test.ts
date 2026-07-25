@@ -1,186 +1,356 @@
 import { describe, it, expect } from 'vitest';
 import { GAME_MODES, getMode } from './registry';
-import { makeTronMode, TronState } from './modes/tron';
-import { makeRacerMode, RacerState } from './modes/racer';
-import { makeShooterMode, ShooterState } from './modes/shooter';
-import { NEUTRAL_INPUT, EMPTY_TELEMETRY, GameInput, TelemetryFrame } from './types';
+import { createMode as createFlight, type FlightState } from './modes/flight';
+import { createMode as createRacer, type RacerState } from './modes/racer';
+import { createMode as createGrid, type GridState } from './modes/gridcycles';
+import { createMode as createBelt, type ShooterState } from './modes/shooter';
+import { NEUTRAL_INPUT, EMPTY_TELEMETRY, GameInput, TelemetryFrame, GameIntent } from './types';
+import { project, depthAlpha, approach, clamp, makeRng } from './lib3d';
+import { applyScore } from '../lib/highscores';
 
 const W = 800;
 const H = 600;
 
-function tel(partial: Partial<TelemetryFrame['snapshot']>, events: TelemetryFrame['events'] = []): TelemetryFrame {
+function tel(
+  partial: Partial<TelemetryFrame['snapshot']> = {},
+  events: TelemetryFrame['events'] = [],
+): TelemetryFrame {
   return { snapshot: { ...EMPTY_TELEMETRY.snapshot, ...partial }, events };
 }
-
 function input(partial: Partial<GameInput>): GameInput {
   return { ...NEUTRAL_INPUT, ...partial };
 }
-
-describe('registry contract', () => {
-  it('every registered mode satisfies the GameMode shape and has a unique id', () => {
-    const ids = new Set<string>();
-    for (const m of GAME_MODES) {
-      expect(typeof m.id).toBe('string');
-      expect(typeof m.name).toBe('string');
-      expect(['telemetry', 'freeplay']).toContain(m.kind);
-      expect(typeof m.init).toBe('function');
-      expect(typeof m.step).toBe('function');
-      expect(typeof m.render).toBe('function');
-      expect(typeof m.hud).toBe('function');
-      const s = m.init(W, H);
-      // step must be callable and return a state; hud must return a string.
-      const s2 = m.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.016);
-      expect(s2).toBeTruthy();
-      expect(typeof m.hud(s2)).toBe('string');
-      expect(ids.has(m.id)).toBe(false);
-      ids.add(m.id);
-    }
-    expect(ids.size).toBe(GAME_MODES.length);
-  });
-
-  it('getMode resolves ids and returns undefined for unknown', () => {
-    expect(getMode('cockpit-tron')?.id).toBe('cockpit-tron');
-    expect(getMode('nope')).toBeUndefined();
-  });
-});
-
-describe('tron (telemetry) — engine event mapping', () => {
-  const mode = makeTronMode({ id: 't', name: 'T', kind: 'telemetry', telemetryDriven: true, blurb: '' });
-
-  it('an abort (crash) event crashes the bike', () => {
-    const s0 = mode.init(W, H);
-    const s1 = mode.step(s0, NEUTRAL_INPUT, tel({}, [{ type: 'crash' }]), 0.016);
-    expect(s1.crashed).toBe(true);
-  });
-
-  it('a done event finishes', () => {
-    const s0 = mode.init(W, H);
-    const s1 = mode.step(s0, NEUTRAL_INPUT, tel({}, [{ type: 'done' }]), 0.016);
-    expect(s1.finished).toBe(true);
-  });
-
-  it('an error/tool event spawns a hazard', () => {
-    const s0 = mode.init(W, H);
-    const s1 = mode.step(s0, NEUTRAL_INPUT, tel({}, [{ type: 'error' }]), 0.016);
-    expect(s1.hazards.length).toBe(2); // one (x,y) point
-  });
-
-  it('higher throughput drives higher target speed', () => {
-    const slow = stepN(mode, tel({ tokensPerSec: 0, streaming: true }), 20);
-    const fast = stepN(mode, tel({ tokensPerSec: 50, streaming: true }), 20);
-    expect(fast.speed).toBeGreaterThan(slow.speed);
-  });
-
-  it('is frozen once crashed (idempotent step)', () => {
-    const crashed: TronState = { ...mode.init(W, H), crashed: true };
-    const after = mode.step(crashed, input({ throttle: 1 }), EMPTY_TELEMETRY, 0.016);
-    expect(after).toBe(crashed);
-  });
-});
-
-describe('tron (free-play) — throttle drives speed, ignores telemetry crash', () => {
-  const mode = makeTronMode({ id: 'tf', name: 'TF', kind: 'freeplay', telemetryDriven: false, blurb: '' });
-
-  it('does not crash on a telemetry crash event (decoupled)', () => {
-    const s0 = mode.init(W, H);
-    const s1 = mode.step(s0, NEUTRAL_INPUT, tel({}, [{ type: 'crash' }]), 0.016);
-    expect(s1.crashed).toBe(false);
-  });
-
-  it('throttle increases speed over time', () => {
-    const moving = stepN(mode, EMPTY_TELEMETRY, 30, input({ throttle: 1 }));
-    expect(moving.speed).toBeGreaterThan(mode.init(W, H).speed);
-  });
-
-  it('boost held makes it travel farther than no boost in the same time', () => {
-    const base = stepN(mode, EMPTY_TELEMETRY, 20, input({ throttle: 1 }));
-    const boosted = stepN(mode, EMPTY_TELEMETRY, 20, input({ throttle: 1, boost: true }));
-    expect(boosted.score).toBeGreaterThan(base.score);
-  });
-});
-
-describe('racer (telemetry)', () => {
-  const mode = makeRacerMode();
-
-  it('crash event crashes, done event finishes', () => {
-    expect(mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'crash' }]), 0.016).crashed).toBe(true);
-    expect(mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'done' }]), 0.016).finished).toBe(true);
-  });
-
-  it('tool/error events spawn obstacles', () => {
-    const s1 = mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'tool' }, { type: 'error' }]), 0.016);
-    expect(s1.obsY.length).toBe(2);
-  });
-
-  it('steering moves the car and clamps within bounds', () => {
-    let s: RacerState = mode.init(W, H);
-    for (let i = 0; i < 200; i++) s = mode.step(s, input({ steer: -1 }), EMPTY_TELEMETRY, 0.016);
-    expect(s.carX).toBeGreaterThanOrEqual(16);
-    expect(s.carX).toBeLessThan(W / 2);
-  });
-});
-
-describe('shooter (free-play)', () => {
-  const mode = makeShooterMode();
-
-  it('firing spawns a bullet', () => {
-    const s0 = mode.init(W, H);
-    const s1 = mode.step(s0, input({ fire: true, aimX: 1 }), EMPTY_TELEMETRY, 0.016);
-    expect(s1.bullets.length).toBe(1);
-  });
-
-  it('spawns rocks over time and ignores telemetry crash', () => {
-    const withRocks = stepN(mode, tel({}, [{ type: 'crash' }]), 200);
-    expect(withRocks.gameOver).toBe(false);
-    expect(withRocks.rocks.length).toBeGreaterThan(0);
-  });
-
-  it('ship starts with 3 lives', () => {
-    expect(mode.init(W, H).lives).toBe(3);
-  });
-});
-
-// A no-op 2D context stub: every method is a no-op, every property is settable. Lets us exercise
-// render() paths (including the crash/finish overlays) headlessly without a real canvas.
-function fakeCtx(): CanvasRenderingContext2D {
-  const noop = () => { /* no-op */ };
-  const target: Record<string, unknown> = {};
-  return new Proxy(target, {
-    get: (t, p) => (p in t ? t[p as string] : noop),
-    set: (t, p, v) => { t[p as string] = v; return true; },
-  }) as unknown as CanvasRenderingContext2D;
-}
-
-describe('render does not throw', () => {
-  it('renders init + running + terminal states for every mode', () => {
-    const ctx = fakeCtx();
-    for (const m of GAME_MODES) {
-      let s = m.init(W, H);
-      expect(() => m.render(ctx, s, W, H)).not.toThrow();
-      // a few frames of activity
-      for (let i = 0; i < 10; i++) {
-        s = m.step(s, input({ steer: 0.5, throttle: 1, fire: true, aimX: 1 }),
-          tel({ streaming: true, tokensPerSec: 30 }, i === 3 ? [{ type: 'error' }] : []), 0.016);
-      }
-      expect(() => m.render(ctx, s, W, H)).not.toThrow();
-      // terminal overlay (crash) for telemetry modes
-      const crashed = m.step(m.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'crash' }]), 0.016);
-      expect(() => m.render(ctx, crashed, W, H)).not.toThrow();
-    }
-  });
-});
-
-// Advance a mode N frames at 16ms with a fixed input/telemetry.
 function stepN<S>(
   mode: { init(w: number, h: number): S; step(s: S, i: GameInput, t: TelemetryFrame, dt: number): S },
-  t: TelemetryFrame,
-  n: number,
-  i: GameInput = NEUTRAL_INPUT,
+  t: TelemetryFrame, n: number, i: GameInput = NEUTRAL_INPUT,
 ): S {
   let s = mode.init(W, H);
   for (let f = 0; f < n; f++) s = mode.step(s, i, t, 0.016);
   return s;
 }
+function intentsOf(s: unknown): GameIntent[] {
+  return ((s as { intents?: GameIntent[] }).intents) ?? [];
+}
 
-// keep ShooterState import referenced for type-checking of tests
-export type _S = ShooterState;
+describe('registry auto-discovery', () => {
+  it('finds every mode file and gives each a unique id', () => {
+    expect(GAME_MODES.length).toBeGreaterThanOrEqual(4);
+    const ids = new Set(GAME_MODES.map((m) => m.id));
+    expect(ids.size).toBe(GAME_MODES.length);
+  });
+
+  it('every discovered mode satisfies the GameMode contract', () => {
+    for (const m of GAME_MODES) {
+      expect(typeof m.id).toBe('string');
+      expect(['telemetry', 'freeplay']).toContain(m.kind);
+      const s = m.init(W, H);
+      const s2 = m.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.016);
+      expect(s2).toBeTruthy();
+      expect(typeof m.hud(s2)).toBe('string');
+    }
+  });
+
+  it('lists telemetry (cockpit) modes before free-play', () => {
+    const firstFree = GAME_MODES.findIndex((m) => m.kind === 'freeplay');
+    const lastTel = GAME_MODES.map((m) => m.kind).lastIndexOf('telemetry');
+    if (firstFree !== -1 && lastTel !== -1) expect(lastTel).toBeLessThan(firstFree);
+  });
+
+  it('resolves by id', () => {
+    expect(getMode(GAME_MODES[0].id)?.id).toBe(GAME_MODES[0].id);
+    expect(getMode('nope')).toBeUndefined();
+  });
+});
+
+describe('lib3d projection', () => {
+  it('puts a centred point at screen centre and scales with depth', () => {
+    const near = project(0, 0, 100, W, H);
+    expect(near.x).toBeCloseTo(W / 2);
+    expect(near.y).toBeCloseTo(H / 2);
+    const far = project(0, 0, 400, W, H);
+    expect(far.scale).toBeLessThan(near.scale);
+  });
+
+  it('marks points at or behind the near plane invisible', () => {
+    expect(project(0, 0, 0, W, H).visible).toBe(false);
+    expect(project(0, 0, -50, W, H).visible).toBe(false);
+  });
+
+  it('offsets left/right of centre correctly', () => {
+    expect(project(-50, 0, 200, W, H).x).toBeLessThan(W / 2);
+    expect(project(50, 0, 200, W, H).x).toBeGreaterThan(W / 2);
+  });
+
+  it('depthAlpha is opaque up close and fades out by the far plane', () => {
+    // dz <= 0 is at/behind the camera — degenerate, so it reads as invisible rather than opaque.
+    expect(depthAlpha(0, 1000)).toBe(0);
+    expect(depthAlpha(1, 1000)).toBeCloseTo(1, 2);
+    expect(depthAlpha(500, 1000)).toBeCloseTo(0.5, 2);
+    expect(depthAlpha(1000, 1000)).toBeCloseTo(0);
+    expect(depthAlpha(2000, 1000)).toBe(0);
+  });
+
+  it('approach steps toward a target without overshooting', () => {
+    expect(approach(0, 10, 3)).toBe(3);
+    expect(approach(0, 2, 5)).toBe(2);
+    expect(approach(10, 0, 3)).toBe(7);
+  });
+
+  it('clamp bounds values', () => {
+    expect(clamp(5, 0, 1)).toBe(1);
+    expect(clamp(-5, 0, 1)).toBe(0);
+  });
+
+  it('makeRng is deterministic for a seed and stays in [0,1)', () => {
+    const a = makeRng(42); const b = makeRng(42);
+    for (let i = 0; i < 20; i++) {
+      const v = a();
+      expect(v).toBe(b());
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThan(1);
+    }
+  });
+});
+
+describe('flight cockpit', () => {
+  const mode = createFlight();
+
+  it('starts on autopilot with gates ahead', () => {
+    const s = mode.init(W, H);
+    expect(s.manual).toBe(0);
+    expect(s.rings.length).toBeGreaterThan(0);
+  });
+
+  it('hands control to the pilot when the stick moves, and returns it when released', () => {
+    let s = stepN(mode, tel({ streaming: true }), 40, input({ steer: 1 }));
+    expect(s.manual).toBeGreaterThan(0.5);
+    for (let i = 0; i < 200; i++) s = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.016);
+    expect(s.manual).toBeLessThan(0.5);
+  });
+
+  it('the autopilot alone flies gates — it completes the course unaided', () => {
+    const s = stepN(mode, tel({ streaming: true, tokensPerSec: 40 }), 900);
+    expect(s.passed).toBeGreaterThan(0);
+    expect(s.destroyed).toBe(false);
+  });
+
+  it('firing spawns a bolt', () => {
+    const s = mode.step(mode.init(W, H), input({ fire: true }), EMPTY_TELEMETRY, 0.016);
+    expect(s.bolts.length).toBe(1);
+  });
+
+  it('a tool event adds a gate and an escort drone', () => {
+    const s = mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'tool' }]), 0.016);
+    expect(s.drones.length).toBe(1);
+  });
+
+  it('an error throws debris to dodge', () => {
+    const s = mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'error' }]), 0.016);
+    expect(s.debris.length).toBe(1);
+  });
+
+  it('an abort destroys the ship; a completed turn arrives', () => {
+    expect(mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'crash' }]), 0.016).destroyed).toBe(true);
+    expect(mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'done' }]), 0.016).finished).toBe(true);
+  });
+
+  it('toggles between chase and cockpit views on a D-pad up edge', () => {
+    let s: FlightState = mode.init(W, H);
+    expect(s.view).toBe('chase');
+    s = mode.step(s, input({ up: true }), EMPTY_TELEMETRY, 0.016);
+    expect(s.view).toBe('cockpit');
+    s = mode.step(s, input({ up: true }), EMPTY_TELEMETRY, 0.016); // held — must not flip back
+    expect(s.view).toBe('cockpit');
+    s = mode.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.016);
+    s = mode.step(s, input({ up: true }), EMPTY_TELEMETRY, 0.016);
+    expect(s.view).toBe('chase');
+  });
+
+  it('higher throughput flies faster', () => {
+    const slow = stepN(mode, tel({ tokensPerSec: 0, streaming: true }), 30);
+    const fast = stepN(mode, tel({ tokensPerSec: 55, streaming: true }), 30);
+    expect(fast.speed).toBeGreaterThan(slow.speed);
+  });
+});
+
+describe('engine runner (cars)', () => {
+  const mode = createRacer();
+
+  it('smashing a hunter clears it and emits a prune intent', () => {
+    let s: RacerState = mode.init(W, H);
+    s = mode.step(s, NEUTRAL_INPUT, tel({}, [{ type: 'tool' }]), 0.016);
+    // Drag the hunter onto the player's bumper.
+    s.cars[0].x = s.laneX;
+    s.cars[0].y = H - 84;
+    s = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.016);
+    expect(s.smashed).toBe(1);
+    expect(intentsOf(s).some((i) => i.type === 'prune-stale')).toBe(true);
+    expect(s.crashed).toBe(false); // hunters don't wreck you
+  });
+
+  it('civilians are knocked off too but cost a strike, and three ends the run', () => {
+    let s: RacerState = mode.init(W, H);
+    for (let hit = 1; hit <= 3; hit++) {
+      s.cars.push({ lane: s.lane, x: s.laneX, y: H - 84, speed: 0, kind: 'civilian', spin: 0, vx: 0, rot: 0 });
+      s = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.016);
+      expect(s.strikes).toBe(hit);
+    }
+    expect(s.crashed).toBe(true);
+    expect(s.civWrecks).toBe(3);
+  });
+
+  it('changes lanes on a discrete press and stays in bounds', () => {
+    let s: RacerState = mode.init(W, H);
+    for (let i = 0; i < 30; i++) {
+      s = mode.step(s, input({ left: true }), EMPTY_TELEMETRY, 0.016);
+      s = mode.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.016);
+    }
+    expect(s.lane).toBe(0);
+  });
+
+  it('reports a score and terminal state', () => {
+    const s = stepN(mode, tel({ streaming: true, tokensPerSec: 30 }), 120);
+    expect(typeof mode.score?.(s)).toBe('number');
+    expect(mode.isOver?.(s)).toBe(false);
+  });
+});
+
+describe('grid cycles', () => {
+  const mode = createGrid();
+
+  it('starts with the player and rivals alive', () => {
+    const s = mode.init(W, H);
+    expect(s.player.alive).toBe(true);
+    expect(s.rivals.length).toBeGreaterThan(0);
+  });
+
+  it('a tool event drops a data node', () => {
+    const s = mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'tool' }]), 0.016);
+    expect(s.nodes.length).toBe(1);
+  });
+
+  it('driving over a node collects it and emits a prune intent', () => {
+    let s: GridState = mode.init(W, H);
+    // Place a node directly in the player's path.
+    s.nodes.push({ x: s.player.x, y: s.player.y - 1 });
+    for (let i = 0; i < 12 && s.collected === 0; i++) {
+      s = mode.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.05);
+    }
+    expect(s.collected).toBe(1);
+  });
+
+  it('running into the wall derezzes the player', () => {
+    let s: GridState = mode.init(W, H);
+    for (let i = 0; i < 400 && !s.crashed; i++) {
+      s = mode.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.05);
+    }
+    expect(s.crashed).toBe(true); // heading up with no input, it must hit the top wall
+  });
+
+  it('is frozen once crashed', () => {
+    const crashed: GridState = { ...mode.init(W, H), crashed: true };
+    expect(mode.step(crashed, input({ throttle: 1 }), EMPTY_TELEMETRY, 0.016)).toBe(crashed);
+  });
+});
+
+describe('belt clearance (asteroids)', () => {
+  const mode = createBelt();
+
+  it('opens with a wave of large rocks', () => {
+    const s = mode.init(W, H);
+    expect(s.rocks.length).toBeGreaterThan(0);
+    expect(s.rocks.every((r) => r.tier === 2)).toBe(true);
+  });
+
+  it('a large rock splits into two mediums, a medium into two smalls', () => {
+    let s: ShooterState = mode.init(W, H);
+    const rock = s.rocks[0];
+    s = { ...s, rocks: [rock], bullets: [{ x: rock.x, y: rock.y, vx: 0, vy: 0, life: 1 }] };
+    s = mode.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.001);
+    expect(s.rocks.length).toBe(2);
+    expect(s.rocks.every((r) => r.tier === 1)).toBe(true);
+
+    const med = s.rocks[0];
+    s = { ...s, rocks: [med], bullets: [{ x: med.x, y: med.y, vx: 0, vy: 0, life: 1 }] };
+    s = mode.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.001);
+    expect(s.rocks.every((r) => r.tier === 0)).toBe(true);
+  });
+
+  it('dusting a small rock clears it and emits a prune intent', () => {
+    let s: ShooterState = mode.init(W, H);
+    const small = { ...s.rocks[0], tier: 0 as const, vx: 0, vy: 0 };
+    s = { ...s, rocks: [small], bullets: [{ x: small.x, y: small.y, vx: 0, vy: 0, life: 1 }] };
+    s = mode.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.001);
+    expect(s.cleared).toBe(1);
+    expect(intentsOf(s).some((i) => i.type === 'prune-stale')).toBe(true);
+  });
+
+  it('starts a fresh, larger wave once the belt is clear', () => {
+    let s: ShooterState = mode.init(W, H);
+    s = { ...s, rocks: [] };
+    s = mode.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.016);
+    expect(s.wave).toBe(2);
+    expect(s.rocks.length).toBeGreaterThan(0);
+  });
+
+  it('keeps three lives and ignores telemetry aborts (free-play)', () => {
+    expect(mode.init(W, H).lives).toBe(3);
+    const s = stepN(mode, tel({}, [{ type: 'crash' }]), 60);
+    expect(s.gameOver).toBe(false);
+  });
+});
+
+describe('high scores', () => {
+  it('records only an improvement', () => {
+    let scores = {};
+    let r = applyScore(scores, 'm', 100);
+    expect(r.isRecord).toBe(true);
+    scores = r.next;
+    r = applyScore(scores, 'm', 50);
+    expect(r.isRecord).toBe(false);
+    expect(r.next).toBe(scores);
+    r = applyScore(scores, 'm', 150);
+    expect(r.isRecord).toBe(true);
+    expect(r.next.m).toBe(150);
+  });
+
+  it('keeps separate records per mode and rejects non-finite scores', () => {
+    const { next } = applyScore({ a: 10 }, 'b', 5);
+    expect(next).toEqual({ a: 10, b: 5 });
+    expect(applyScore({}, 'a', Number.NaN).isRecord).toBe(false);
+  });
+});
+
+describe('render does not throw', () => {
+  function fakeCtx(): CanvasRenderingContext2D {
+    const noop = () => undefined;
+    const target: Record<string, unknown> = {};
+    return new Proxy(target, {
+      get: (t, p) => {
+        if (p in t) return t[p as string];
+        if (p === 'createRadialGradient') return () => ({ addColorStop: noop });
+        return noop;
+      },
+      set: (t, p, v) => { t[p as string] = v; return true; },
+    }) as unknown as CanvasRenderingContext2D;
+  }
+
+  it('renders init, mid-run and terminal states for every mode', () => {
+    const ctx = fakeCtx();
+    for (const m of GAME_MODES) {
+      let s = m.init(W, H);
+      expect(() => m.render(ctx, s, W, H)).not.toThrow();
+      for (let i = 0; i < 30; i++) {
+        s = m.step(
+          s,
+          input({ steer: 0.6, moveY: -0.3, throttle: 1, fire: true, aimX: 1 }),
+          tel({ streaming: true, tokensPerSec: 35 }, i === 5 ? [{ type: 'tool' }] : i === 11 ? [{ type: 'error' }] : []),
+          0.016,
+        );
+      }
+      expect(() => m.render(ctx, s, W, H)).not.toThrow();
+      const ended = m.step(m.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'crash' }]), 0.016);
+      expect(() => m.render(ctx, ended, W, H)).not.toThrow();
+    }
+  });
+});

@@ -1,194 +1,300 @@
-import { GameMode, GameInput, TelemetryFrame } from '../types';
+import { GameMode, GameInput, TelemetryFrame, GameIntent, IntentCarrier } from '../types';
 
-// Telemetry cockpit "engine room" racer. Top-down dodger: your speed tracks the engine's token
-// throughput, obstacles drop from tool calls and errors, an approved write boosts you, an abort
-// crashes you, and a completed turn is the checkered flag. Playing it = watching the engine run.
+// ENGINE RUNNER — you drive a blue JDM-style hero coupe (long hood, low roof, big rear wing;
+// evoked, not badged — no marks or model names).
+//
+// RED cars are stale context hunting you down. Ram one and you SMASH IT OFF THE ROAD: it spins to
+// the shoulder, and the mode emits `prune-stale` so the app really does drop a superseded item from
+// the next request. GREY cars are ordinary traffic — hit one of those and you wreck. So the game is
+// weaving through traffic to hunt the reds, and every red you put in the weeds is genuine cleanup.
 
-export interface RacerState {
+const LANES = 4;
+
+type CarKind = 'hunter' | 'civilian';
+
+interface Car {
+  lane: number;
+  x: number;        // px — hunters drift between lanes to line you up
+  y: number;
+  speed: number;    // closing speed relative to the road
+  kind: CarKind;
+  spin: number;     // >0 = knocked off, spinning away
+  vx: number;       // lateral velocity once knocked
+  rot: number;
+}
+
+export interface RacerState extends IntentCarrier {
   w: number;
   h: number;
-  carX: number;
+  lane: number;
+  laneX: number;
   speed: number;
-  obsX: number[];
-  obsY: number[];
+  cars: Car[];
   crashed: boolean;
   finished: boolean;
   boostT: number;
   distance: number;
+  smashed: number;
+  civWrecks: number;
+  strikes: number;
+  score: number;
   spawnAcc: number;
+  prevLeft: boolean;
+  prevRight: boolean;
   tick: number;
+  intents: GameIntent[];
 }
 
-const BASE_SPEED = 120;
-const MAX_SPEED = 520;
-const STEER_SPEED = 320;
+const BASE_SPEED = 160;
+const MAX_SPEED = 600;
 const BOOST_TIME = 0.7;
 const BOOST_MULT = 1.7;
-const CAR_Y_FROM_BOTTOM = 46;
-const HIT_R = 22;
-const SPAWN_DIST = 130;
+const CAR_Y_FROM_BOTTOM = 84;
+const CAR_W = 28;
+const CAR_H = 50;
+const SPAWN_DIST = 200;
 
-function clampDt(dt: number): number {
-  return Math.max(0, Math.min(dt, 0.05));
+function clampDt(dt: number): number { return Math.max(0, Math.min(dt, 0.05)); }
+function roadLeft(w: number): number { return w * 0.15; }
+function roadRight(w: number): number { return w * 0.85; }
+export function laneCenter(w: number, lane: number): number {
+  const l = roadLeft(w);
+  return l + ((roadRight(w) - l) / LANES) * (lane + 0.5);
 }
 
-function spawnX(w: number, tick: number): number {
-  return 20 + ((tick * 97) % Math.max(1, w - 40));
-}
-
-export function makeRacerMode(): GameMode<RacerState> {
+export function createMode(): GameMode<RacerState> {
   return {
-    id: 'cockpit-racer',
-    name: 'Engine Racer',
+    id: 'cockpit-runner',
+    name: 'Engine Runner',
     kind: 'telemetry',
-    blurb: 'Speed = token throughput · obstacles = tool calls & errors · boost = approve · crash = abort',
+    blurb: 'Blue hero car · SMASH the red cars off the road to prune stale context · weave through grey traffic · speed = token throughput',
 
     init(w, h): RacerState {
       return {
-        w, h,
-        carX: w * 0.5,
-        speed: BASE_SPEED,
-        obsX: [], obsY: [],
+        w, h, lane: 1, laneX: laneCenter(w, 1),
+        speed: BASE_SPEED, cars: [],
         crashed: false, finished: false,
-        boostT: 0, distance: 0, spawnAcc: 0, tick: 0,
+        boostT: 0, distance: 0, smashed: 0, civWrecks: 0, strikes: 0, score: 0, spawnAcc: 0,
+        prevLeft: false, prevRight: false, tick: 0, intents: [],
       };
     },
 
     step(state, input: GameInput, tel: TelemetryFrame, dtRaw): RacerState {
       if (state.crashed || state.finished) return state;
       const dt = clampDt(dtRaw);
-      const carY = state.h - CAR_Y_FROM_BOTTOM;
+      const s: RacerState = { ...state, tick: state.tick + 1, cars: state.cars.map((c) => ({ ...c })), intents: [] };
+      const carY = s.h - CAR_Y_FROM_BOTTOM;
 
-      let boostT = state.boostT;
-      let obsX = state.obsX;
-      let obsY = state.obsY;
-      let tick = state.tick + 1;
+      const addCar = (kind: CarKind, lane: number, speed: number) => {
+        s.cars.push({
+          lane, x: laneCenter(s.w, lane), y: -70,
+          speed, kind, spin: 0, vx: 0, rot: 0,
+        });
+      };
 
       for (const ev of tel.events) {
-        if (ev.type === 'crash') return { ...state, tick, crashed: true };
-        if (ev.type === 'done') return { ...state, tick, finished: true };
-        if (ev.type === 'boost') boostT = BOOST_TIME;
+        if (ev.type === 'crash') return { ...s, crashed: true };
+        if (ev.type === 'done') return { ...s, finished: true };
+        if (ev.type === 'boost') s.boostT = BOOST_TIME;
+        // Tool calls and errors send hunters after you.
         if (ev.type === 'tool' || ev.type === 'error') {
-          obsX = [...obsX, spawnX(state.w, tick)];
-          obsY = [...obsY, -20];
-          tick += 1;
+          addCar('hunter', (s.tick * 7 + s.cars.length * 3) % LANES, ev.type === 'error' ? 110 : 70);
         }
       }
 
-      // Speed from throughput.
-      const target = BASE_SPEED + Math.min(tel.snapshot.tokensPerSec, 80) * 4;
-      const speed = state.speed + (target - state.speed) * Math.min(1, dt * 3);
-      if (boostT > 0) boostT = Math.max(0, boostT - dt);
-      const eff = Math.min(MAX_SPEED, speed * (boostT > 0 ? BOOST_MULT : 1));
+      const target = BASE_SPEED + Math.min(tel.snapshot.tokensPerSec, 60) * 7;
+      s.speed += (target - s.speed) * Math.min(1, dt * 3);
+      if (s.boostT > 0) s.boostT = Math.max(0, s.boostT - dt);
+      const eff = Math.min(MAX_SPEED, s.speed * (s.boostT > 0 ? BOOST_MULT : 1));
 
-      // Steer.
-      let carX = state.carX + input.steer * STEER_SPEED * dt;
-      if (input.left) carX -= STEER_SPEED * dt;
-      if (input.right) carX += STEER_SPEED * dt;
-      carX = Math.max(16, Math.min(state.w - 16, carX));
+      // Discrete lane changes, edge-triggered.
+      const wantLeft = input.left || input.steer < -0.5;
+      const wantRight = input.right || input.steer > 0.5;
+      if (wantLeft && !s.prevLeft) s.lane = Math.max(0, s.lane - 1);
+      if (wantRight && !s.prevRight) s.lane = Math.min(LANES - 1, s.lane + 1);
+      s.prevLeft = wantLeft; s.prevRight = wantRight;
+      s.laneX += (laneCenter(s.w, s.lane) - s.laneX) * Math.min(1, dt * 9);
 
-      // Periodic obstacle even when idle, so there's always a little to dodge while streaming.
-      let spawnAcc = state.spawnAcc + eff * dt;
-      if (spawnAcc >= SPAWN_DIST && tel.snapshot.streaming) {
-        spawnAcc -= SPAWN_DIST;
-        obsX = [...obsX, spawnX(state.w, tick * 3)];
-        obsY = [...obsY, -20];
+      // Ordinary traffic keeps the road busy.
+      s.spawnAcc += eff * dt;
+      if (s.spawnAcc >= SPAWN_DIST) {
+        s.spawnAcc -= SPAWN_DIST;
+        addCar('civilian', (s.tick * 5) % LANES, 55 + ((s.tick * 11) % 40));
       }
 
-      // Advance obstacles, cull off-bottom, detect collision.
-      const nextX: number[] = [];
-      const nextY: number[] = [];
-      let crashed = false;
-      for (let i = 0; i < obsY.length; i++) {
-        const y = obsY[i] + eff * dt;
-        if (y > state.h + 20) continue;
-        const dx = obsX[i] - carX;
-        const dy = y - carY;
-        if (dx * dx + dy * dy < HIT_R * HIT_R) crashed = true;
-        nextX.push(obsX[i]);
-        nextY.push(y);
-      }
+      const next: Car[] = [];
+      for (const c of s.cars) {
+        // Already knocked off — spin toward the shoulder and fall behind.
+        if (c.spin > 0) {
+          c.spin -= dt;
+          c.x += c.vx * dt;
+          c.rot += dt * 9 * Math.sign(c.vx || 1);
+          c.y += (eff - c.speed * 0.3) * dt;
+          if (c.spin > 0 && c.y < s.h + 140) next.push(c);
+          continue;
+        }
 
-      return {
-        ...state,
-        carX, speed, boostT,
-        obsX: nextX, obsY: nextY,
-        spawnAcc, tick,
-        distance: state.distance + eff * dt,
-        crashed,
-      };
+        // Hunters actively steer toward your lane; civilians hold theirs.
+        if (c.kind === 'hunter') {
+          const want = laneCenter(s.w, s.lane);
+          c.x += Math.sign(want - c.x) * Math.min(Math.abs(want - c.x), 70 * dt);
+        }
+        c.y += (eff - c.speed) * dt;
+        if (c.y > s.h + 90) continue;
+
+        const overlap = Math.abs(c.x - s.laneX) < CAR_W * 0.92 && Math.abs(c.y - carY) < CAR_H * 0.92;
+        if (overlap) {
+          if (c.kind === 'hunter') {
+            // SMASH: punt it toward the nearest shoulder. Real work — one stale item pruned.
+            c.spin = 1.4;
+            c.vx = (c.x < s.w / 2 ? -1 : 1) * (260 + eff * 0.35);
+            s.smashed += 1;
+            s.score += 250;
+            s.intents.push({ type: 'prune-stale' });
+            next.push(c);
+            continue;
+          }
+          // Civilians get knocked off too — the car is heavy enough. But they're not the target:
+          // it costs score and a strike, and three strikes ends the run.
+          c.spin = 1.4;
+          c.vx = (c.x < s.w / 2 ? -1 : 1) * (200 + eff * 0.25);
+          s.civWrecks += 1;
+          s.strikes += 1;
+          s.score = Math.max(0, s.score - 150);
+          next.push(c);
+          if (s.strikes >= 3) return { ...s, cars: next, crashed: true };
+          continue;
+        }
+        next.push(c);
+      }
+      s.cars = next;
+      s.distance += eff * dt;
+      s.score += eff * dt * 0.05; // distance survived
+      return s;
     },
 
-    render(ctx, state, w, h) {
+    render(ctx, s, w, h) {
       const carY = h - CAR_Y_FROM_BOTTOM;
-      ctx.fillStyle = '#0B0D10';
+      const l = roadLeft(w);
+      const r = roadRight(w);
+      const speedFrac = Math.max(0, Math.min(1, (s.speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED)));
+
+      ctx.fillStyle = '#080A0D';
       ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#121820';            // verge
+      ctx.fillRect(l - 34, 0, r - l + 68, h);
+      ctx.fillStyle = '#1C2028';            // asphalt
+      ctx.fillRect(l, 0, r - l, h);
 
-      // Speed reads from the environment, not a number: the faster the engine streams, the longer
-      // and denser the rushing side-lines get.
-      const speedFrac = Math.max(0, Math.min(1, (state.speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED)));
-      const laneL = w * 0.18;
-      const laneR = w * 0.82;
+      // Asphalt texture bands — cheap, but they give the surface grain.
+      ctx.fillStyle = 'rgba(255,255,255,0.012)';
+      const band = 90;
+      for (let y = -band + (s.distance % band); y < h; y += band) ctx.fillRect(l, y, r - l, band / 2);
 
-      // Road edges
-      ctx.strokeStyle = 'rgba(120,140,170,0.22)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(laneL, 0); ctx.lineTo(laneL, h);
-      ctx.moveTo(laneR, 0); ctx.lineTo(laneR, h);
-      ctx.stroke();
-
-      // Rushing speed lines along both shoulders — length scales with throughput.
-      const streak = 14 + speedFrac * 70;
-      const gap = 46;
-      const off2 = state.distance % gap;
-      ctx.strokeStyle = `rgba(143,233,255,${0.10 + speedFrac * 0.35})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      for (let y = -gap + off2; y < h; y += gap) {
-        ctx.moveTo(laneL - 16, y); ctx.lineTo(laneL - 16, y + streak);
-        ctx.moveTo(laneR + 16, y); ctx.lineTo(laneR + 16, y + streak);
+      // Guard rails, with posts that stream past faster as throughput rises.
+      const postGap = 46;
+      const off = s.distance % postGap;
+      ctx.fillStyle = 'rgba(150,165,185,0.5)';
+      ctx.fillRect(l - 32, 0, 4, h);
+      ctx.fillRect(r + 28, 0, 4, h);
+      ctx.fillStyle = `rgba(204,120,92,${0.3 + speedFrac * 0.4})`;
+      const streak = 10 + speedFrac * 40;
+      for (let y = -postGap + off; y < h; y += postGap) {
+        ctx.fillRect(l - 30, y, 3, streak);
+        ctx.fillRect(r + 29, y, 3, streak);
       }
-      ctx.stroke();
 
-      // Scrolling lane markers (scroll speed ~ distance).
-      ctx.strokeStyle = 'rgba(204,120,92,0.3)';
-      ctx.lineWidth = 3;
-      const off = state.distance % 60;
-      ctx.beginPath();
-      for (let y = -60 + off; y < h; y += 60) { ctx.moveTo(w / 2, y); ctx.lineTo(w / 2, y + 30); }
-      ctx.stroke();
+      // Edge lines + dashed lane dividers.
+      ctx.fillStyle = 'rgba(235,235,235,0.6)';
+      ctx.fillRect(l + 2, 0, 3, h);
+      ctx.fillRect(r - 5, 0, 3, h);
+      ctx.fillStyle = 'rgba(235,235,235,0.3)';
+      const dash = 36;
+      const dashOff = s.distance % (dash * 2);
+      for (let i = 1; i < LANES; i++) {
+        const x = l + ((r - l) / LANES) * i;
+        for (let y = -dash * 2 + dashOff; y < h; y += dash * 2) ctx.fillRect(x - 1.5, y, 3, dash);
+      }
 
-      // Obstacles
-      ctx.fillStyle = '#E0864F';
-      for (let i = 0; i < state.obsY.length; i++) {
+      for (const c of s.cars) {
+        ctx.save();
+        ctx.translate(c.x, c.y);
+        if (c.spin > 0) ctx.rotate(c.rot);
+        if (c.kind === 'hunter') drawCar(ctx, '#D93A3A', '#6E1616', false);
+        else drawCar(ctx, '#7C8794', '#3A424C', false);
+        ctx.restore();
+      }
+
+      // Hero car.
+      ctx.save();
+      ctx.translate(s.laneX, carY);
+      drawCar(ctx, s.boostT > 0 ? '#5FD0FF' : '#2E6DE0', '#123A78', true);
+      ctx.restore();
+      if (s.boostT > 0) {
+        ctx.fillStyle = 'rgba(255,211,106,0.8)';
         ctx.beginPath();
-        ctx.arc(state.obsX[i], state.obsY[i], 12, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(s.laneX - 8, carY + CAR_H / 2);
+        ctx.lineTo(s.laneX + 8, carY + CAR_H / 2);
+        ctx.lineTo(s.laneX, carY + CAR_H / 2 + 30);
+        ctx.closePath(); ctx.fill();
       }
 
-      // Car
-      ctx.fillStyle = state.boostT > 0 ? '#FFD36A' : '#8FE9FF';
-      ctx.beginPath();
-      ctx.moveTo(state.carX, carY - 16);
-      ctx.lineTo(state.carX - 12, carY + 14);
-      ctx.lineTo(state.carX + 12, carY + 14);
-      ctx.closePath();
-      ctx.fill();
-
-      if (state.crashed || state.finished) {
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      if (s.crashed || s.finished) {
+        ctx.fillStyle = 'rgba(0,0,0,0.58)';
         ctx.fillRect(0, 0, w, h);
-        ctx.fillStyle = state.finished ? '#52A77C' : '#E05252';
-        ctx.font = 'bold 40px system-ui, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(state.finished ? 'FINISHED' : 'CRASHED', w / 2, h / 2);
+        ctx.fillStyle = s.finished ? '#52A77C' : '#E05252';
+        ctx.font = 'bold 38px system-ui, sans-serif';
+        ctx.fillText(s.finished ? 'ARRIVED' : 'WRECKED', w / 2, h / 2 - 4);
+        ctx.font = '14px system-ui, sans-serif';
+        ctx.fillStyle = '#9A9A9A';
+        ctx.fillText(`${Math.round(s.score)} pts · ${s.smashed} hunters smashed · ${s.civWrecks} civilian${s.civWrecks === 1 ? '' : 's'} hit`, w / 2, h / 2 + 22);
       }
     },
 
-    hud(state) {
-      const label = state.crashed ? 'CRASH' : state.finished ? 'FINISH' : `SPD ${Math.round(state.speed)}`;
-      return `${label} · ${Math.round(state.distance)} m`;
+    score: (s) => Math.round(s.score),
+    isOver: (s) => s.crashed || s.finished,
+
+    hud(s) {
+      const strikes = '●'.repeat(s.strikes) + '○'.repeat(Math.max(0, 3 - s.strikes));
+      if (s.crashed) return `WRECKED · ${Math.round(s.score)} pts`;
+      if (s.finished) return `ARRIVED · ${Math.round(s.score)} pts`;
+      return `${Math.round(s.score)} pts · ${s.smashed} smashed · ${strikes}`;
     },
   };
+}
+
+// Drawn at the origin, nose up. `hero` adds the long hood, low roof and big rear wing that give the
+// blue car its tuned-coupe silhouette.
+function drawCar(ctx: CanvasRenderingContext2D, body: string, dark: string, hero: boolean) {
+  const w = CAR_W, h = CAR_H;
+  ctx.fillStyle = '#0B0E12';
+  ctx.fillRect(-w / 2 - 3, -h / 2 + 8, 3, 12);
+  ctx.fillRect(w / 2, -h / 2 + 8, 3, 12);
+  ctx.fillRect(-w / 2 - 3, h / 2 - 20, 3, 12);
+  ctx.fillRect(w / 2, h / 2 - 20, 3, 12);
+
+  if (hero) {
+    ctx.fillStyle = dark;                       // rear wing
+    ctx.fillRect(-w / 2 - 4, h / 2 - 8, w + 8, 4);
+    ctx.fillRect(-w / 2 + 3, h / 2 - 11, 3, 7);
+    ctx.fillRect(w / 2 - 6, h / 2 - 11, 3, 7);
+  }
+
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.roundRect(-w / 2, -h / 2, w, h, hero ? 7 : 5);
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(8,12,18,0.8)';          // glass
+  ctx.fillRect(-w / 2 + 4, -h / 2 + (hero ? 13 : 8), w - 8, hero ? 10 : 12);
+  ctx.fillRect(-w / 2 + 5, h / 2 - (hero ? 22 : 20), w - 10, 8);
+
+  if (hero) {
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';   // racing stripes
+    ctx.fillRect(-4, -h / 2 + 2, 2.5, h - 12);
+    ctx.fillRect(2, -h / 2 + 2, 2.5, h - 12);
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.fillRect(-w / 2 + 3, -h / 2 + 3, w - 6, 6);
+  }
 }

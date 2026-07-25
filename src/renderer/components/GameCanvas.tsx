@@ -1,8 +1,9 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { GAME_MODES, getMode } from '../game/registry';
 import { useGameLoop } from '../hooks/useGameLoop';
 import { TelemetryController } from '../hooks/useTelemetry';
 import CockpitHud from './CockpitHud';
+import { loadHighScores, applyScore, saveHighScores, type HighScores } from '../lib/highscores';
 
 interface Props {
   onClose: () => void;
@@ -10,16 +11,29 @@ interface Props {
   onSelect: (id: string) => void;
   telemetry: TelemetryController;
   paused: boolean; // an approval modal is up — freeze and tell the pilot
+  onIntents?: (intents: import('../game/types').GameIntent[]) => void;
 }
 
-export default function GameCanvas({ onClose, selectedId, onSelect, telemetry, paused }: Props) {
+export default function GameCanvas({ onClose, selectedId, onSelect, telemetry, paused, onIntents }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dims, setDims] = useState({ w: 960, h: 560 });
   const [gen, setGen] = useState(0);
   const [hud, setHud] = useState('');
+  const [scores, setScores] = useState<HighScores>({});
+  const [isRecord, setIsRecord] = useState(false);
 
   const mode = getMode(selectedId) ?? GAME_MODES[0];
+
+  useEffect(() => { loadHighScores().then(setScores); }, []);
+
+  const handleGameOver = useCallback((score: number) => {
+    setScores((prev) => {
+      const { isRecord: rec, next } = applyScore(prev, mode.id, score);
+      if (rec) { setIsRecord(true); void saveHighScores(next); }
+      return next;
+    });
+  }, [mode.id]);
 
   useLayoutEffect(() => {
     const measure = () => {
@@ -34,9 +48,9 @@ export default function GameCanvas({ onClose, selectedId, onSelect, telemetry, p
   }, []);
 
   // Re-init the sim whenever the mode or the canvas size changes, or the pilot hits Restart.
-  useEffect(() => { setGen((g) => g + 1); }, [selectedId, dims.w, dims.h]);
+  useEffect(() => { setGen((g) => g + 1); setIsRecord(false); }, [selectedId, dims.w, dims.h]);
 
-  const hudRef = useGameLoop(canvasRef, mode, telemetry, true, paused, gen);
+  const hudRef = useGameLoop(canvasRef, mode, telemetry, true, paused, gen, onIntents, handleGameOver);
 
   // Surface the sim's HUD string without re-rendering every frame.
   useEffect(() => {
@@ -68,10 +82,23 @@ export default function GameCanvas({ onClose, selectedId, onSelect, telemetry, p
           <ModeGroup label="Free-play" modes={freeplayModes} selectedId={selectedId} onSelect={onSelect} />
         </div>
 
+        {mode.score && (
+          <span
+            title="Best score for this mode"
+            style={{
+              fontFamily: 'monospace', fontSize: 11, whiteSpace: 'nowrap',
+              color: isRecord ? '#FFD36A' : '#6A6A6A',
+              border: `1px solid ${isRecord ? '#FFD36A' : '#2A2A2A'}`,
+              borderRadius: 6, padding: '3px 8px',
+            }}
+          >
+            {isRecord ? 'NEW BEST ' : 'BEST '}{(scores[mode.id] ?? 0).toLocaleString()}
+          </span>
+        )}
         <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#8A8A8A', minWidth: 120, textAlign: 'right' }}>
           {hud}
         </span>
-        <button onClick={() => setGen((g) => g + 1)} style={hdrBtn} title="Restart">↺</button>
+        <button onClick={() => { setGen((g) => g + 1); setIsRecord(false); }} style={hdrBtn} title="Restart">↺</button>
         <button onClick={onClose} style={hdrBtn} title="Close cockpit">✕</button>
       </div>
 

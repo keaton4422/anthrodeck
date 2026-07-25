@@ -48,7 +48,7 @@ export default function App() {
   const [apiKey, setApiKey] = useStore<string>('apiKey', '');
   const [previewPort, setPreviewPort] = useStore<number>('previewPort', 5757);
   const [previewHttps, setPreviewHttps] = useStore<boolean>('previewHttps', false);
-  const [cockpitMode, setCockpitMode] = useStore<string>('cockpitMode', 'cockpit-tron');
+  const [cockpitMode, setCockpitMode] = useStore<string>('cockpitMode', 'cockpit-flight');
   const [localVoice, setLocalVoice] = useStore<boolean>('localVoice', false);
   const [localReady, setLocalReady] = useState(false);
   const [teachMode, setTeachMode] = useStore<boolean>('teachMode', false);
@@ -149,6 +149,22 @@ export default function App() {
     const unsubWritten = window.electronAPI.onFileWritten(() => fireFeedback('write-applied'));
     return () => { unsubTool(); unsubErr(); unsubDone(); unsubWritten(); };
   }, [fireFeedback]);
+
+  // Games act on the session here. Only non-destructive intents exist (see game/types.ts) — a
+  // stray flick of the stick must never approve a write, so pruning stale context is the whole
+  // surface. Smash a hunter car / sweep a data node / dust a rock and one superseded item really
+  // does leave the next request.
+  const handleGameIntents = useCallback((intents: { type: string }[]) => {
+    let prunes = intents.filter((i) => i.type === 'prune-stale').length;
+    if (prunes <= 0) return;
+    const stale = suggestPrunes(
+      messages.map((m) => ({ id: m.id, role: m.role, content: m.content })),
+    ).filter((id) => !prunedIds.has(id));
+    if (stale.length === 0) return;
+    prunes = Math.min(prunes, stale.length);
+    pruneMany(stale.slice(0, prunes));
+    fireFeedback('tool-success');
+  }, [messages, prunedIds, pruneMany, fireFeedback]);
 
   // Meta actions reachable from the L1 chords and the radial menu.
   const runAction = useCallback(async (action: RadialAction) => {
@@ -481,6 +497,7 @@ export default function App() {
           onSelect={setCockpitMode}
           telemetry={telemetry}
           paused={modalActive}
+          onIntents={handleGameIntents}
         />
       )}
     </div>
