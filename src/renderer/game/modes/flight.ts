@@ -646,72 +646,71 @@ function drawShipExterior(
 }
 
 function drawCockpitInterior(ctx: CanvasRenderingContext2D, w: number, h: number, manual: boolean) {
-  const accent = manual ? '#CC785C' : '#8FE9FF';
+  const accent = manual ? '#CC785C' : VAPOR.cyan;
 
-  // Canopy frame: the same trapezoid as the exterior pod, seen from inside.
-  const topY = h * 0.06;
-  const sillY = h * 0.72;
-  ctx.fillStyle = '#161B22';
-  ctx.beginPath();
-  ctx.moveTo(0, 0); ctx.lineTo(w, 0); ctx.lineTo(w, topY);
-  ctx.lineTo(w * 0.80, topY); ctx.lineTo(w * 0.93, sillY); ctx.lineTo(w, sillY);
-  ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.lineTo(0, sillY);
-  ctx.lineTo(w * 0.07, sillY); ctx.lineTo(w * 0.20, topY); ctx.lineTo(0, topY);
-  ctx.closePath(); ctx.fill();
+  // Keep the view OPEN. An earlier pass boxed the screen in with a heavy canopy frame and left a
+  // literal 40px square floating dead centre — you were looking at the cockpit instead of through
+  // it. Now it's two raked A-pillars at the far edges, a shallow console lip, and a reticle made of
+  // corner ticks with nothing in the middle.
+  const sillY = h * 0.84;
 
-  // Frame edge + centre rib.
-  ctx.strokeStyle = HULL_DARK;
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(w * 0.20, topY); ctx.lineTo(w * 0.07, sillY);
-  ctx.moveTo(w * 0.80, topY); ctx.lineTo(w * 0.93, sillY);
-  ctx.moveTo(w * 0.20, topY); ctx.lineTo(w * 0.80, topY);
-  ctx.stroke();
-  ctx.strokeStyle = 'rgba(74,83,97,0.65)';
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, topY);
-  ctx.stroke();
+  // A-pillars, hugging the edges only.
+  ctx.fillStyle = '#141A22';
+  for (const sx of [-1, 1]) {
+    const baseX = sx < 0 ? 0 : w;
+    ctx.beginPath();
+    ctx.moveTo(baseX, 0);
+    ctx.lineTo(baseX + sx * 74, 0);
+    ctx.lineTo(baseX + sx * 20, sillY);
+    ctx.lineTo(baseX, sillY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(90,102,117,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(baseX + sx * 74, 0);
+    ctx.lineTo(baseX + sx * 20, sillY);
+    ctx.stroke();
+  }
 
-  // Console lip with readout blocks and status studs.
-  ctx.fillStyle = '#10151C';
+  // Thin roof rail.
+  ctx.fillStyle = '#141A22';
+  ctx.fillRect(0, 0, w, h * 0.045);
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.5;
+  ctx.beginPath(); ctx.moveTo(0, h * 0.045); ctx.lineTo(w, h * 0.045); ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Shallow console lip with a few readouts and status studs.
+  ctx.fillStyle = '#0D1219';
   ctx.fillRect(0, sillY, w, h - sillY);
   ctx.strokeStyle = accent;
   ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(0, sillY); ctx.lineTo(w, sillY); ctx.stroke();
-
-  ctx.fillStyle = 'rgba(74,83,97,0.55)';
-  for (let i = 0; i < 7; i++) {
-    const bw = w * 0.07;
-    ctx.fillRect(w * 0.12 + i * (bw + 10), sillY + 16, bw, 9);
-  }
-  for (let i = 0; i < 5; i++) {
-    ctx.fillStyle = i % 2 === 0 ? accent : 'rgba(82,167,124,0.8)';
-    ctx.beginPath();
-    ctx.arc(w * 0.16 + i * 26, sillY + 40, 3.2, 0, Math.PI * 2);
-    ctx.fill();
+  neon(ctx, accent, 8, () => {
+    ctx.beginPath(); ctx.moveTo(0, sillY); ctx.lineTo(w, sillY); ctx.stroke();
+  });
+  ctx.fillStyle = 'rgba(90,102,117,0.5)';
+  for (let i = 0; i < 6; i++) ctx.fillRect(w * 0.17 + i * (w * 0.055), sillY + 12, w * 0.038, 6);
+  for (let i = 0; i < 4; i++) {
+    ctx.fillStyle = i % 2 === 0 ? accent : VAPOR.magenta;
+    ctx.beginPath(); ctx.arc(w * 0.72 + i * 20, sillY + 15, 2.6, 0, Math.PI * 2); ctx.fill();
   }
 
-  // Nacelle glow bleeding in at the lower corners — same engines as the exterior view.
-  for (const sx of [0.06, 0.94]) {
-    const g = ctx.createRadialGradient(w * sx, h * 0.9, 2, w * sx, h * 0.9, 90);
-    g.addColorStop(0, 'rgba(255,211,106,0.20)');
-    g.addColorStop(1, 'rgba(255,211,106,0)');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(w * sx, h * 0.9, 90, 0, Math.PI * 2); ctx.fill();
-  }
-
-  // Boresight reticle.
+  // Reticle: corner ticks only, nothing occupying the centre.
+  const cy2 = h * 0.44;
   ctx.strokeStyle = accent;
-  ctx.lineWidth = 1.5;
-  const cy2 = h * 0.42;
-  ctx.beginPath();
-  ctx.moveTo(w / 2 - 30, cy2); ctx.lineTo(w / 2 - 11, cy2);
-  ctx.moveTo(w / 2 + 11, cy2); ctx.lineTo(w / 2 + 30, cy2);
-  ctx.moveTo(w / 2, cy2 - 30); ctx.lineTo(w / 2, cy2 - 11);
-  ctx.moveTo(w / 2, cy2 + 11); ctx.lineTo(w / 2, cy2 + 30);
-  ctx.stroke();
-  ctx.globalAlpha = 0.5;
-  ctx.strokeRect(w / 2 - 20, cy2 - 20, 40, 40);
-  ctx.globalAlpha = 1;
+  ctx.lineWidth = 1.4;
+  neon(ctx, accent, 6, () => {
+    ctx.beginPath();
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+      const x = w / 2 + dx * 26;
+      const y = cy2 + dy * 20;
+      ctx.moveTo(x, y); ctx.lineTo(x - dx * 9, y);
+      ctx.moveTo(x, y); ctx.lineTo(x, y - dy * 7);
+    }
+    // centre pip
+    ctx.moveTo(w / 2 - 2, cy2); ctx.lineTo(w / 2 + 2, cy2);
+    ctx.stroke();
+  });
 }

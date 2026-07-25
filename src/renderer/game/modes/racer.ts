@@ -202,6 +202,20 @@ function clampDt(dt: number): number { return Math.max(0, Math.min(dt, 0.05)); }
 //
 // Gameplay maths stays in flat road space — only rendering is projected — so collisions stay exact.
 const CAM_COMPRESS = 0.85;
+// Terrain. A fixed horizon made the road read as one endless downhill; a real highway crests and
+// dips. Two layered sines (one long roll, one shorter undulation) move the horizon up and down as
+// you travel, so you top a rise and drop into a valley. Pure and exported so it can be tested.
+export function elevationAt(distance: number): number {
+  const long = Math.sin(distance * 0.00042);
+  const short = Math.sin(distance * 0.0016 + 1.3);
+  return long * 0.62 + short * 0.38;   // -1..1
+}
+
+export function horizonAt(distance: number, h: number): number {
+  // Low horizon = cresting a rise (less road ahead); high = dropping into a dip (more road).
+  return h * (0.17 + elevationAt(distance) * 0.075);
+}
+
 export function perspAt(y: number, h: number): number {
   const u = Math.max(0, Math.min(1, (h - y) / h));   // 0 at the bumper, 1 at the far end
   return 1 / (1 + u * CAM_COMPRESS);
@@ -437,7 +451,7 @@ export function createMode(): GameMode<RacerState> {
       ctx.fillStyle = reg.sky;
       ctx.fillRect(0, 0, w, h);
       // Sun on the horizon behind the scenery; the verge only fills below it.
-      const horizon = h * 0.10;   // the road runs nearly to the top — a chase cam, not a vista
+      const horizon = horizonAt(s.distance, h);   // rises and falls with the terrain
       drawSunsetSky(ctx, w, h, horizon, { sun: false });
       ctx.fillStyle = reg.verge;
       ctx.fillRect(0, horizon, w, h - horizon);

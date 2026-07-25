@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { GAME_MODES, getMode } from './registry';
 import { createMode as createFlight, type FlightState } from './modes/flight';
-import { createMode as createRacer, type RacerState, REGIONS, REGION_LENGTH, regionAt, perspAt } from './modes/racer';
+import { createMode as createRacer, type RacerState, REGIONS, REGION_LENGTH, regionAt, perspAt, elevationAt, horizonAt } from './modes/racer';
 import { createMode as createGrid, type GridState } from './modes/gridcycles';
 import { createMode as createBelt, type ShooterState } from './modes/shooter';
 import { NEUTRAL_INPUT, EMPTY_TELEMETRY, GameInput, TelemetryFrame, GameIntent } from './types';
@@ -335,6 +335,44 @@ describe('chase camera', () => {
   it('clamps outside the frame instead of inverting', () => {
     expect(perspAt(-500, H)).toBeGreaterThan(0);
     expect(perspAt(H * 3, H)).toBeCloseTo(1, 3);
+  });
+});
+
+describe('rolling terrain', () => {
+  const H = 640;
+
+  it('the horizon actually moves — it is not one endless downhill', () => {
+    const ys = [];
+    for (let d = 0; d < 12000; d += 250) ys.push(horizonAt(d, H));
+    const spread = Math.max(...ys) - Math.min(...ys);
+    expect(spread).toBeGreaterThan(H * 0.08);   // a visible rise and fall, not a wobble
+  });
+
+  it('crests and dips both occur', () => {
+    let sawRise = false, sawDip = false;
+    for (let d = 0; d < 20000; d += 120) {
+      const e = elevationAt(d);
+      if (e > 0.5) sawDip = true;
+      if (e < -0.5) sawRise = true;
+    }
+    expect(sawRise && sawDip).toBe(true);
+  });
+
+  it('stays on screen and above the road at every distance', () => {
+    for (let d = 0; d < 40000; d += 97) {
+      const y = horizonAt(d, H);
+      expect(y).toBeGreaterThan(0);
+      expect(y).toBeLessThan(H * 0.45);
+    }
+  });
+
+  it('is continuous — no jumps the eye would catch', () => {
+    let prev = horizonAt(0, H);
+    for (let d = 5; d < 20000; d += 5) {
+      const y = horizonAt(d, H);
+      expect(Math.abs(y - prev)).toBeLessThan(1.5);
+      prev = y;
+    }
   });
 });
 
