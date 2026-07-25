@@ -266,6 +266,39 @@ describe('engine runner (cars)', () => {
     expect(s.heroVx).toBeGreaterThan(-400);  // scrubbed and bounced back off it
   });
 
+  it('the pilot can add speed with the throttle', () => {
+    const idle = stepN(mode, tel({ streaming: true }), 90);
+    const pinned = stepN(mode, tel({ streaming: true }), 90, input({ throttle: 1 }));
+    expect(pinned.speed).toBeGreaterThan(idle.speed);
+  });
+
+  it('winds itself up over a clean run even with no input', () => {
+    const early = stepN(mode, tel({ streaming: true }), 60);
+    const later = stepN(mode, tel({ streaming: true }), 900);
+    expect(later.speed).toBeGreaterThan(early.speed);
+  });
+
+  it('the camera trails the car laterally instead of being welded to it', () => {
+    let s: RacerState = mode.init(W, H);
+    const startCam = s.camX;
+    // Swerve two lanes over in a single frame's worth of input.
+    for (let i = 0; i < 4; i++) {
+      s = mode.step(s, input({ right: true }), tel({ streaming: true }), 0.016);
+      s = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.016);
+    }
+    // The car has committed to a new lane, but the camera is still catching up.
+    expect(s.lane).toBeGreaterThan(0);
+    expect(Math.abs(s.camX - startCam)).toBeLessThan(Math.abs(s.laneX - startCam) + 1);
+    expect(s.camX).not.toBe(s.laneX);
+  });
+
+  it('the camera eventually settles onto the car', () => {
+    let s: RacerState = mode.init(W, H);
+    s = mode.step(s, input({ right: true }), tel({ streaming: true }), 0.016);
+    for (let i = 0; i < 300; i++) s = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.016);
+    expect(Math.abs(s.camX - s.laneX)).toBeLessThan(2);
+  });
+
   it('reports a score and terminal state', () => {
     const s = stepN(mode, tel({ streaming: true, tokensPerSec: 30 }), 120);
     expect(typeof mode.score?.(s)).toBe('number');

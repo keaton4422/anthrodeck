@@ -166,6 +166,9 @@ export interface RacerState extends IntentCarrier {
   damage: number;   // dents on the hero car; MAX_DAMAGE ends the run
   heroVx: number;   // lateral velocity from impacts, fights the lane spring
   railHits: number;
+  camX: number;     // camera's lateral position — trails the car rather than being glued to it
+  camLead: number;  // -1..1, how far the car has pulled ahead of the camera under acceleration
+  prevSpeed: number;
   score: number;
   spawnAcc: number;
   prevLeft: boolean;
@@ -183,6 +186,10 @@ const CAR_W = 28;
 const CAR_H = 50;
 const SPAWN_DIST = 200;
 const MAX_DAMAGE = 4;
+const THROTTLE_GAIN = 190;   // what the pilot's own right trigger is worth
+const ROLL_ON = 26;          // the car winds itself up over a clean run
+const CAM_LAG = 3.4;         // how fast the camera catches the car laterally (lower = laggier)
+const CAM_LEAD_PX = 46;      // how far ahead the car can pull before the camera reels it back
 const HERO_MASS = 1650;      // the hero is the heavy one — that's why it wins exchanges
 const RESTITUTION = 0.32;    // sheet metal crumples; very little bounce comes back
 
@@ -235,14 +242,15 @@ export function createMode(): GameMode<RacerState> {
     id: 'cockpit-runner',
     name: 'Engine Runner',
     kind: 'telemetry',
-    blurb: 'Red hunters ram you toward the barrier and the traffic · smash one for a BOOST + a pruned context item · only civilians and the armco damage you',
+    blurb: 'RT throttle · red hunters ram you toward the barrier and the traffic · smash one for a BOOST + a pruned context item · only civilians and the armco damage you',
 
     init(w, h): RacerState {
       return {
         w, h, lane: 1, laneX: laneCenter(w, 1),
         speed: BASE_SPEED, cars: [],
         crashed: false, finished: false,
-        boostT: 0, distance: 0, smashed: 0, civWrecks: 0, damage: 0, heroVx: 0, railHits: 0, score: 0, spawnAcc: 0,
+        boostT: 0, distance: 0, smashed: 0, civWrecks: 0, damage: 0, heroVx: 0, railHits: 0,
+        camX: laneCenter(w, 1), camLead: 0, prevSpeed: BASE_SPEED, score: 0, spawnAcc: 0,
         prevLeft: false, prevRight: false, tick: 0, intents: [],
       };
     },
@@ -271,8 +279,15 @@ export function createMode(): GameMode<RacerState> {
         }
       }
 
-      const target = BASE_SPEED + Math.min(tel.snapshot.tokensPerSec, 60) * 7;
-      s.speed += (target - s.speed) * Math.min(1, dt * 3);
+      // Three things drive speed now: the engine's throughput (the telemetry link), the pilot's own
+      // throttle, and a slow roll-on so a clean run keeps building without any input at all.
+      const rollOn = Math.min(ROLL_ON * 4, (s.distance / 1000) * ROLL_ON);
+      const target = BASE_SPEED
+        + Math.min(tel.snapshot.tokensPerSec, 60) * 7
+        + input.throttle * THROTTLE_GAIN
+        + rollOn;
+      s.speed += (target - s.speed) * Math.min(1, dt * 2.2);
+      if (input.brake > 0.1) s.speed = Math.max(BASE_SPEED * 0.7, s.speed - input.brake * 320 * dt);
       if (s.boostT > 0) s.boostT = Math.max(0, s.boostT - dt);
       const eff = Math.min(MAX_SPEED, s.speed * (s.boostT > 0 ? BOOST_MULT : 1));
 
@@ -393,13 +408,25 @@ export function createMode(): GameMode<RacerState> {
       s.cars = next;
       s.distance += eff * dt;
       s.score += eff * dt * 0.05; // distance survived
+
+      // Camera. It trails the car instead of being welded to it: laterally it eases toward the
+      // car's lane, so a quick swerve visibly gets ahead of the shot before the camera settles.
+      s.camX += (s.laneX - s.camX) * Math.min(1, dt * CAM_LAG);
+      // Longitudinally, acceleration lets the car pull UP the frame and the camera reels it back in.
+      const accel = (s.speed - s.prevSpeed) / Math.max(dt, 1e-4);
+      s.prevSpeed = s.speed;
+      const leadTarget = Math.max(-1, Math.min(1, accel / 260));
+      s.camLead += (leadTarget - s.camLead) * Math.min(1, dt * 1.6);
       return s;
     },
 
     render(ctx, s, w, h) {
-      const carY = h - CAR_Y_FROM_BOTTOM;
-      const l = roadLeft(w);
-      const r = roadRight(w);
+      // The camera pans a fraction of its offset — enough to feel like a chase shot, not so much
+      // that the road swims. The car rides `camLead`, so hard acceleration pulls it up the frame.
+      const pan = (s.camX - w / 2) * 0.3;
+      const carY = h - CAR_Y_FROM_BOTTOM - s.camLead * CAM_LEAD_PX;
+      const l = roadLeft(w) - pan;
+      const r = roadRight(w) - pan;
       const speedFrac = Math.max(0, Math.min(1, (s.speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED)));
 
       const reg = regionAt(s.distance);
@@ -480,7 +507,7 @@ export function createMode(): GameMode<RacerState> {
       for (const c of s.cars) {
         const k = perspAt(c.y, h);
         ctx.save();
-        ctx.translate(projX(c.x, c.y, w, h), c.y);
+        ctx.translate(projX(c.x - pan, c.y, w, h), c.y);
         ctx.scale(k, k);
         if (c.spin > 0) ctx.rotate(c.rot);
         if (c.kind === 'hunter') drawCar(ctx, '#D93A3A', '#6E1616', false, c.dents);
@@ -490,14 +517,14 @@ export function createMode(): GameMode<RacerState> {
 
       // Hero car.
       ctx.save();
-      ctx.translate(projX(s.laneX, carY, w, h), carY);
+      ctx.translate(projX(s.laneX - pan, carY, w, h), carY);
       ctx.scale(perspAt(carY, h), perspAt(carY, h));
       drawCar(ctx, s.boostT > 0 ? '#5FD0FF' : '#2E6DE0', '#123A78', true, s.damage);
       ctx.restore();
       if (s.boostT > 0) {
         ctx.fillStyle = 'rgba(255,211,106,0.8)';
         ctx.beginPath();
-        const px = projX(s.laneX, carY, w, h);
+        const px = projX(s.laneX - pan, carY, w, h);
         ctx.moveTo(px - 8, carY + CAR_H / 2);
         ctx.lineTo(px + 8, carY + CAR_H / 2);
         ctx.lineTo(px, carY + CAR_H / 2 + 30);
