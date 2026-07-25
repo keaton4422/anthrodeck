@@ -74,11 +74,11 @@ function buildUrl(https: boolean, host: string, port: number): string {
 
 const PLACEHOLDER_HTML = `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AntroDeck preview</title>
+<title>AnthroDeck preview</title>
 <style>body{font-family:system-ui,sans-serif;background:#0F0F0F;color:#ECECEC;display:flex;
 align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
 .c{max-width:460px;padding:24px}.a{color:#CC785C}code{background:#242424;padding:2px 6px;border-radius:4px}</style>
-</head><body><div class="c"><h1>◆ <span class="a">AntroDeck</span> preview</h1>
+</head><body><div class="c"><h1>◆ <span class="a">AnthroDeck</span> preview</h1>
 <p>No build output found yet. Run a build in your project (e.g. <code>npm run build</code>) and this
 page will start serving it automatically.</p></div></body></html>`;
 
@@ -242,7 +242,7 @@ export function getDetectedDevPort(): number | null {
 }
 
 // Find a running dev server. Prefers a port sniffed from run_shell stdout; otherwise probes the
-// common defaults. `exclude` keeps us from ever proxying AntroDeck's OWN renderer dev server
+// common defaults. `exclude` keeps us from ever proxying AnthroDeck's OWN renderer dev server
 // (electron-forge serves it on Vite's 5173 in dev, which is also the first port we'd probe).
 export function detectDevPort(exclude: number[] = []): Promise<number | null> {
   if (sniffedDevPort && !exclude.includes(sniffedDevPort)) {

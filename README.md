@@ -1,4 +1,4 @@
-# AntroDeck
+# AnthroDeck
 
 A gamepad-driven agentic coding cockpit for the Steam Deck. The human is the **pilot**; the Claude
 agent is the **engine**. Voice, touch, and controller drive an agent loop that reads, writes, runs
@@ -41,9 +41,9 @@ if you'd rather extract and run the `anthrodeck` binary.)
 
 ```sh
 mkdir -p ~/Applications && cd ~/Applications
-curl -LO https://github.com/keaton4422/anthrodeck/releases/latest/download/AntroDeck-x64.AppImage
-chmod +x AntroDeck-*.AppImage
-./AntroDeck-*.AppImage
+curl -LO https://github.com/keaton4422/anthrodeck/releases/latest/download/AnthroDeck-x64.AppImage
+chmod +x AnthroDeck-*.AppImage
+./AnthroDeck-*.AppImage
 ```
 
 If the versioned filename differs, grab the exact URL from the
@@ -63,7 +63,7 @@ sudo systemctl enable --now sshd
 Then from the PC (`ip addr` on the Deck gives you the address):
 
 ```sh
-scp AntroDeck-*.AppImage deck@<deck-ip>:~/Applications/
+scp AnthroDeck-*.AppImage deck@<deck-ip>:~/Applications/
 ```
 
 ### 3. USB stick / microSD
@@ -96,6 +96,12 @@ There's no account. Open **Settings (⚙)** and paste an **Anthropic API key** f
 
 ## Updating
 
+> **Renamed in v0.6.4: `AntroDeck` → `AnthroDeck`** (the product name was missing its `h`; the
+> package, binary and repo were always `anthrodeck`). Release artifacts are renamed with it, so an
+> existing Steam shortcut pointing at `AntroDeck-linux-x64/anthrodeck` will break. Point the shortcut
+> at the new path, or use the AppImage and keep a stable filename so future updates are a drop-in
+> replace.
+
 In-app auto-update is **not working yet** (see the caveat under Package targets), so grab the new
 AppImage from the releases page and replace the old one. If you added it to Steam by filename,
 either keep the filename stable or update the shortcut's target.
@@ -110,7 +116,7 @@ Worth separating two things that sound alike:
   paperwork, a **$100 USD recoupable fee per title**, store assets, and Valve review before release.
   Steam Deck "Verified" status is a further, separate certification pass.
 
-Store publishing is a poor fit here regardless of cost: AntroDeck is a developer tool rather than a
+Store publishing is a poor fit here regardless of cost: AnthroDeck is a developer tool rather than a
 game, and it requires each user to supply their own paid Anthropic API key — which is awkward
 against storefront expectations. The Non-Steam shortcut gets you the same Game Mode experience.
 
@@ -148,7 +154,7 @@ transcription you can enable **local voice** in Settings. The native Whisper mod
    ```sh
    npm install nodejs-whisper
    ```
-3. Launch AntroDeck → **Settings → Voice & Assist → Local voice** → toggle on → **Download local
+3. Launch AnthroDeck → **Settings → Voice & Assist → Local voice** → toggle on → **Download local
    voice** (fetches the `base.en` model into the app's user-data directory).
 
 Once the module and model are present, L2 records audio, encodes a 16 kHz WAV, and transcribes it

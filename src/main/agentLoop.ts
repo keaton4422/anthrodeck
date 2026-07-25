@@ -245,7 +245,7 @@ export async function runAgentLoop(
   const effectivePath = projectPath ?? process.env.HOME ?? '/tmp';
 
   // Frozen system prompt (no per-request/volatile interpolation ahead of the cache breakpoint).
-  const systemPrompt = `You are AntroDeck — an AI coding assistant built into a Steam Deck. You help the user code, create, deploy, and accomplish anything through voice and touch.
+  const systemPrompt = `You are AnthroDeck — an AI coding assistant built into a Steam Deck. You help the user code, create, deploy, and accomplish anything through voice and touch.
 
 You have tools to work with the user's project${projectPath ? ` at: ${projectPath}` : ''}.
 - Use list_files to explore the project structure

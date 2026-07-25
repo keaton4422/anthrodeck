@@ -1,4 +1,4 @@
-# AntroDeck v0.3.0
+# AnthroDeck v0.3.0
 
 The human-as-pilot release. v0.2 could talk to Claude; v0.3 lets you **fly it** — you can see what
 the engine is burning, steer it mid-flight, hand it back the wheel, and share what it built.
@@ -7,7 +7,7 @@ the engine is burning, steer it mid-flight, hand it back the wheel, and share wh
 
 SteamOS is Arch-based with a read-only rootfs, so the `.deb` isn't the path of least resistance:
 
-- **AppImage (recommended)** — download, `chmod +x AntroDeck-*.AppImage`, run it.
+- **AppImage (recommended)** — download, `chmod +x AnthroDeck-*.AppImage`, run it.
 - **Linux zip** — extract and run the `anthrodeck` binary.
 - `.deb` is published for regular Debian/Ubuntu machines.
 
@@ -57,7 +57,7 @@ Open **Settings (⚙)** and paste an Anthropic API key to get going.
   `hostname.local`.
 - **Dev-server proxy** — a dev server's port is sniffed from `run_shell` stdout (Vite / Next /
   generic banners), with port probing as a fallback; the proxy forwards websockets so HMR works on
-  your phone. It will never proxy AntroDeck's own dev server.
+  your phone. It will never proxy AnthroDeck's own dev server.
 - **Optional self-signed HTTPS** so mobile web builds can request camera / mic / gyro.
 
 ## Voice + learning

@@ -258,7 +258,7 @@ ipcMain.handle('preview:status', () => {
   const lanIp = status.lanIp ?? pickLanIp(os.networkInterfaces() as never) ?? null;
   return { ...status, lanIp };
 });
-// Never proxy AntroDeck's own renderer dev server: in `npm start`, electron-forge serves it on
+// Never proxy AnthroDeck's own renderer dev server: in `npm start`, electron-forge serves it on
 // Vite's default port (5173) — which is also the first port we'd otherwise probe.
 function ownDevServerPorts(): number[] {
   try {

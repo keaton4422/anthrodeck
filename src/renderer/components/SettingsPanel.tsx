@@ -109,7 +109,7 @@ export function SettingsPanel({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <h2 style={{ fontSize: 22, fontWeight: 700, color: '#ECECEC' }}>Settings</h2>
-            <p style={{ fontSize: 13, color: '#6A6A6A', marginTop: 4 }}>Configure AntroDeck</p>
+            <p style={{ fontSize: 13, color: '#6A6A6A', marginTop: 4 }}>Configure AnthroDeck</p>
           </div>
           {apiKey && (
             <button onClick={onClose} style={closeBtn}>✕</button>

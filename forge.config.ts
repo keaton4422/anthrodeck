@@ -6,7 +6,7 @@ import MakerAppImage from '@reforged/maker-appimage';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
-    name: 'AntroDeck',
+    name: 'AnthroDeck',
     executableName: 'anthrodeck',
   },
   rebuildConfig: {},
