@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { GAME_MODES, getMode } from './registry';
 import { createMode as createFlight, type FlightState } from './modes/flight';
-import { createMode as createRacer, type RacerState } from './modes/racer';
+import { createMode as createRacer, type RacerState, REGIONS, REGION_LENGTH, regionAt } from './modes/racer';
 import { createMode as createGrid, type GridState } from './modes/gridcycles';
 import { createMode as createBelt, type ShooterState } from './modes/shooter';
 import { NEUTRAL_INPUT, EMPTY_TELEMETRY, GameInput, TelemetryFrame, GameIntent } from './types';
@@ -188,15 +188,28 @@ describe('engine runner (cars)', () => {
     expect(s.crashed).toBe(false); // hunters don't wreck you
   });
 
-  it('civilians are knocked off too but cost a strike, and three ends the run', () => {
+  it('hunting reds costs the hero nothing — no damage from a smash', () => {
     let s: RacerState = mode.init(W, H);
-    for (let hit = 1; hit <= 3; hit++) {
-      s.cars.push({ lane: s.lane, x: s.laneX, y: H - 84, speed: 0, kind: 'civilian', spin: 0, vx: 0, rot: 0 });
+    for (let i = 0; i < 3; i++) {
+      s.cars.push({ lane: s.lane, x: s.laneX, y: H - 84, speed: 0, kind: 'hunter', spin: 0, vx: 0, rot: 0, dents: 0, vy: 0, mass: 1400, rotV: 0 });
       s = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.016);
-      expect(s.strikes).toBe(hit);
+    }
+    expect(s.smashed).toBe(3);
+    expect(s.damage).toBe(0);
+    expect(s.crashed).toBe(false);
+  });
+
+  it('civilians dent both cars, and enough damage ends the run', () => {
+    let s: RacerState = mode.init(W, H);
+    for (let hit = 1; hit <= 4; hit++) {
+      s.cars.push({ lane: s.lane, x: s.laneX, y: H - 84, speed: 0, kind: 'civilian', spin: 0, vx: 0, rot: 0, dents: 0, vy: 0, mass: 1250, rotV: 0 });
+      s = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.016);
+      expect(s.damage).toBe(hit);
+      // the civilian visibly wears the hit too
+      expect(s.cars.some((c) => c.dents > 0)).toBe(true);
     }
     expect(s.crashed).toBe(true);
-    expect(s.civWrecks).toBe(3);
+    expect(s.civWrecks).toBe(4);
   });
 
   it('changes lanes on a discrete press and stays in bounds', () => {
@@ -208,10 +221,53 @@ describe('engine runner (cars)', () => {
     expect(s.lane).toBe(0);
   });
 
+  it('an impact transfers momentum — the struck car is launched and the hero is nudged', () => {
+    let s: RacerState = mode.init(W, H);
+    // Slightly ahead and offset — the geometry a car is actually struck at, so the contact normal
+    // has a longitudinal component and the closing speed does work.
+    s.cars.push({ lane: s.lane, x: s.laneX + 8, y: H - 84 - 30, speed: 0, kind: 'hunter', spin: 0, vx: 0, rot: 0, dents: 0, vy: 0, mass: 1400, rotV: 0 });
+    const beforeX = s.laneX;
+    s = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.016);
+    const hit = s.cars.find((c) => c.kind === 'hunter')!;
+    expect(Math.abs(hit.vx)).toBeGreaterThan(0);   // launched
+    expect(Math.abs(hit.rotV)).toBeGreaterThan(0); // and spun by the off-centre contact
+    expect(s.heroVx).not.toBe(0);                  // hero took the reaction
+    expect(typeof beforeX).toBe('number');
+  });
+
+  it('the heavier hero loses less speed than it imparts', () => {
+    let s: RacerState = mode.init(W, H);
+    const before = s.speed;
+    s.cars.push({ lane: s.lane, x: s.laneX, y: H - 84, speed: 0, kind: 'hunter', spin: 0, vx: 0, rot: 0, dents: 0, vy: 0, mass: 1400, rotV: 0 });
+    s = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.016);
+    expect(s.speed).toBeLessThanOrEqual(before); // scrubs some speed, never gains
+  });
+
   it('reports a score and terminal state', () => {
     const s = stepN(mode, tel({ streaming: true, tokensPerSec: 30 }), 120);
     expect(typeof mode.score?.(s)).toBe('number');
     expect(mode.isOver?.(s)).toBe(false);
+  });
+});
+
+describe('road regions', () => {
+  it('cycles through every region as distance grows', () => {
+    const seen = new Set(REGIONS.map((_, i) => regionAt(i * REGION_LENGTH + 10).name));
+    expect(seen.size).toBe(REGIONS.length);
+  });
+
+  it('wraps back to the first region after the last', () => {
+    expect(regionAt(REGIONS.length * REGION_LENGTH + 10).name).toBe(regionAt(10).name);
+  });
+
+  it('every region defines a full palette and a prop renderer', () => {
+    for (const r of REGIONS) {
+      expect(r.name.length).toBeGreaterThan(0);
+      for (const k of ['sky', 'verge', 'asphalt', 'divider', 'edge', 'rail'] as const) {
+        expect(typeof r[k]).toBe('string');
+      }
+      expect(typeof r.prop).toBe('function');
+    }
   });
 });
 

@@ -229,10 +229,7 @@ export function createMode(): GameMode<ShooterState> {
         ctx.save();
         ctx.translate(s.shipX, s.shipY);
         ctx.rotate(s.aim);
-        ctx.fillStyle = '#8FE9FF';
-        ctx.beginPath();
-        ctx.moveTo(13, 0); ctx.lineTo(-9, -7); ctx.lineTo(-5, 0); ctx.lineTo(-9, 7);
-        ctx.closePath(); ctx.fill();
+        drawTug(ctx);
         ctx.restore();
       }
 
@@ -257,4 +254,69 @@ export function createMode(): GameMode<ShooterState> {
       return `♥ ${s.lives} · wave ${s.wave} · ${s.score} pts · ${s.cleared} cleared`;
     },
   };
+}
+
+// The belt tug: a working machine, not a fighter. Concept-art logic from the Dune / early Star Wars
+// school — a heavy slab of a fuselage, an offset pressurised cabin bulb, twin outrigger thruster
+// pods on stubby pylons, and a mining yoke slung out front. Asymmetry and visible function are the
+// point; nothing here is a triangle.
+function drawTug(ctx: CanvasRenderingContext2D) {
+  const HULL = '#9AA6B4';
+  const SHADE = '#59636F';
+  const TRIM = '#CC785C';
+
+  // Mining yoke — two forward tines that read as the business end.
+  ctx.strokeStyle = SHADE;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(6, -6); ctx.lineTo(17, -9);
+  ctx.moveTo(6, 6); ctx.lineTo(17, 9);
+  ctx.stroke();
+  ctx.fillStyle = TRIM;
+  ctx.fillRect(16, -11, 3, 4);
+  ctx.fillRect(16, 7, 3, 4);
+
+  // Outrigger pods on pylons.
+  for (const sy of [-1, 1]) {
+    ctx.strokeStyle = SHADE;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-2, sy * 5); ctx.lineTo(-4, sy * 11);
+    ctx.stroke();
+    ctx.fillStyle = SHADE;
+    ctx.beginPath();
+    ctx.roundRect(-12, sy * 9 - 3.5, 15, 7, 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,211,106,0.85)';   // thruster mouth
+    ctx.fillRect(-13.5, sy * 9 - 2, 2.5, 4);
+  }
+
+  // Main hull — a blunt slab, wider at the stern.
+  ctx.fillStyle = HULL;
+  ctx.beginPath();
+  ctx.moveTo(9, -5);
+  ctx.lineTo(9, 5);
+  ctx.lineTo(-10, 7);
+  ctx.lineTo(-10, -7);
+  ctx.closePath();
+  ctx.fill();
+
+  // Panel lines.
+  ctx.strokeStyle = 'rgba(20,26,34,0.6)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-4, -6.4); ctx.lineTo(-4, 6.4);
+  ctx.moveTo(2, -5.8); ctx.lineTo(2, 5.8);
+  ctx.stroke();
+
+  // Offset cabin bulb, sitting proud of the hull on one side.
+  ctx.fillStyle = SHADE;
+  ctx.beginPath();
+  ctx.roundRect(-1, -8.5, 8, 6, 2.5);
+  ctx.fill();
+  ctx.fillStyle = '#1B3A4A';
+  ctx.fillRect(1, -7.5, 5, 3);
+  ctx.strokeStyle = TRIM;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(1, -7.5, 5, 3);
 }

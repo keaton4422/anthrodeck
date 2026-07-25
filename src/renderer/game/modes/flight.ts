@@ -521,69 +521,83 @@ function drawShipExterior(
   const accent = manual ? '#CC785C' : '#8FE9FF';
   const glow = boost ? 1 : 0.5;
 
-  // Engine nacelles (drawn first so the hull overlaps them).
+  // Thin nacelles on long, raked pylons — the mass is pushed outboard and back so the ship reads
+  // as fast standing still.
   for (const sx of [-1, 1]) {
+    ctx.strokeStyle = HULL_DARK;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(sx * 7, -4); ctx.lineTo(sx * 22, 6);
+    ctx.stroke();
+
     ctx.fillStyle = HULL_DARK;
     ctx.beginPath();
-    ctx.roundRect(sx * 26 - 9, -10, 18, 30, 3);
+    ctx.roundRect(sx * 22 - 4.5, -6, 9, 30, 4);
     ctx.fill();
-    // exhaust bloom
-    const g = ctx.createRadialGradient(sx * 26, 22, 1, sx * 26, 22, 16 + glow * 14);
+    ctx.fillStyle = HULL;
+    ctx.fillRect(sx * 22 - 4.5, -2, 9, 3);
+
+    const g = ctx.createRadialGradient(sx * 22, 25, 1, sx * 22, 25, 14 + glow * 16);
     g.addColorStop(0, `rgba(255,211,106,${glow})`);
     g.addColorStop(1, 'rgba(255,211,106,0)');
     ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(sx * 26, 22, 16 + glow * 14, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = `rgba(255,236,190,${0.5 + glow * 0.5})`;
-    ctx.fillRect(sx * 26 - 6, 18, 12, 4);
+    ctx.beginPath(); ctx.arc(sx * 22, 25, 14 + glow * 16, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(255,240,200,${0.55 + glow * 0.45})`;
+    ctx.fillRect(sx * 22 - 3, 22, 6, 3);
   }
 
-  // Swept fins.
+  // Low swept strakes rather than slab fins.
   ctx.fillStyle = HULL_DARK;
   for (const sx of [-1, 1]) {
     ctx.beginPath();
-    ctx.moveTo(sx * 14, -6);
-    ctx.lineTo(sx * 40, 8);
-    ctx.lineTo(sx * 38, 14);
-    ctx.lineTo(sx * 14, 8);
+    ctx.moveTo(sx * 6, 0);
+    ctx.lineTo(sx * 30, 12);
+    ctx.lineTo(sx * 28, 16);
+    ctx.lineTo(sx * 6, 8);
     ctx.closePath(); ctx.fill();
   }
 
-  // Command hull — a trapezoid, wide at the stern.
+  // Long, narrow spine — a lifting body, not a wedge.
   ctx.fillStyle = HULL;
   ctx.beginPath();
-  ctx.moveTo(-11, -22);
-  ctx.lineTo(11, -22);
-  ctx.lineTo(19, 16);
-  ctx.lineTo(-19, 16);
+  ctx.moveTo(0, -30);
+  ctx.lineTo(6, -16);
+  ctx.lineTo(9, 14);
+  ctx.lineTo(-9, 14);
+  ctx.lineTo(-6, -16);
   ctx.closePath(); ctx.fill();
 
-  // Panel lines.
+  // Shadowed flank gives it a rolled edge instead of reading flat.
+  ctx.fillStyle = 'rgba(25,31,40,0.35)';
+  ctx.beginPath();
+  ctx.moveTo(0, -30); ctx.lineTo(6, -16); ctx.lineTo(9, 14); ctx.lineTo(0, 14);
+  ctx.closePath(); ctx.fill();
+
   ctx.strokeStyle = HULL_LINE;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(-15, 2); ctx.lineTo(15, 2);
-  ctx.moveTo(-17, 9); ctx.lineTo(17, 9);
-  ctx.moveTo(0, -22); ctx.lineTo(0, 16);
+  ctx.moveTo(-7, -4); ctx.lineTo(7, -4);
+  ctx.moveTo(-8, 5); ctx.lineTo(8, 5);
   ctx.stroke();
 
-  // Canopy pod.
+  // Canopy: a slim blister set well forward.
   ctx.fillStyle = GLASS;
   ctx.beginPath();
-  ctx.moveTo(-7, -19);
-  ctx.lineTo(7, -19);
-  ctx.lineTo(9, -6);
-  ctx.lineTo(-9, -6);
+  ctx.moveTo(-3.5, -25);
+  ctx.lineTo(3.5, -25);
+  ctx.lineTo(5, -12);
+  ctx.lineTo(-5, -12);
   ctx.closePath(); ctx.fill();
   ctx.strokeStyle = accent;
-  ctx.lineWidth = 1.2;
+  ctx.lineWidth = 1.1;
   ctx.stroke();
 
-  // Accent trim along the shoulders.
+  // Accent chines running the length of the hull.
   ctx.strokeStyle = accent;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
-  ctx.moveTo(-11, -21); ctx.lineTo(-18, 14);
-  ctx.moveTo(11, -21); ctx.lineTo(18, 14);
+  ctx.moveTo(-6, -16); ctx.lineTo(-9, 13);
+  ctx.moveTo(6, -16); ctx.lineTo(9, 13);
   ctx.stroke();
 
   ctx.restore();

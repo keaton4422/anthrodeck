@@ -5,8 +5,130 @@ import { GameMode, GameInput, TelemetryFrame, GameIntent, IntentCarrier } from '
 //
 // RED cars are stale context hunting you down. Ram one and you SMASH IT OFF THE ROAD: it spins to
 // the shoulder, and the mode emits `prune-stale` so the app really does drop a superseded item from
-// the next request. GREY cars are ordinary traffic — hit one of those and you wreck. So the game is
-// weaving through traffic to hunt the reds, and every red you put in the weeds is genuine cleanup.
+// the next request. Hunting them costs you NOTHING — you're the hero car, and the reds are what
+// you're here for.
+//
+// GREY civilians are the risk. Clip one and you both take it: they get knocked into the weeds, and
+// your car carries the dent. Every car on the road shows its damage, and enough of it ends your run.
+
+
+// ─── Regions ──────────────────────────────────────────────────────────────────
+// The road tours the world: every REGION_LENGTH metres the scenery, palette and lane markings
+// change to a different country's highway. Purely cosmetic, but it's what makes a long turn
+// somewhere to go rather than a treadmill.
+interface Region {
+  name: string;
+  sky: string;
+  verge: string;
+  asphalt: string;
+  divider: string;   // lane dashes — Europe/Japan white, US yellow
+  edge: string;
+  rail: string;
+  prop: (ctx: CanvasRenderingContext2D, x: number, y: number, side: number, seed: number) => void;
+}
+
+export const REGION_LENGTH = 4000;
+
+export const REGIONS: Region[] = [
+  {
+    name: 'WANGAN ・ TOKYO',
+    sky: '#070912', verge: '#10141F', asphalt: '#1A1E28',
+    divider: 'rgba(235,235,235,0.32)', edge: 'rgba(235,235,235,0.6)', rail: 'rgba(150,165,185,0.5)',
+    prop: (ctx, x, y, side, seed) => {           // neon towers + sodium lamps
+      const hgt = 40 + (seed % 60);
+      ctx.fillStyle = '#0E1220';
+      ctx.fillRect(x - 13, y - hgt, 26, hgt);
+      const hues = ['#FF4D6D', '#4DD0FF', '#FFD36A', '#B44DFF'];
+      for (let i = 0; i < 4; i++) {
+        ctx.fillStyle = hues[(seed + i) % hues.length];
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(x - 9 + (i % 2) * 11, y - hgt + 7 + i * 9, 7, 3);
+      }
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#3A4354'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x + side * 9, y); ctx.lineTo(x + side * 9, y - 26); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,214,140,0.85)';
+      ctx.fillRect(x + side * 9 - 5, y - 29, 10, 3);
+    },
+  },
+  {
+    name: 'AUTOBAHN ・ DEUTSCHLAND',
+    sky: '#0B1014', verge: '#121A16', asphalt: '#20242A',
+    divider: 'rgba(240,240,240,0.34)', edge: 'rgba(245,245,245,0.68)', rail: 'rgba(170,180,190,0.6)',
+    prop: (ctx, x, y, _side, seed) => {          // dense pine
+      const hgt = 46 + (seed % 34);
+      ctx.fillStyle = '#241B12';
+      ctx.fillRect(x - 2, y - 10, 4, 10);
+      ctx.fillStyle = seed % 2 ? '#16301E' : '#12271A';
+      for (let i = 0; i < 3; i++) {
+        const t = y - 8 - i * (hgt / 3.4);
+        const wdt = 17 - i * 4;
+        ctx.beginPath();
+        ctx.moveTo(x, t - hgt / 2.6); ctx.lineTo(x - wdt, t); ctx.lineTo(x + wdt, t);
+        ctx.closePath(); ctx.fill();
+      }
+    },
+  },
+  {
+    name: 'DESERT RUN ・ ARIZONA',
+    sky: '#160E0A', verge: '#2A1A10', asphalt: '#262024',
+    divider: 'rgba(240,200,90,0.5)', edge: 'rgba(245,235,220,0.55)', rail: 'rgba(150,120,90,0.45)',
+    prop: (ctx, x, y, _side, seed) => {          // saguaro + mesa
+      if (seed % 3 === 0) {
+        ctx.fillStyle = '#3A2418';
+        ctx.beginPath();
+        ctx.moveTo(x - 40, y); ctx.lineTo(x - 26, y - 34); ctx.lineTo(x + 24, y - 30);
+        ctx.lineTo(x + 40, y); ctx.closePath(); ctx.fill();
+        return;
+      }
+      ctx.fillStyle = '#1E3A22';
+      ctx.fillRect(x - 3, y - 34, 6, 34);
+      ctx.fillRect(x - 12, y - 24, 9, 4);
+      ctx.fillRect(x - 12, y - 24, 4, 13);
+      ctx.fillRect(x + 4, y - 29, 9, 4);
+      ctx.fillRect(x + 9, y - 29, 4, 16);
+    },
+  },
+  {
+    name: 'PASSO ALPINO ・ ITALIA',
+    sky: '#0A0F14', verge: '#161C1E', asphalt: '#22262C',
+    divider: 'rgba(240,240,240,0.3)', edge: 'rgba(245,245,245,0.6)', rail: 'rgba(190,195,200,0.7)',
+    prop: (ctx, x, y, _side, seed) => {          // peaks with snow caps
+      const hgt = 60 + (seed % 70);
+      ctx.fillStyle = '#1B2430';
+      ctx.beginPath();
+      ctx.moveTo(x - 46, y); ctx.lineTo(x, y - hgt); ctx.lineTo(x + 46, y);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(226,238,250,0.85)';
+      ctx.beginPath();
+      ctx.moveTo(x - 13, y - hgt + 13); ctx.lineTo(x, y - hgt); ctx.lineTo(x + 13, y - hgt + 13);
+      ctx.closePath(); ctx.fill();
+    },
+  },
+  {
+    name: 'COAST ROAD ・ PACIFICA',
+    sky: '#08131A', verge: '#123040', asphalt: '#1E242A',
+    divider: 'rgba(240,220,120,0.42)', edge: 'rgba(245,245,245,0.6)', rail: 'rgba(160,175,185,0.55)',
+    prop: (ctx, x, y, _side, seed) => {          // palms over water
+      ctx.fillStyle = '#0D2E42';
+      ctx.fillRect(x - 50, y - 6, 100, 6);
+      ctx.strokeStyle = '#3A2E1E'; ctx.lineWidth = 3;
+      const hgt = 34 + (seed % 22);
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x + 5, y - hgt / 2, x + 2, y - hgt); ctx.stroke();
+      ctx.fillStyle = '#1C4A2A';
+      for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 2 + (i - 2) * 0.55;
+        ctx.beginPath();
+        ctx.ellipse(x + 2 + Math.cos(a) * 12, y - hgt + Math.sin(a) * 8, 12, 3.5, a, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+  },
+];
+
+export function regionAt(distance: number): Region {
+  return REGIONS[Math.floor(Math.abs(distance) / REGION_LENGTH) % REGIONS.length];
+}
 
 const LANES = 4;
 
@@ -19,6 +141,10 @@ interface Car {
   speed: number;    // closing speed relative to the road
   kind: CarKind;
   spin: number;     // >0 = knocked off, spinning away
+  dents: number;    // visible damage
+  vy: number;       // longitudinal velocity imparted by an impact
+  mass: number;
+  rotV: number;     // angular velocity from an off-centre hit
   vx: number;       // lateral velocity once knocked
   rot: number;
 }
@@ -36,7 +162,8 @@ export interface RacerState extends IntentCarrier {
   distance: number;
   smashed: number;
   civWrecks: number;
-  strikes: number;
+  damage: number;   // dents on the hero car; MAX_DAMAGE ends the run
+  heroVx: number;   // lateral velocity from impacts, fights the lane spring
   score: number;
   spawnAcc: number;
   prevLeft: boolean;
@@ -53,6 +180,9 @@ const CAR_Y_FROM_BOTTOM = 84;
 const CAR_W = 28;
 const CAR_H = 50;
 const SPAWN_DIST = 200;
+const MAX_DAMAGE = 4;
+const HERO_MASS = 1650;      // the hero is the heavy one — that's why it wins exchanges
+const RESTITUTION = 0.32;    // sheet metal crumples; very little bounce comes back
 
 function clampDt(dt: number): number { return Math.max(0, Math.min(dt, 0.05)); }
 function roadLeft(w: number): number { return w * 0.15; }
@@ -74,7 +204,7 @@ export function createMode(): GameMode<RacerState> {
         w, h, lane: 1, laneX: laneCenter(w, 1),
         speed: BASE_SPEED, cars: [],
         crashed: false, finished: false,
-        boostT: 0, distance: 0, smashed: 0, civWrecks: 0, strikes: 0, score: 0, spawnAcc: 0,
+        boostT: 0, distance: 0, smashed: 0, civWrecks: 0, damage: 0, heroVx: 0, score: 0, spawnAcc: 0,
         prevLeft: false, prevRight: false, tick: 0, intents: [],
       };
     },
@@ -88,7 +218,8 @@ export function createMode(): GameMode<RacerState> {
       const addCar = (kind: CarKind, lane: number, speed: number) => {
         s.cars.push({
           lane, x: laneCenter(s.w, lane), y: -70,
-          speed, kind, spin: 0, vx: 0, rot: 0,
+          speed, kind, spin: 0, vx: 0, rot: 0, dents: 0, vy: 0,
+          mass: kind === 'hunter' ? 1400 : 1250, rotV: 0,
         });
       };
 
@@ -113,7 +244,11 @@ export function createMode(): GameMode<RacerState> {
       if (wantLeft && !s.prevLeft) s.lane = Math.max(0, s.lane - 1);
       if (wantRight && !s.prevRight) s.lane = Math.min(LANES - 1, s.lane + 1);
       s.prevLeft = wantLeft; s.prevRight = wantRight;
+      // Lane spring + impact velocity: after a hit you have to fight the car back into line.
+      s.heroVx *= Math.max(0, 1 - 3.2 * dt);
+      s.laneX += s.heroVx * dt;
       s.laneX += (laneCenter(s.w, s.lane) - s.laneX) * Math.min(1, dt * 9);
+      s.laneX = Math.max(roadLeft(s.w) + 12, Math.min(roadRight(s.w) - 12, s.laneX));
 
       // Ordinary traffic keeps the road busy.
       s.spawnAcc += eff * dt;
@@ -127,9 +262,12 @@ export function createMode(): GameMode<RacerState> {
         // Already knocked off — spin toward the shoulder and fall behind.
         if (c.spin > 0) {
           c.spin -= dt;
+          c.vx *= (1 - 0.6 * dt);              // tyre scrub
+          c.vy *= (1 - 0.6 * dt);
           c.x += c.vx * dt;
-          c.rot += dt * 9 * Math.sign(c.vx || 1);
-          c.y += (eff - c.speed * 0.3) * dt;
+          c.rot += c.rotV * dt;
+          c.rotV *= (1 - 0.5 * dt);
+          c.y += (eff - c.speed * 0.3 - c.vy) * dt;
           if (c.spin > 0 && c.y < s.h + 140) next.push(c);
           continue;
         }
@@ -144,25 +282,51 @@ export function createMode(): GameMode<RacerState> {
 
         const overlap = Math.abs(c.x - s.laneX) < CAR_W * 0.92 && Math.abs(c.y - carY) < CAR_H * 0.92;
         if (overlap) {
+          // Impulse resolution along the contact normal. Both cars carry momentum, so a glancing
+          // blow deflects and a square hit transfers hard — and because the hero is the heaviest
+          // thing on the road, it comes off best.
+          let nx = c.x - s.laneX;
+          let ny = c.y - carY;
+          const len = Math.hypot(nx, ny) || 1;
+          nx /= len; ny /= len;
+
+          // Closing velocity: hero lateral vs car lateral, plus the speed difference along the road.
+          const relX = c.vx - s.heroVx;
+          const relY = c.vy - (c.speed - eff);
+          const sep = relX * nx + relY * ny;
+          if (sep < 0) {
+            const j = (-(1 + RESTITUTION) * sep) / (1 / HERO_MASS + 1 / c.mass);
+            c.vx += (j / c.mass) * nx;
+            c.vy += (j / c.mass) * ny;
+            s.heroVx -= (j / HERO_MASS) * nx;
+            // Off-centre contact spins the struck car.
+            c.rotV += ((c.x - s.laneX) / CAR_W) * (j / c.mass) * 0.06;
+            // Energy lost to the crash scrubs speed off the hero.
+            s.speed = Math.max(BASE_SPEED * 0.6, s.speed - Math.abs(j) / HERO_MASS * 0.5);
+          }
           if (c.kind === 'hunter') {
             // SMASH: punt it toward the nearest shoulder. Real work — one stale item pruned.
-            c.spin = 1.4;
-            c.vx = (c.x < s.w / 2 ? -1 : 1) * (260 + eff * 0.35);
+            // The hunter crumples and goes off; the hero takes nothing. Real work: one prune.
+            c.spin = 1.6;
+            c.dents = 3;
+            c.vx += (c.x < s.w / 2 ? -1 : 1) * 120;   // plus the impulse already applied
+            c.rotV += 6;
             s.smashed += 1;
             s.score += 250;
             s.intents.push({ type: 'prune-stale' });
             next.push(c);
             continue;
           }
-          // Civilians get knocked off too — the car is heavy enough. But they're not the target:
-          // it costs score and a strike, and three strikes ends the run.
-          c.spin = 1.4;
-          c.vx = (c.x < s.w / 2 ? -1 : 1) * (200 + eff * 0.25);
+          // Civilians are the only thing that can hurt you. Both cars wear the hit.
+          c.spin = 1.6;
+          c.dents = 3;
+          c.vx += (c.x < s.w / 2 ? -1 : 1) * 90;
+          c.rotV += 4;
           s.civWrecks += 1;
-          s.strikes += 1;
+          s.damage += 1;
           s.score = Math.max(0, s.score - 150);
           next.push(c);
-          if (s.strikes >= 3) return { ...s, cars: next, crashed: true };
+          if (s.damage >= MAX_DAMAGE) return { ...s, cars: next, crashed: true };
           continue;
         }
         next.push(c);
@@ -179,11 +343,28 @@ export function createMode(): GameMode<RacerState> {
       const r = roadRight(w);
       const speedFrac = Math.max(0, Math.min(1, (s.speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED)));
 
-      ctx.fillStyle = '#080A0D';
+      const reg = regionAt(s.distance);
+      // Cross-fade between regions so the world changes without a hard cut.
+      const into = (Math.abs(s.distance) % REGION_LENGTH) / REGION_LENGTH;
+      const fade = into > 0.94 ? (into - 0.94) / 0.06 : 0;
+
+      ctx.fillStyle = reg.sky;
       ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = '#121820';            // verge
-      ctx.fillRect(l - 34, 0, r - l + 68, h);
-      ctx.fillStyle = '#1C2028';            // asphalt
+      ctx.fillStyle = reg.verge;
+      ctx.fillRect(0, 0, w, h);
+
+      // Roadside scenery, scrolling with the road.
+      const propGap = 190;
+      const propOff = s.distance % propGap;
+      for (let i = -1; i < Math.ceil(h / propGap) + 1; i++) {
+        const y = i * propGap + propOff;
+        if (y < -60 || y > h + 60) continue;
+        const seed = Math.abs(Math.floor((s.distance - propOff) / propGap) + i) * 2654435761 % 997;
+        reg.prop(ctx, l - 78, y, -1, seed);
+        reg.prop(ctx, r + 78, y, 1, seed + 37);
+      }
+
+      ctx.fillStyle = reg.asphalt;
       ctx.fillRect(l, 0, r - l, h);
 
       // Asphalt texture bands — cheap, but they give the surface grain.
@@ -194,7 +375,7 @@ export function createMode(): GameMode<RacerState> {
       // Guard rails, with posts that stream past faster as throughput rises.
       const postGap = 46;
       const off = s.distance % postGap;
-      ctx.fillStyle = 'rgba(150,165,185,0.5)';
+      ctx.fillStyle = reg.rail;
       ctx.fillRect(l - 32, 0, 4, h);
       ctx.fillRect(r + 28, 0, 4, h);
       ctx.fillStyle = `rgba(204,120,92,${0.3 + speedFrac * 0.4})`;
@@ -205,10 +386,10 @@ export function createMode(): GameMode<RacerState> {
       }
 
       // Edge lines + dashed lane dividers.
-      ctx.fillStyle = 'rgba(235,235,235,0.6)';
+      ctx.fillStyle = reg.edge;
       ctx.fillRect(l + 2, 0, 3, h);
       ctx.fillRect(r - 5, 0, 3, h);
-      ctx.fillStyle = 'rgba(235,235,235,0.3)';
+      ctx.fillStyle = reg.divider;
       const dash = 36;
       const dashOff = s.distance % (dash * 2);
       for (let i = 1; i < LANES; i++) {
@@ -220,15 +401,15 @@ export function createMode(): GameMode<RacerState> {
         ctx.save();
         ctx.translate(c.x, c.y);
         if (c.spin > 0) ctx.rotate(c.rot);
-        if (c.kind === 'hunter') drawCar(ctx, '#D93A3A', '#6E1616', false);
-        else drawCar(ctx, '#7C8794', '#3A424C', false);
+        if (c.kind === 'hunter') drawCar(ctx, '#D93A3A', '#6E1616', false, c.dents);
+        else drawCar(ctx, '#7C8794', '#3A424C', false, c.dents);
         ctx.restore();
       }
 
       // Hero car.
       ctx.save();
       ctx.translate(s.laneX, carY);
-      drawCar(ctx, s.boostT > 0 ? '#5FD0FF' : '#2E6DE0', '#123A78', true);
+      drawCar(ctx, s.boostT > 0 ? '#5FD0FF' : '#2E6DE0', '#123A78', true, s.damage);
       ctx.restore();
       if (s.boostT > 0) {
         ctx.fillStyle = 'rgba(255,211,106,0.8)';
@@ -238,6 +419,18 @@ export function createMode(): GameMode<RacerState> {
         ctx.lineTo(s.laneX, carY + CAR_H / 2 + 30);
         ctx.closePath(); ctx.fill();
       }
+
+      // Region banner, and a heads-up as the next country approaches.
+      ctx.textAlign = 'center';
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(204,120,92,0.85)';
+      ctx.fillText(reg.name, w / 2, 22);
+      if (fade > 0) {
+        const nxt = REGIONS[(REGIONS.indexOf(reg) + 1) % REGIONS.length];
+        ctx.fillStyle = `rgba(236,236,236,${fade})`;
+        ctx.fillText(`→ ${nxt.name}`, w / 2, 40);
+      }
+      ctx.textAlign = 'left';
 
       if (s.crashed || s.finished) {
         ctx.fillStyle = 'rgba(0,0,0,0.58)';
@@ -256,45 +449,102 @@ export function createMode(): GameMode<RacerState> {
     isOver: (s) => s.crashed || s.finished,
 
     hud(s) {
-      const strikes = '●'.repeat(s.strikes) + '○'.repeat(Math.max(0, 3 - s.strikes));
+      const bar = '●'.repeat(s.damage) + '○'.repeat(Math.max(0, MAX_DAMAGE - s.damage));
       if (s.crashed) return `WRECKED · ${Math.round(s.score)} pts`;
       if (s.finished) return `ARRIVED · ${Math.round(s.score)} pts`;
-      return `${Math.round(s.score)} pts · ${s.smashed} smashed · ${strikes}`;
+      return `${Math.round(s.score)} pts · ${s.smashed} smashed · dmg ${bar}`;
     },
   };
 }
 
-// Drawn at the origin, nose up. `hero` adds the long hood, low roof and big rear wing that give the
-// blue car its tuned-coupe silhouette.
-function drawCar(ctx: CanvasRenderingContext2D, body: string, dark: string, hero: boolean) {
+// Drawn at the origin, nose up. `hero` gives the blue car a squared-off 90s JDM coupe silhouette —
+// flat hood, boxy shoulders, quad round tail lamps and a tall bolted-on rear wing — evoked rather
+// than badged (no marks, no model names). `dents` progressively deforms and scorches any car.
+function drawCar(
+  ctx: CanvasRenderingContext2D,
+  body: string, dark: string, hero: boolean, dents = 0,
+) {
   const w = CAR_W, h = CAR_H;
+  const d = Math.max(0, Math.min(3, dents));
+
+  // Wheels
   ctx.fillStyle = '#0B0E12';
-  ctx.fillRect(-w / 2 - 3, -h / 2 + 8, 3, 12);
-  ctx.fillRect(w / 2, -h / 2 + 8, 3, 12);
-  ctx.fillRect(-w / 2 - 3, h / 2 - 20, 3, 12);
-  ctx.fillRect(w / 2, h / 2 - 20, 3, 12);
+  ctx.fillRect(-w / 2 - 3, -h / 2 + 9, 3, 12);
+  ctx.fillRect(w / 2, -h / 2 + 9, 3, 12);
+  ctx.fillRect(-w / 2 - 3, h / 2 - 21, 3, 12);
+  ctx.fillRect(w / 2, h / 2 - 21, 3, 12);
 
   if (hero) {
-    ctx.fillStyle = dark;                       // rear wing
-    ctx.fillRect(-w / 2 - 4, h / 2 - 8, w + 8, 4);
-    ctx.fillRect(-w / 2 + 3, h / 2 - 11, 3, 7);
-    ctx.fillRect(w / 2 - 6, h / 2 - 11, 3, 7);
+    // Tall rear wing on twin uprights.
+    ctx.fillStyle = dark;
+    ctx.fillRect(-w / 2 - 5, h / 2 - 10, w + 10, 4);
+    ctx.fillRect(-w / 2 + 4, h / 2 - 14, 3, 8);
+    ctx.fillRect(w / 2 - 7, h / 2 - 14, 3, 8);
   }
 
+  // Body — the hero is deliberately square-shouldered rather than rounded.
   ctx.fillStyle = body;
   ctx.beginPath();
-  ctx.roundRect(-w / 2, -h / 2, w, h, hero ? 7 : 5);
+  ctx.roundRect(-w / 2, -h / 2, w, h, hero ? 3 : 5);
   ctx.fill();
 
-  ctx.fillStyle = 'rgba(8,12,18,0.8)';          // glass
-  ctx.fillRect(-w / 2 + 4, -h / 2 + (hero ? 13 : 8), w - 8, hero ? 10 : 12);
-  ctx.fillRect(-w / 2 + 5, h / 2 - (hero ? 22 : 20), w - 10, 8);
+  if (hero) {
+    // Flat hood panel + wide lower intake.
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(-w / 2 + 3, -h / 2 + 3, w - 6, 9);
+    ctx.fillStyle = '#0B0E12';
+    ctx.fillRect(-w / 2 + 4, -h / 2 + 1, w - 8, 3);
+    // Quad round tail lamps.
+    ctx.fillStyle = '#FF5C4A';
+    for (const sx of [-1, 1]) {
+      ctx.beginPath(); ctx.arc(sx * 8, h / 2 - 4, 2.6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx * 3, h / 2 - 4, 2.6, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Glass
+  ctx.fillStyle = 'rgba(8,12,18,0.82)';
+  ctx.fillRect(-w / 2 + 4, -h / 2 + (hero ? 14 : 8), w - 8, hero ? 11 : 12);
+  ctx.fillRect(-w / 2 + 5, h / 2 - (hero ? 24 : 20), w - 10, 8);
 
   if (hero) {
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';   // racing stripes
-    ctx.fillRect(-4, -h / 2 + 2, 2.5, h - 12);
-    ctx.fillRect(2, -h / 2 + 2, 2.5, h - 12);
-    ctx.fillStyle = 'rgba(255,255,255,0.16)';
-    ctx.fillRect(-w / 2 + 3, -h / 2 + 3, w - 6, 6);
+    ctx.fillStyle = 'rgba(240,248,255,0.85)';   // silver flank stripes
+    ctx.fillRect(-w / 2 + 1, -h / 2 + 15, 2, h - 30);
+    ctx.fillRect(w / 2 - 3, -h / 2 + 15, 2, h - 30);
+  }
+
+  // ── Damage ──────────────────────────────────────────────────────────────────
+  if (d > 0) {
+    // Crumple: bite chunks out of the shell so the silhouette itself deforms.
+    ctx.fillStyle = 'rgba(10,12,16,0.85)';
+    const bites: [number, number, number, number][] = [
+      [-w / 2 - 1, -h / 2 + 6, 6, 7],
+      [w / 2 - 5, h / 2 - 18, 6, 8],
+      [-w / 2 + 2, h / 2 - 9, 8, 6],
+    ];
+    for (let i = 0; i < d; i++) {
+      const [bx, by, bw, bh] = bites[i];
+      ctx.fillRect(bx, by, bw, bh);
+    }
+    // Scorching over the paint.
+    ctx.fillStyle = `rgba(30,26,24,${0.18 * d})`;
+    ctx.beginPath();
+    ctx.roundRect(-w / 2, -h / 2, w, h, hero ? 3 : 5);
+    ctx.fill();
+    // Cracked glass.
+    if (d >= 2) {
+      ctx.strokeStyle = 'rgba(220,230,240,0.55)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(-6, -h / 2 + 16); ctx.lineTo(3, -h / 2 + 24);
+      ctx.moveTo(2, -h / 2 + 15); ctx.lineTo(-4, -h / 2 + 25);
+      ctx.stroke();
+    }
+    // Smoke once it is badly hurt.
+    if (d >= 3) {
+      ctx.fillStyle = 'rgba(150,150,155,0.28)';
+      ctx.beginPath(); ctx.arc(0, -h / 2 - 4, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(5, -h / 2 - 12, 5, 0, Math.PI * 2); ctx.fill();
+    }
   }
 }
