@@ -3,13 +3,13 @@ import { GameMode, GameInput, TelemetryFrame, GameIntent, IntentCarrier } from '
 // ENGINE RUNNER — you drive a blue JDM-style hero coupe (long hood, low roof, big rear wing;
 // evoked, not badged — no marks or model names).
 //
-// RED cars are stale context hunting you down. Ram one and you SMASH IT OFF THE ROAD: it spins to
-// the shoulder, and the mode emits `prune-stale` so the app really does drop a superseded item from
-// the next request. Hunting them costs you NOTHING — you're the hero car, and the reds are what
-// you're here for.
+// The loop: RED hunters are stale context, and they are actively trying to PUSH YOU OFF. They line
+// up on your lane and ram. Contact destroys them — you're the heavier car — which prunes a stale
+// item AND kicks in a boost, so taking them head-on is the reward.
 //
-// GREY civilians are the risk. Clip one and you both take it: they get knocked into the weeds, and
-// your car carries the dent. Every car on the road shows its damage, and enough of it ends your run.
+// Their threat isn't the hit, it's where the hit puts you. Every ram shoves you sideways, and
+// they're aiming to shove you into the barrier or into GREY civilian traffic. Those are the only
+// two things that actually damage you. Four dents ends the run.
 
 
 // ─── Regions ──────────────────────────────────────────────────────────────────
@@ -164,6 +164,7 @@ export interface RacerState extends IntentCarrier {
   civWrecks: number;
   damage: number;   // dents on the hero car; MAX_DAMAGE ends the run
   heroVx: number;   // lateral velocity from impacts, fights the lane spring
+  railHits: number;
   score: number;
   spawnAcc: number;
   prevLeft: boolean;
@@ -197,14 +198,14 @@ export function createMode(): GameMode<RacerState> {
     id: 'cockpit-runner',
     name: 'Engine Runner',
     kind: 'telemetry',
-    blurb: 'Blue hero car · SMASH the red cars off the road to prune stale context · weave through grey traffic · speed = token throughput',
+    blurb: 'Red hunters ram you toward the barrier and the traffic · smash one for a BOOST + a pruned context item · only civilians and the armco damage you',
 
     init(w, h): RacerState {
       return {
         w, h, lane: 1, laneX: laneCenter(w, 1),
         speed: BASE_SPEED, cars: [],
         crashed: false, finished: false,
-        boostT: 0, distance: 0, smashed: 0, civWrecks: 0, damage: 0, heroVx: 0, score: 0, spawnAcc: 0,
+        boostT: 0, distance: 0, smashed: 0, civWrecks: 0, damage: 0, heroVx: 0, railHits: 0, score: 0, spawnAcc: 0,
         prevLeft: false, prevRight: false, tick: 0, intents: [],
       };
     },
@@ -247,8 +248,25 @@ export function createMode(): GameMode<RacerState> {
       // Lane spring + impact velocity: after a hit you have to fight the car back into line.
       s.heroVx *= Math.max(0, 1 - 3.2 * dt);
       s.laneX += s.heroVx * dt;
-      s.laneX += (laneCenter(s.w, s.lane) - s.laneX) * Math.min(1, dt * 9);
-      s.laneX = Math.max(roadLeft(s.w) + 12, Math.min(roadRight(s.w) - 12, s.laneX));
+      // The lane spring is the driver correcting back onto line — deliberately weak enough that a
+      // solid ram can overpower it and carry you into the armco. At rate 9 it out-pulled every
+      // shove and the whole push-you-off mechanic could never actually fire.
+      s.laneX += (laneCenter(s.w, s.lane) - s.laneX) * Math.min(1, dt * 4.5);
+      // Barrier strike — this is what the hunters are trying to cause.
+      const minX = roadLeft(s.w) + 12;
+      const maxX = roadRight(s.w) - 12;
+      if ((s.laneX < minX && s.heroVx < -60) || (s.laneX > maxX && s.heroVx > 60)) {
+        s.damage += 1;
+        s.railHits += 1;
+        s.score = Math.max(0, s.score - 120);
+        s.heroVx *= -0.45;                       // scrape and bounce back off the armco
+        s.speed = Math.max(BASE_SPEED * 0.6, s.speed * 0.82);
+        if (s.damage >= MAX_DAMAGE) {
+          s.laneX = Math.max(minX, Math.min(maxX, s.laneX));
+          return { ...s, crashed: true };
+        }
+      }
+      s.laneX = Math.max(minX, Math.min(maxX, s.laneX));
 
       // Ordinary traffic keeps the road busy.
       s.spawnAcc += eff * dt;
@@ -306,11 +324,15 @@ export function createMode(): GameMode<RacerState> {
           }
           if (c.kind === 'hunter') {
             // SMASH: punt it toward the nearest shoulder. Real work — one stale item pruned.
-            // The hunter crumples and goes off; the hero takes nothing. Real work: one prune.
+            // The hunter crumples and goes off; the hero takes no damage. Real work: one prune —
+            // and knocking it clear kicks in a boost, so meeting them head-on is the reward.
             c.spin = 1.6;
             c.dents = 3;
             c.vx += (c.x < s.w / 2 ? -1 : 1) * 120;   // plus the impulse already applied
             c.rotV += 6;
+            // ...but it was ramming you, so it shoves you hard toward the outside on its way out.
+            s.heroVx += Math.sign(s.laneX - c.x) * -1 * 340;
+            s.boostT = Math.max(s.boostT, BOOST_TIME);
             s.smashed += 1;
             s.score += 250;
             s.intents.push({ type: 'prune-stale' });
@@ -452,7 +474,8 @@ export function createMode(): GameMode<RacerState> {
       const bar = '●'.repeat(s.damage) + '○'.repeat(Math.max(0, MAX_DAMAGE - s.damage));
       if (s.crashed) return `WRECKED · ${Math.round(s.score)} pts`;
       if (s.finished) return `ARRIVED · ${Math.round(s.score)} pts`;
-      return `${Math.round(s.score)} pts · ${s.smashed} smashed · dmg ${bar}`;
+      const bst = s.boostT > 0 ? ' · BOOST' : '';
+      return `${Math.round(s.score)} pts · ${s.smashed} smashed · dmg ${bar}${bst}`;
     },
   };
 }

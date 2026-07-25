@@ -337,6 +337,41 @@ export function createMode(): GameMode<FlightState> {
         ctx.strokeRect(p.x - half, p.y - half * 0.72, half * 2, half * 1.44);
       }
 
+      // Floor plane. Two jobs: it gives the lower frame something to hold (the view was badly
+      // top-heavy without it, with the corridor bunched around the vanishing point), and it's the
+      // reference you actually read bank and altitude against — you can't tell you're rolling with
+      // nothing but rings to look at.
+      const FLOOR_Y = CORRIDOR * 1.25;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 22; i++) {
+        const fz = Math.floor(s.z / 220) * 220 + i * 220;
+        const dz = fz - s.z;
+        if (dz <= 10) continue;
+        const a = depthAlpha(dz, FAR) * 0.55;
+        if (a <= 0.01) continue;
+        const p = project(0, FLOOR_Y - s.shipY, dz, w, h);
+        const halfW = CORRIDOR * 2.6 * p.scale;
+        ctx.strokeStyle = `rgba(80,120,165,${a})`;
+        ctx.beginPath();
+        ctx.moveTo(p.x - s.shipX * p.scale - halfW, p.y);
+        ctx.lineTo(p.x - s.shipX * p.scale + halfW, p.y);
+        ctx.stroke();
+      }
+      // Longitudinal rails converging to the vanishing point.
+      for (const lane of [-2, -1, 0, 1, 2]) {
+        const lx = lane * CORRIDOR * 1.15;
+        ctx.strokeStyle = 'rgba(80,120,165,0.28)';
+        ctx.beginPath();
+        let started = false;
+        for (let i = 1; i < 20; i++) {
+          const dz = i * 220;
+          const p = project(lx - s.shipX, FLOOR_Y - s.shipY, dz, w, h);
+          if (!p.visible) continue;
+          if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y);
+        }
+        if (started) ctx.stroke();
+      }
+
       // Speed streaks — how fast the engine is streaming, read as motion.
       if (speedFrac > 0.05) {
         ctx.strokeStyle = `rgba(143,233,255,${0.08 + speedFrac * 0.32})`;

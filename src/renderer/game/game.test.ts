@@ -243,6 +243,29 @@ describe('engine runner (cars)', () => {
     expect(s.speed).toBeLessThanOrEqual(before); // scrubs some speed, never gains
   });
 
+  it('smashing a hunter grants a boost and shoves the hero sideways', () => {
+    let s: RacerState = mode.init(W, H);
+    s.cars.push({ lane: s.lane, x: s.laneX + 8, y: H - 84 - 20, speed: 0, kind: 'hunter', spin: 0, vx: 0, rot: 0, dents: 0, vy: 0, mass: 1400, rotV: 0 });
+    s = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.016);
+    expect(s.smashed).toBe(1);
+    expect(s.boostT).toBeGreaterThan(0);     // reward for taking them head-on
+    expect(Math.abs(s.heroVx)).toBeGreaterThan(0); // and it shoved you on the way out
+    expect(s.damage).toBe(0);                // never damages you
+  });
+
+  it('being shoved into the barrier is what actually hurts', () => {
+    let s: RacerState = mode.init(W, H);
+    s.lane = 0;
+    s.laneX = W * 0.15 + 12;
+    s.heroVx = -400;                         // shoved hard toward the armco
+    for (let i = 0; i < 12 && s.railHits === 0; i++) {
+      s = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.03);
+    }
+    expect(s.railHits).toBeGreaterThan(0);
+    expect(s.damage).toBeGreaterThan(0);
+    expect(s.heroVx).toBeGreaterThan(-400);  // scrubbed and bounced back off it
+  });
+
   it('reports a score and terminal state', () => {
     const s = stepN(mode, tel({ streaming: true, tokensPerSec: 30 }), 120);
     expect(typeof mode.score?.(s)).toBe('number');

@@ -107,24 +107,31 @@ export default function GameCanvas({ onClose, selectedId, onSelect, telemetry, p
         {mode.blurb}
       </div>
 
-      {/* Canvas */}
-      <div ref={containerRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <canvas
-          ref={canvasRef}
-          width={dims.w}
-          height={dims.h}
-          style={{ width: '100%', height: '100%', display: 'block' }}
-        />
-        {/* Instrument panel — only for modes actually driven by engine telemetry. */}
-        {mode.kind === 'telemetry' && <CockpitHud telemetry={telemetry} />}
+      {/* Playfield + instruments. The panel gets its OWN strip rather than floating over the
+          canvas: an overlay was covering the bottom of the play area (in the car mode, the player's
+          own car sat underneath it). Chrome shouldn't sit on top of the thing it describes. */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div ref={containerRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <canvas
+            ref={canvasRef}
+            width={dims.w}
+            height={dims.h}
+            style={{ width: '100%', height: '100%', display: 'block' }}
+          />
+          {paused && (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+              justifyContent: 'center', background: 'rgba(10,11,13,0.7)', flexDirection: 'column', gap: 8,
+            }}>
+              <span style={{ color: '#CC785C', fontSize: 20, fontWeight: 700 }}>Paused</span>
+              <span style={{ color: '#9A9A9A', fontSize: 14 }}>The engine needs you — resolve the prompt to resume.</span>
+            </div>
+          )}
+        </div>
 
-        {paused && (
-          <div style={{
-            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-            justifyContent: 'center', background: 'rgba(10,11,13,0.7)', flexDirection: 'column', gap: 8,
-          }}>
-            <span style={{ color: '#CC785C', fontSize: 20, fontWeight: 700 }}>Paused</span>
-            <span style={{ color: '#9A9A9A', fontSize: 14 }}>The engine needs you — resolve the prompt to resume.</span>
+        {mode.kind === 'telemetry' && (
+          <div style={{ height: HUD_STRIP, position: 'relative', flexShrink: 0 }}>
+            <CockpitHud telemetry={telemetry} />
           </div>
         )}
       </div>
@@ -163,6 +170,9 @@ function ModeGroup({
     </div>
   );
 }
+
+// Height reserved for the instrument strip below the playfield.
+const HUD_STRIP = 100;
 
 const hdrBtn: React.CSSProperties = {
   background: '#1A1A1A', border: '1px solid #333', borderRadius: 6,

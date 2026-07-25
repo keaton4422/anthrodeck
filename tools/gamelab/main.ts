@@ -30,7 +30,7 @@ const cells: Cell[] = GAME_MODES.map((mode) => {
       <span class="warn"></span>
       <span class="hud"></span>
     </div>
-    <canvas width="600" height="260"></canvas>`;
+    <div class="wrap"><canvas width="1280" height="640"></canvas></div>`;
   grid.appendChild(cell);
 
   const canvas = cell.querySelector('canvas') as HTMLCanvasElement;
