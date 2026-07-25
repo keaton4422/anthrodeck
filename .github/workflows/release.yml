@@ -54,6 +54,14 @@ jobs:
         with:
           path: artifacts
 
+      # electron-updater finds releases by fetching this file; electron-forge's makers don't emit
+      # it, which is why in-app updates never worked. Generate it from the artifacts we just built
+      # so the Deck can update itself instead of needing a Desktop Mode round trip.
+      - name: Generate update manifest
+        run: |
+          node tools/updateManifest.mjs artifacts "${GITHUB_REF_NAME#v}" artifacts/latest-linux.yml
+          cat artifacts/latest-linux.yml
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:

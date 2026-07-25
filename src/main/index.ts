@@ -7,7 +7,7 @@ import Store from 'electron-store';
 import { autoUpdater } from 'electron-updater';
 import Anthropic from '@anthropic-ai/sdk';
 import { runAgentLoop } from './agentLoop';
-import { resolveInferenceConfig } from './agentLoop.helpers';
+import { resolveInferenceConfig, updaterErrorMessage } from './agentLoop.helpers';
 import { getFlashcards, clearFlashcards, generateFlashcard } from './flashcards';
 import { undoLastWrite, recordWrite } from './writeHistory';
 import {
@@ -348,17 +348,8 @@ function setupAutoUpdater() {
     mainWindow?.webContents.send('updater:ready', { version: info.version });
   });
   autoUpdater.on('error', (err) => {
-    // Forge's makers (zip/deb/AppImage) don't publish the latest*.yml metadata electron-updater
-    // expects, so a missing-metadata 404 is expected until publishing moves to electron-builder.
-    // Surface it as actionable guidance instead of a raw stack.
-    const raw = err?.message ?? String(err);
-    const missingMeta = /404|latest.*\.yml|ENOENT|Cannot find/i.test(raw);
-    mainWindow?.webContents.send(
-      'updater:error',
-      missingMeta
-        ? 'No update metadata published yet — download the latest release from GitHub manually.'
-        : raw,
-    );
+    // Raw updater errors are opaque; translate to something the pilot can act on.
+    mainWindow?.webContents.send('updater:error', updaterErrorMessage(err?.message ?? String(err)));
   });
 
   setTimeout(() => autoUpdater.checkForUpdates(), 3000);

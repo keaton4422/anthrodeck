@@ -105,7 +105,8 @@ A pluggable game-mode registry where each mode is a pure headless simulation plu
 
 ## Known limitations
 
-- **In-app auto-update doesn't work yet.** electron-forge's makers don't publish the `latest*.yml`
+- **In-app auto-update doesn't work yet.** *(Fixed in v0.7.1 — the release workflow now generates
+  `latest-linux.yml` itself, so AppImage self-update works without moving to electron-builder.)* electron-forge's makers don't publish the `latest*.yml`
   metadata electron-updater needs, so update checks report "no update metadata published yet" and
   you should grab new releases from GitHub manually. Fixing it properly means moving publishing to
   electron-builder — deliberately out of scope for this release rather than half-done.

@@ -133,9 +133,37 @@ you're somewhere untrusted, type the key by hand or use `STEAM + X` with a paire
 > at the new path, or use the AppImage and keep a stable filename so future updates are a drop-in
 > replace.
 
-In-app auto-update is **not working yet** (see the caveat under Package targets), so grab the new
-AppImage from the releases page and replace the old one. If you added it to Steam by filename,
-either keep the filename stable or update the shortcut's target.
+**Use the AppImage and updates take care of themselves.** From v0.7.1 the release publishes the
+`latest-linux.yml` manifest electron-updater needs, so AnthroDeck checks GitHub on launch, tells you
+when a new version exists, and downloads and swaps itself in place. It replaces the AppImage at its
+current path, so a Steam shortcut pointing at `~/Applications/AnthroDeck.AppImage` keeps working
+across every future update — you never touch Desktop Mode again.
+
+This only works when you are running the **AppImage**. The `.deb` and the extracted `.zip` cannot
+replace themselves in place; on those builds the updater says so and points you back here.
+
+### Getting it onto the Deck the first time
+
+One manual step, unavoidable — after that, in-app updates take over. Easiest first, no terminal:
+
+1. **Desktop Mode** (Steam → Power → Switch to Desktop).
+2. Open the releases page in Firefox and download the **`.AppImage`**. Save it to
+   `~/Applications` (create the folder if it isn't there).
+3. In Dolphin, right-click the file → **Properties → Permissions** → tick **Is executable**.
+4. Steam → **Add a Non-Steam Game** → **Browse** → pick the AppImage.
+5. Back in Game Mode, launch it and pair your API key from your phone (see Signing in).
+
+If you would rather use the terminal, steps 2-3 collapse to one line in Konsole:
+
+```bash
+mkdir -p ~/Applications && curl -L -o ~/Applications/AnthroDeck.AppImage "$(curl -s https://api.github.com/repos/keaton4422/anthrodeck/releases/latest | grep -o 'https://[^"]*\.AppImage')" && chmod +x ~/Applications/AnthroDeck.AppImage
+```
+
+That always fetches the newest release, so it doesn't go stale as versions move.
+
+Windows self-update is **not** wired up — electron-updater needs an NSIS installer there and forge
+only produces a zip. Windows is a development convenience, not a target platform, so this is
+deliberate rather than pending.
 
 ## Publishing to the Steam store
 
@@ -213,6 +241,10 @@ Electron Forge builds a zip (all platforms), a `.deb`, and an **AppImage** for L
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds win32 + linux and publishes a
 GitHub Release with the artifacts.
 
-> **Auto-update caveat:** electron-forge's makers don't emit the `latest*.yml` metadata that
-> `electron-updater` expects, so in-app update checks report "no update metadata published yet".
-> Download new releases from GitHub manually until publishing moves to electron-builder.
+The release job also runs `tools/updateManifest.mjs`, which hashes the built AppImage and writes the
+`latest-linux.yml` that `electron-updater` needs. electron-forge's makers don't emit it, so without
+this step in-app update checks 404 — generating the one missing file is a far smaller change than
+migrating the whole build to electron-builder.
+
+> **Linux only.** Windows self-update would need an NSIS installer and forge only makes a zip, so
+> `latest.yml` is deliberately not generated. Windows is a dev convenience here, not a target.
