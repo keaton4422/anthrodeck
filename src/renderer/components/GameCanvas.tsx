@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { GAME_MODES, getMode } from '../game/registry';
 import { useGameLoop } from '../hooks/useGameLoop';
 import { TelemetryController } from '../hooks/useTelemetry';
+import CockpitHud from './CockpitHud';
 
 interface Props {
   onClose: () => void;
@@ -87,6 +88,9 @@ export default function GameCanvas({ onClose, selectedId, onSelect, telemetry, p
           height={dims.h}
           style={{ width: '100%', height: '100%', display: 'block' }}
         />
+        {/* Instrument panel — only for modes actually driven by engine telemetry. */}
+        {mode.kind === 'telemetry' && <CockpitHud telemetry={telemetry} />}
+
         {paused && (
           <div style={{
             position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',

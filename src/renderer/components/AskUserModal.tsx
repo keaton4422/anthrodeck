@@ -19,6 +19,7 @@ export default function AskUserModal({ question, onSelect }: Props) {
 
   return (
     <div
+      className="overlay-in"
       style={{
         position: 'fixed',
         inset: 0,
@@ -31,6 +32,7 @@ export default function AskUserModal({ question, onSelect }: Props) {
       }}
     >
       <div
+        className="panel-in"
         style={{
           background: '#1A1A1A',
           border: '1px solid #CC785C',

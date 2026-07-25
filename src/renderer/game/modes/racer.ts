@@ -124,8 +124,35 @@ export function makeRacerMode(): GameMode<RacerState> {
       ctx.fillStyle = '#0B0D10';
       ctx.fillRect(0, 0, w, h);
 
+      // Speed reads from the environment, not a number: the faster the engine streams, the longer
+      // and denser the rushing side-lines get.
+      const speedFrac = Math.max(0, Math.min(1, (state.speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED)));
+      const laneL = w * 0.18;
+      const laneR = w * 0.82;
+
+      // Road edges
+      ctx.strokeStyle = 'rgba(120,140,170,0.22)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(laneL, 0); ctx.lineTo(laneL, h);
+      ctx.moveTo(laneR, 0); ctx.lineTo(laneR, h);
+      ctx.stroke();
+
+      // Rushing speed lines along both shoulders — length scales with throughput.
+      const streak = 14 + speedFrac * 70;
+      const gap = 46;
+      const off2 = state.distance % gap;
+      ctx.strokeStyle = `rgba(143,233,255,${0.10 + speedFrac * 0.35})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let y = -gap + off2; y < h; y += gap) {
+        ctx.moveTo(laneL - 16, y); ctx.lineTo(laneL - 16, y + streak);
+        ctx.moveTo(laneR + 16, y); ctx.lineTo(laneR + 16, y + streak);
+      }
+      ctx.stroke();
+
       // Scrolling lane markers (scroll speed ~ distance).
-      ctx.strokeStyle = 'rgba(204,120,92,0.25)';
+      ctx.strokeStyle = 'rgba(204,120,92,0.3)';
       ctx.lineWidth = 3;
       const off = state.distance % 60;
       ctx.beginPath();

@@ -59,6 +59,7 @@ export default function ShareModal({ onClose, port, onPortChange, https, onHttps
 
   return (
     <div
+      className="overlay-in"
       style={{
         position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.6)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
@@ -66,6 +67,7 @@ export default function ShareModal({ onClose, port, onPortChange, https, onHttps
       onClick={onClose}
     >
       <div
+        className="panel-in"
         onClick={(e) => e.stopPropagation()}
         style={{
           background: '#1A1A1A', border: '1px solid #3A3A3A', borderRadius: 14,

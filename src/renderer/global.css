@@ -97,3 +97,44 @@ html, body, #root {
 
 /* ─── Syntax highlight override for dark theme ─────────────────────────────── */
 .hljs { background: var(--code-bg) !important; }
+
+/* ─── Motion primitives ────────────────────────────────────────────────────── */
+/* Entrances are fast and ease-out: the surface should already be settling by the time the eye
+   arrives. Overlays fade; the panel they carry also rises and scales a touch, which reads as
+   "this came toward you" rather than "this blinked in". */
+:root {
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 140ms;
+  --dur-base: 200ms;
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes radial-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.overlay-in { animation: overlay-in var(--dur-fast) var(--ease-out) both; }
+.panel-in   { animation: panel-in   var(--dur-base) var(--ease-out) both; }
+.toast-in   { animation: toast-in   var(--dur-base) var(--ease-out) both; }
+.radial-in  { animation: radial-in  var(--dur-fast) var(--ease-out) both; }
+
+/* Honour the OS setting — motion is decoration here, never the only signal. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

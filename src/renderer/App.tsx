@@ -137,6 +137,7 @@ export default function App() {
       sessionUsage.inputTokens + sessionUsage.outputTokens +
       sessionUsage.cacheReadTokens + sessionUsage.cacheCreationTokens,
     );
+    telemetry.setBudget(SESSION_TOKEN_BUDGET);
   }, [sessionUsage, telemetry]);
 
   // Haptic + audio cues on engine events. Subscribes alongside useClaude (IPC allows multiple
@@ -460,7 +461,7 @@ export default function App() {
 
       {/* Transient toast for chord / radial results */}
       {toast && (
-        <div style={{
+        <div className="toast-in" style={{
           position: 'fixed', bottom: 90, left: '50%', transform: 'translateX(-50%)',
           zIndex: 90, maxWidth: '80%',
           background: '#1A1A1A', border: '1px solid #3A3A3A', borderRadius: 10,

@@ -47,11 +47,11 @@ export default function TeachModal({ req, onContinue, onRedirect, redirectSignal
   };
 
   return (
-    <div style={{
+    <div className="overlay-in" style={{
       position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(0,0,0,0.6)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
     }}>
-      <div style={{
+      <div className="panel-in" style={{
         background: '#1A1A1A', border: '1px solid #CC785C', borderRadius: 14, padding: 22,
         width: '100%', maxWidth: 520, display: 'flex', flexDirection: 'column', gap: 14,
         boxShadow: '0 12px 40px rgba(0,0,0,0.6)',

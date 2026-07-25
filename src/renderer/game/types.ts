@@ -11,6 +11,9 @@ export interface TelemetrySnapshot {
   tokensPerSec: number;   // live output throughput → maps to "speed" in cockpit modes
   sessionTokens: number;  // cumulative
   toolActive: boolean;    // a tool ran very recently
+  thinking: boolean;      // extended-thinking tokens flowing right now
+  lastTool: string | null; // label of the most recent tool call, for the instrument readout
+  budget: number;         // soft session token budget, for the fuel gauge
 }
 
 // Discrete engine events the game consumes this frame.
@@ -28,7 +31,10 @@ export interface TelemetryFrame {
 }
 
 export const EMPTY_TELEMETRY: TelemetryFrame = {
-  snapshot: { streaming: false, tokensPerSec: 0, sessionTokens: 0, toolActive: false },
+  snapshot: {
+    streaming: false, tokensPerSec: 0, sessionTokens: 0, toolActive: false,
+    thinking: false, lastTool: null, budget: 200_000,
+  },
   events: [],
 };
 

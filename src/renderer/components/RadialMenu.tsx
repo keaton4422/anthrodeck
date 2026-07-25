@@ -44,7 +44,7 @@ export default function RadialMenu({ selected }: Props) {
   const count = RADIAL_ITEMS.length;
 
   return (
-    <div style={{
+    <div className="radial-in" style={{
       position: 'fixed', inset: 0, zIndex: 85,
       background: 'rgba(0,0,0,0.5)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
