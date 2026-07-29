@@ -2,6 +2,8 @@ import type { ForgeConfig } from '@electron-forge/shared-types';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import MakerAppImage from '@reforged/maker-appimage';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { shipInto } = require('./tools/shipDeps.mjs');
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -10,6 +12,15 @@ const config: ForgeConfig = {
     executableName: 'anthrodeck',
   },
   rebuildConfig: {},
+  hooks: {
+    // The Vite plugin sets packagerConfig.ignore to exclude everything outside /.vite, so the
+    // package ships with NO node_modules. Anything marked external in vite.main.config.ts would
+    // therefore be missing at runtime. This puts the un-bundlable ones back.
+    packageAfterCopy: async (_config, buildPath) => {
+      const shipped = shipInto(buildPath, __dirname);
+      console.log(`  shipped ${shipped.length} un-bundlable packages into the app`);
+    },
+  },
   makers: [
     {
       name: '@electron-forge/maker-zip',

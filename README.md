@@ -17,8 +17,19 @@ npm run test       # vitest
 npm run make       # build distributables (runs typecheck + tests first)
 ```
 
-`npm run make` is gated by `premake` (`typecheck && test`) — a red typecheck or test fails the build,
-and the release workflow runs `make`, so releases are gated too.
+`npm run make` is gated at both ends. `premake` runs `typecheck && test`; afterwards
+`verify:package` opens the artifact that was just built and checks it can actually start. The
+release workflow runs `make`, so releases are gated too.
+
+That last gate exists because it was missing. Until v0.7.2 the packaged app had **never launched**:
+electron-forge's Vite plugin excludes `node_modules` from the package, and `vite.main.config.ts`
+marked electron-store, the Anthropic SDK, fastify, chokidar and selfsigned as `external`, so they
+were neither bundled nor shipped. Every build died at startup with `Cannot find module
+'electron-store'` while typecheck, tests and `make` all reported green — none of them ever ran the
+artifact. `verify:package` now walks every emitted chunk for bare `require()` calls, asserts each
+resolves against what physically shipped, and then loads the shipped packages inside the app's own
+Electron runtime. See the packaging contract at the top of `vite.main.config.ts` before adding
+anything to `external`.
 
 ## Configure
 
