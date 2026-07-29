@@ -96,3 +96,29 @@ describe('collectClosure', () => {
     expect(names.length).toBeGreaterThan(20);
   });
 });
+
+// ─── Renderer presence ────────────────────────────────────────────────────────
+// @ts-expect-error - plain .mjs build tooling, no type declarations by design
+import { extractLocalAssets } from '../../../tools/verifyPackage.mjs';
+
+describe('extractLocalAssets', () => {
+  it('pulls script and stylesheet targets out of the entry HTML', () => {
+    const html = `<script type="module" src="/assets/index-abc.js"></script>
+                  <link rel="stylesheet" href="/assets/index-def.css">`;
+    expect(extractLocalAssets(html)).toEqual(['assets/index-abc.js', 'assets/index-def.css']);
+  });
+
+  it('ignores remote and in-page targets', () => {
+    const html = `<a href="https://x.test/a"><img src="data:image/png;base64,AA=="><a href="#top">`;
+    expect(extractLocalAssets(html)).toEqual([]);
+  });
+
+  it('normalises leading ./ and / so paths join against the target dir', () => {
+    expect(extractLocalAssets('<script src="./a.js"></script><link href="/b.css">'))
+      .toEqual(['a.js', 'b.css']);
+  });
+
+  it('dedupes repeated references', () => {
+    expect(extractLocalAssets('<link href="a.css"><link href="a.css">')).toEqual(['a.css']);
+  });
+});

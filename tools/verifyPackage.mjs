@@ -130,6 +130,12 @@ function main() {
     }
     console.log('  OK — every runtime require resolves.');
 
+    // The renderer is a separate build with its own output path, and it went missing for every
+    // release: main resolved loadFile() to a file that was not in the package, and the app opened
+    // as a black window. Checking main's requires would never have caught it, so check the exact
+    // path main loads.
+    verifyRenderer(tmp);
+
     // Static resolution is necessary but NOT sufficient. fastify 5 resolved fine against
     // Electron 28 and still exploded on load, because Electron 28 ships Node 18 and fastify needs
     // `diagnostics_channel.tracingChannel` and the global `File` from Node 20. So actually LOAD the
@@ -138,6 +144,59 @@ function main() {
     bootCheck(appDir, asar);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// Exported for testing: pulls the local src="" / href="" targets out of the renderer's entry HTML.
+export function extractLocalAssets(html) {
+  const out = new Set();
+  for (const m of html.matchAll(/(?:src|href)\s*=\s*["']([^"']+)["']/g)) {
+    const v = m[1];
+    if (/^(https?:|data:|#|\/\/)/.test(v)) continue;   // remote or in-page
+    out.add(v.replace(/^\.?\//, ''));
+  }
+  return [...out].sort();
+}
+
+function verifyRenderer(tmp) {
+  // Derive this from main's own code, do not restate it from memory. main/index.js lives at
+  // .vite/build/main and calls loadFile('../renderer/<name>/index.html'), so the renderer must be
+  // at .vite/build/renderer/<name>/. Getting this wrong once already produced a green check over a
+  // black window, because the check asserted where the renderer HAD been put rather than where main
+  // goes looking for it.
+  const mainDir = path.join(tmp, '.vite', 'build', 'main');
+  const rendererRoot = path.resolve(mainDir, '../renderer');
+  if (!existsSync(rendererRoot)) {
+    console.error('\n  RENDERER MISSING — the app will open as a blank window.');
+    console.error(`    expected: ${path.relative(tmp, rendererRoot).split(path.sep).join('/')}/<target>/index.html`);
+    console.error('    Check build.outDir in vite.renderer.config.ts: Vite resolves it relative to');
+    console.error('    `root`, so it can silently land under src/renderer/ and never be packaged.\n');
+    process.exit(1);
+  }
+  const targets = readdirSync(rendererRoot, { withFileTypes: true }).filter((d) => d.isDirectory());
+  if (!targets.length) {
+    console.error(`\n  RENDERER MISSING — .vite/renderer/ exists but contains no build targets.\n`);
+    process.exit(1);
+  }
+
+  for (const t of targets) {
+    const entry = path.join(rendererRoot, t.name, 'index.html');
+    if (!existsSync(entry)) {
+      console.error(`\n  RENDERER MISSING — no index.html for target "${t.name}".\n`);
+      process.exit(1);
+    }
+    const html = readFileSync(entry, 'utf-8');
+    // An index.html that references a bundle which did not ship is the same blank window with
+    // extra steps, so resolve each local asset too.
+    const missing = extractLocalAssets(html)
+      .filter((a) => !existsSync(path.join(rendererRoot, t.name, a)));
+    if (missing.length) {
+      console.error(`\n  RENDERER INCOMPLETE — "${t.name}" references assets that did not ship:`);
+      for (const m of missing) console.error(`    ${m}`);
+      console.error('');
+      process.exit(1);
+    }
+    console.log(`  OK — renderer "${t.name}" present with all referenced assets.`);
   }
 }
 

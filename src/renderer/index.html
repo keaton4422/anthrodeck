@@ -5,8 +5,63 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://api.anthropic.com;" />
     <title>AnthroDeck</title>
+    <!--
+      Boot splash. Deliberately plain HTML + CSS with no JavaScript: the CSP forbids inline scripts,
+      and more importantly this has to paint BEFORE the renderer bundle is parsed. On Deck hardware
+      a cold start takes long enough that a bare #0F0F0F window is indistinguishable from a hang —
+      which is exactly how it read the first time it was launched in Game Mode.
+
+      #boot is removed by index.tsx once React has mounted.
+    -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #0F0F0F; }
+      #boot {
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 22px; background: #0F0F0F;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        -webkit-user-select: none; user-select: none;
+      }
+      #boot .mark {
+        font-size: 15px; font-weight: 700; letter-spacing: 0.42em;
+        color: #ECECEC; text-indent: 0.42em;
+      }
+      #boot .bar {
+        width: 190px; height: 3px; border-radius: 2px;
+        background: rgba(204, 120, 92, 0.16); overflow: hidden;
+      }
+      /* Indeterminate — there is no real progress to report, so don't imply otherwise. */
+      #boot .bar::after {
+        content: ''; display: block; width: 40%; height: 100%; border-radius: 2px;
+        background: #CC785C; animation: slide 1.15s ease-in-out infinite;
+      }
+      @keyframes slide {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(250%); }
+      }
+      #boot .status { font-size: 12.5px; color: #6A6A6A; letter-spacing: 0.02em; }
+      /* Held back 18s, then revealed. Past that the launch is outside the normal range, and saying
+         so beats leaving someone watching an animation wondering whether it is stuck. */
+      #boot .slow {
+        font-size: 12px; color: #8A8A8A; max-width: 340px; text-align: center; line-height: 1.55;
+        opacity: 0; animation: reveal 0.4s ease-out 18s forwards;
+      }
+      @keyframes reveal { to { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) {
+        #boot .bar::after { animation-duration: 2.4s; }
+      }
+    </style>
   </head>
   <body>
+    <div id="boot">
+      <div class="mark">ANTHRODECK</div>
+      <div class="bar"></div>
+      <div class="status">Starting the engine</div>
+      <div class="slow">
+        Taking longer than usual. A first launch from an AppImage unpacks before it starts, so this
+        is normal once — but if it stays here much past a minute, something is wrong.
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
   </body>
