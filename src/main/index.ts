@@ -49,13 +49,46 @@ function createWindow() {
     },
   });
 
+  // A window that opens and stays black gives you nothing to go on — no error, no log, no way to
+  // tell "still loading" from "the renderer is missing" from "the GPU process died". That cost
+  // several rounds of guessing, so every one of those now announces itself.
+  const wc = mainWindow.webContents;
+
+  wc.on('did-fail-load', (_e, code, desc, url) => {
+    // -3 is ERR_ABORTED, which fires on ordinary in-app navigation.
+    if (code === -3) return;
+    const msg = `Failed to load the interface.\n\n${desc} (${code})\n${url}`;
+    console.error(`[renderer] ${msg}`);
+    dialog.showErrorBox('AnthroDeck', msg);
+  });
+
+  wc.on('render-process-gone', (_e, details) => {
+    const msg = `The interface process stopped: ${details.reason}`;
+    console.error(`[renderer] ${msg}`);
+    dialog.showErrorBox('AnthroDeck', msg);
+  });
+
+  // Surface renderer console output on stdout so launching from a terminal actually tells you
+  // something. Errors only — this is a diagnostic channel, not a firehose.
+  wc.on('console-message', (_e, level, message, line, sourceId) => {
+    if (level >= 2) console.error(`[renderer] ${message} (${sourceId}:${line})`);
+  });
+
   if (isDev) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    wc.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadFile(
-      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
-    );
+    const entry = path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
+    // Check before loading: loadFile on a missing path fails in a way that is easy to miss, and
+    // this exact file was absent from every packaged build up to v0.7.4.
+    if (!fs.existsSync(entry)) {
+      const msg = `The interface is missing from this build.\n\nExpected:\n${entry}\n\n`
+        + 'This is a packaging fault, not a configuration problem. Please report it.';
+      console.error(`[startup] ${msg}`);
+      dialog.showErrorBox('AnthroDeck', msg);
+    }
+    console.log(`[startup] AnthroDeck ${app.getVersion()} loading ${entry}`);
+    mainWindow.loadFile(entry);
   }
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
@@ -369,10 +402,18 @@ ipcMain.handle('updater:download', async () => {
 ipcMain.on('updater:install', () => { autoUpdater.quitAndInstall(false, true); });
 
 // ─── App lifecycle ─────────────────────────────────────────────────────────────
-app.whenReady().then(() => {
-  createWindow();
-  setupAutoUpdater();
-});
+// `AnthroDeck.AppImage --version` prints the version and exits without opening a window. Trivial,
+// but there was no way to answer "which build is this Deck actually running?" — and when a stale
+// binary and a broken one both present as a black screen, that question is the whole diagnosis.
+if (process.argv.includes('--version') || process.argv.includes('-v')) {
+  console.log(app.getVersion());
+  app.exit(0);
+} else {
+  app.whenReady().then(() => {
+    createWindow();
+    setupAutoUpdater();
+  });
+}
 
 app.on('before-quit', () => { void stopPreview(); void stopPairing(); });
 app.on('window-all-closed', () => { void stopPreview(); if (process.platform !== 'darwin') app.quit(); });
