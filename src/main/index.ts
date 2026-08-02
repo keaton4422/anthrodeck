@@ -31,6 +31,27 @@ declare const MAIN_WINDOW_VITE_NAME: string;
 const store = new Store();
 let mainWindow: BrowserWindow | null = null;
 const abortRef = { aborted: false };
+const LOAD_TIMEOUT_MS = 25_000;
+
+// ─── Software rendering fallback ──────────────────────────────────────────────
+// In Game Mode the Deck runs under gamescope, where Electron's GPU compositing can fail and paint
+// nothing at all. The window opens, the background colour shows, and the page never appears — which
+// is indistinguishable from a hang or a broken build, and cost several rounds of guesswork.
+//
+// So it self-corrects: a GPU process crash flips this flag, the app relaunches with hardware
+// acceleration off, and the flag persists so it stays fixed. `--software-render` (or
+// ANTHRODECK_SOFTWARE_RENDER=1) forces it manually; `--gpu` clears it.
+const forcedSoftware = process.argv.includes('--software-render')
+  || process.env.ANTHRODECK_SOFTWARE_RENDER === '1';
+if (process.argv.includes('--gpu')) store.set('softwareRender', false);
+
+if (forcedSoftware || store.get('softwareRender', false)) {
+  app.disableHardwareAcceleration();
+  // Belt and braces: on some gamescope setups the compositing path fails even with hardware
+  // acceleration nominally off.
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+  console.log('[startup] software rendering enabled');
+}
 
 function createWindow() {
   const isDev = !!MAIN_WINDOW_VITE_DEV_SERVER_URL;
@@ -67,6 +88,25 @@ function createWindow() {
     console.error(`[renderer] ${msg}`);
     dialog.showErrorBox('AnthroDeck', msg);
   });
+
+  // Nothing rendered within the watchdog window. On a Deck this is the difference between "slow"
+  // and "never going to appear", and without it the only signal is a black screen.
+  const watchdog = setTimeout(() => {
+    const where = isDev ? MAIN_WINDOW_VITE_DEV_SERVER_URL : 'the packaged interface';
+    console.error(`[startup] ${LOAD_TIMEOUT_MS / 1000}s with no load event from ${where}`);
+    dialog.showErrorBox(
+      'AnthroDeck',
+      `The interface did not finish loading after ${LOAD_TIMEOUT_MS / 1000} seconds.\n\n`
+      + 'If the screen is blank, try launching with software rendering:\n'
+      + '  AnthroDeck.AppImage --software-render\n\n'
+      + 'That works around GPU compositing failures, which are common under Game Mode.',
+    );
+  }, LOAD_TIMEOUT_MS);
+  wc.on('did-finish-load', () => {
+    clearTimeout(watchdog);
+    console.log('[startup] interface loaded');
+  });
+  mainWindow.on('closed', () => clearTimeout(watchdog));
 
   // Surface renderer console output on stdout so launching from a terminal actually tells you
   // something. Errors only — this is a diagnostic channel, not a firehose.
@@ -414,6 +454,18 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
     setupAutoUpdater();
   });
 }
+
+// A dead GPU process is the specific failure that paints nothing. Rather than leave someone
+// staring at a black rectangle, record it, relaunch into software rendering, and stay there.
+app.on('child-process-gone', (_e, details) => {
+  if (details.type !== 'GPU') return;
+  console.error(`[gpu] GPU process gone: ${details.reason}`);
+  if (store.get('softwareRender', false)) return;   // already fell back; don't loop
+  store.set('softwareRender', true);
+  console.error('[gpu] relaunching with software rendering');
+  app.relaunch();
+  app.exit(0);
+});
 
 app.on('before-quit', () => { void stopPreview(); void stopPairing(); });
 app.on('window-all-closed', () => { void stopPreview(); if (process.platform !== 'darwin') app.quit(); });
