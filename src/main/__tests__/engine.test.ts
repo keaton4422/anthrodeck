@@ -116,6 +116,29 @@ describe('engine tools', () => {
     expect(milestoneFor('ls -la', true)).toBeNull();
   });
 
+  it('never scores a piped run on its exit status: the pipe hides the failure', () => {
+    // Caught in the live end-to-end run: `npm test | tail` exits 0 with two failing tests.
+    const nodeFail = '# tests 2\n# pass 0\n# fail 2\n';
+    expect(milestoneFor('npm test 2>&1 | tail -12', true, nodeFail)).toBe('tests-fail');
+    expect(milestoneFor('npm test 2>&1 | tail -12', true, '# tests 2\n# pass 2\n# fail 0\n')).toBe('tests-pass');
+    expect(milestoneFor('npx vitest run | tail -3', true, ' Tests  3 failed | 199 passed (202)')).toBe('tests-fail');
+    expect(milestoneFor('npx vitest run | tail -3', true, ' Tests  202 passed (202)')).toBe('tests-pass');
+    expect(milestoneFor('npm test || true', true, 'npm ERR! Test failed.')).toBe('tests-fail');
+    // Output that says nothing either way scores nothing.
+    expect(milestoneFor('npm test | grep foo', true, 'foo')).toBeNull();
+    expect(milestoneFor('npm run build 2>&1 | tail', true, 'done')).toBeNull();
+    expect(milestoneFor('npx tsc --noEmit | head', true, "a.ts(1,1): error TS2322: nope")).toBe('build-fail');
+  });
+
+  it('reads masked git runs from their output too', () => {
+    expect(milestoneFor('git commit -m x 2>&1 | tail -2', true, '[main 1a2b3c4] x\n 1 file changed')).toBe('commit');
+    expect(milestoneFor('git commit -m x 2>&1 | tail -2', true, 'nothing to commit, working tree clean')).toBeNull();
+    expect(milestoneFor('git push 2>&1 | tail -2', true, '   1a2b..3c4d  main -> main')).toBe('push');
+    expect(milestoneFor('git push 2>&1 | tail -2', true, ' ! [rejected]  main -> main (fetch first)')).toBeNull();
+    // `&&` keeps exit status meaningful.
+    expect(milestoneFor('npm test && git commit -m x', true, '')).toBe('commit');
+  });
+
   it('tracks TodoWrite laps and reports newly completed sectors once', () => {
     const b = new SectorBoard();
     b.applyTodoWrite({ todos: [{ content: 'A', status: 'in_progress' }, { content: 'B', status: 'pending' }] });

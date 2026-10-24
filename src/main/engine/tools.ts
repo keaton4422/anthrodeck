@@ -91,14 +91,41 @@ export type Milestone = 'tests-pass' | 'tests-fail' | 'build-pass' | 'build-fail
 const TEST_RE = /\b(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|npx\s+(?:vitest|jest|playwright\s+test)|vitest|jest|pytest|go\s+test|cargo\s+test|mix\s+test|rspec|phpunit|dotnet\s+test)\b/;
 const BUILD_RE = /\b(?:(?:npm|pnpm|yarn|bun)\s+run\s+(?:build|typecheck|lint)|tsc\b|cargo\s+build|go\s+build|make(?:\s|$)|gradle\w*\s+build|xcodebuild)/;
 
-export function milestoneFor(command: string, ok: boolean): Milestone | null {
+// A pipe reports the LAST command's exit status (`npm test | tail` succeeds even when the tests
+// fail), and `||` / `;` swallow failures outright. For those, the exit status says nothing about
+// the outcome, so it is read from the output instead — and when the output doesn't say, nothing
+// scores. `&&` is fine: a failure still fails the whole command.
+const MASKS_EXIT = /\|\||;|(^|[^|])\|(?!\|)/;
+
+const FAIL_OUT = /(?:^|\n)\s*(?:# fail [1-9]|not ok\b|FAIL\b)|\b[1-9]\d* (?:failed|failing)\b|error TS\d+|AssertionError|npm ERR!/i;
+const TEST_PASS_OUT = /(?:^|\n)\s*# fail 0\b|\b\d+ pass(?:ed|ing)\b/i;
+const GIT_FAIL_OUT = /\bfatal:|\berror:|\[rejected\]/i;
+const COMMIT_OUT = /\[[^\]\n]+ [0-9a-f]{7,}\]/;
+const PUSH_OUT = /\s->\s|Everything up-to-date/;
+
+export function milestoneFor(command: string, ok: boolean, output = ''): Milestone | null {
   const cmd = command.trim();
   if (!cmd) return null;
+  const fromOutput = MASKS_EXIT.test(cmd);
+  const failed = FAIL_OUT.test(output);
+  const gitFailed = GIT_FAIL_OUT.test(output);
   // Order matters: `git commit && git push` is a push.
-  if (/\bgit\s+push\b/.test(cmd)) return ok ? 'push' : null;
-  if (/\bgit\s+commit\b/.test(cmd)) return ok ? 'commit' : null;
-  if (TEST_RE.test(cmd)) return ok ? 'tests-pass' : 'tests-fail';
-  if (BUILD_RE.test(cmd)) return ok ? 'build-pass' : 'build-fail';
+  if (/\bgit\s+push\b/.test(cmd)) {
+    return (fromOutput ? PUSH_OUT.test(output) && !gitFailed : ok) ? 'push' : null;
+  }
+  if (/\bgit\s+commit\b/.test(cmd)) {
+    return (fromOutput ? COMMIT_OUT.test(output) && !gitFailed : ok) ? 'commit' : null;
+  }
+  if (TEST_RE.test(cmd)) {
+    if (!fromOutput) return ok ? 'tests-pass' : 'tests-fail';
+    if (failed) return 'tests-fail';
+    return TEST_PASS_OUT.test(output) ? 'tests-pass' : null;
+  }
+  if (BUILD_RE.test(cmd)) {
+    if (!fromOutput) return ok ? 'build-pass' : 'build-fail';
+    // A clean build prints nothing recognisable, so a masked one only ever scores a failure.
+    return failed ? 'build-fail' : null;
+  }
   return null;
 }
 
