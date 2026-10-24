@@ -17,7 +17,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type Store from 'electron-store';
 import { normalizeDriveMode, resolveEngineSettings } from './config';
 import { defaultLocateDeps, engineVersion, INSTALL_COMMAND, locateEngine } from './locate';
-import { EngineSession, type ChoiceOption, type CockpitPort, type EngineEvent } from './session';
+import { EngineSession, type CockpitPort, type EngineEvent } from './session';
 import { generateFlashcard, recordToolCalls, setLastContext } from '../flashcards';
 import { pushWrite } from '../writeHistory';
 import { detectDevPortFromOutput } from '../network';
@@ -85,8 +85,7 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
       }
     },
     askWrite: (req, signal) => ask('claude:write-preview', req, { accepted: false }, signal),
-    askChoice: (req: { id: string; question: string; detail?: string; options: ChoiceOption[] }, signal) =>
-      ask('claude:ask-user', req, 'deny', signal),
+    askChoice: (req, signal) => ask('claude:ask-user', req, 'deny', signal),
     askTeach: (req, signal) => ask('claude:teach', req, { action: 'continue' as const }, signal),
     recordWrite: (rec) => pushWrite(rec),
     log: (line) => {

@@ -23,7 +23,9 @@ export type TelemetryEvent =
   | { type: 'done' }      // turn completed         → finish line
   | { type: 'thinking' }  // thinking tokens flowed → shimmer
   | { type: 'boost' }     // pilot approved a write → speed burst
-  | { type: 'crash' };    // pilot aborted the run  → crash
+  | { type: 'crash' }     // pilot aborted the run  → crash
+  | { type: 'sector' }    // a task in Claude's plan completed → checkpoint
+  | { type: 'milestone'; good: boolean }; // tests/build/commit/push → green (or red) flag
 
 export interface TelemetryFrame {
   snapshot: TelemetrySnapshot;

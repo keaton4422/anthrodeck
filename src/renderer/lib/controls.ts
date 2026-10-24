@@ -28,14 +28,16 @@ export function resolveChord(modifierHeld: boolean, button: FaceButton): ChordAc
 }
 
 // ─── Radial menu ──────────────────────────────────────────────────────────────
-export type RadialAction = ChordAction | 'deploy' | 'prune-context';
+export type RadialAction = ChordAction | 'deploy' | 'pit-stop' | 'drive-mode' | 'new-session';
 
 export const RADIAL_ITEMS: { action: RadialAction; label: string }[] = [
   { action: 'git-status', label: 'Git status' },
   { action: 'run-tests', label: 'Run tests' },
   { action: 'deploy', label: 'Deploy' },
   { action: 'undo-write', label: 'Undo write' },
-  { action: 'prune-context', label: 'Prune context' },
+  { action: 'pit-stop', label: 'Pit stop' },
+  { action: 'drive-mode', label: 'Drive mode' },
+  { action: 'new-session', label: 'New session' },
 ];
 
 export const RADIAL_DEADZONE = 0.4;
@@ -57,7 +59,7 @@ export function radialIndexFromStick(x: number, y: number, count: number): numbe
 }
 
 // The shell command a chord/radial action runs, or null when the action is handled in-app
-// (undo-write and prune-context are IPC/state operations, not shell commands).
+// (undo-write, pit-stop, drive-mode and new-session are engine/state operations).
 export function commandForAction(action: RadialAction): string | null {
   switch (action) {
     case 'git-status': return 'git status --short --branch';
@@ -65,7 +67,9 @@ export function commandForAction(action: RadialAction): string | null {
     case 'deploy': return 'npm run deploy';
     case 'git-commit': return null;
     case 'undo-write': return null;
-    case 'prune-context': return null;
+    case 'pit-stop': return null;
+    case 'drive-mode': return null;
+    case 'new-session': return null;
     default: return null;
   }
 }

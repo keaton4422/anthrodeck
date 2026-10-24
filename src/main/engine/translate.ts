@@ -153,7 +153,13 @@ export function translate(msg: SDKMessage, st: TranslateState): CockpitEvent[] {
           confidence: parseConfidence(finalText).confidence,
           anchor: st.lastAssistantUuid,
           isError: msg.is_error,
-          errors: msg.subtype === 'success' ? [] : msg.errors ?? [],
+          // A failed turn with no structured errors (e.g. "Not logged in") carries its reason as
+          // the turn's text — surface that rather than an empty failure.
+          errors: (() => {
+            const errs = msg.subtype === 'success' ? [] : msg.errors ?? [];
+            if (msg.is_error && errs.length === 0 && finalText.trim()) return [finalText.trim()];
+            return errs;
+          })(),
         },
       });
       st.toolCalls = 0;

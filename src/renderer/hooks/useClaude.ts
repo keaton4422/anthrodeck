@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChatMessage, PendingWrite, PendingQuestion, TeachRequest, TokenUsage } from '../types';
+import {
+  ChatMessage,
+  DriveMode,
+  EngineSettingsPayload,
+  PendingQuestion,
+  PendingWrite,
+  Sector,
+  TeachRequest,
+  TokenUsage,
+} from '../types';
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -17,244 +26,200 @@ const ZERO_USAGE: TokenUsage = {
 // level arrives separately on the done event).
 const CONFIDENCE_RE = /\s*<confidence>\s*(?:high|medium|med|low)\s*<\/confidence>\s*$/i;
 
+export interface ContextGauge {
+  percentage: number;
+  totalTokens: number;
+  maxTokens: number;
+}
+
 interface UseClaudeOptions {
-  apiKey: string;
-  projectPath: string | null;
-  autonomousWrites: boolean;
-  model: string;
-  extendedThinking: boolean;
-  effort: string;
-  teachMode: boolean;
-  teachTimeout: number;
+  settings: EngineSettingsPayload;
   onPendingWrite: (write: PendingWrite) => void;
   onPendingQuestion: (question: PendingQuestion) => void;
   onTeach: (req: TeachRequest) => void;
+  // The engine withdrew a card (interrupt / rewind) — close whatever modal shows it.
+  onPromptCancel: (id: string) => void;
 }
 
-export function useClaude({
-  apiKey,
-  projectPath,
-  autonomousWrites,
-  model,
-  extendedThinking,
-  effort,
-  teachMode,
-  teachTimeout,
-  onPendingWrite,
-  onPendingQuestion,
-  onTeach,
-}: UseClaudeOptions) {
+// Conversation state for the cockpit. Claude Code holds the real session (history, context,
+// compaction); this hook only mirrors it for display and forwards the pilot's turns.
+export function useClaude({ settings, onPendingWrite, onPendingQuestion, onTeach, onPromptCancel }: UseClaudeOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionUsage, setSessionUsage] = useState<TokenUsage>(ZERO_USAGE);
-  // Message ids the pilot has pruned from the context sent on the next request.
-  const [prunedIds, setPrunedIds] = useState<Set<string>>(() => new Set());
+  const [costUsd, setCostUsd] = useState(0);
+  const [context, setContext] = useState<ContextGauge | null>(null);
+  const [sectors, setSectors] = useState<Sector[]>([]);
+  const [mode, setModeState] = useState<DriveMode>('default');
+  const [engineModel, setEngineModel] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const streamingIdRef = useRef<string | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   messagesRef.current = messages;
-  const prunedIdsRef = useRef<Set<string>>(prunedIds);
-  prunedIdsRef.current = prunedIds;
-  const onPendingWriteRef = useRef(onPendingWrite);
-  onPendingWriteRef.current = onPendingWrite;
-  const onPendingQuestionRef = useRef(onPendingQuestion);
-  onPendingQuestionRef.current = onPendingQuestion;
-  const onTeachRef = useRef(onTeach);
-  onTeachRef.current = onTeach;
+  const cbs = useRef({ onPendingWrite, onPendingQuestion, onTeach, onPromptCancel });
+  cbs.current = { onPendingWrite, onPendingQuestion, onTeach, onPromptCancel };
+
+  const appendToStreaming = (text: string) => {
+    if (!streamingIdRef.current) return;
+    const id = streamingIdRef.current;
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: m.content + text } : m)));
+  };
 
   useEffect(() => {
-    const unsubDelta = window.electronAPI.onClaudeDelta((delta) => {
-      if (!streamingIdRef.current) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === streamingIdRef.current ? { ...m, content: m.content + delta } : m
-        )
-      );
-    });
+    void window.electronAPI.claudeGetMode().then(setModeState).catch(() => {});
 
-    // Tool activity labels (e.g. `read: src/App.tsx`) get appended inline
-    const unsubActivity = window.electronAPI.onClaudeToolActivity((label) => {
-      if (!streamingIdRef.current) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === streamingIdRef.current ? { ...m, content: m.content + label } : m
-        )
-      );
-    });
+    const unsubs = [
+      window.electronAPI.onClaudeDelta(appendToStreaming),
+      // Tool activity labels (e.g. `read: src/App.tsx`) get appended inline.
+      window.electronAPI.onClaudeToolActivity(appendToStreaming),
+      window.electronAPI.onFileWritten((filePath) => appendToStreaming(`\n\`✓ wrote: ${filePath}\`\n`)),
 
-    const unsubDone = window.electronAPI.onClaudeDone((result) => {
-      setIsStreaming(false);
-      // Accumulate the turn's usage into the running session total (HUD source).
-      setSessionUsage((prev) => ({
-        inputTokens: prev.inputTokens + result.inputTokens,
-        outputTokens: prev.outputTokens + result.outputTokens,
-        cacheReadTokens: prev.cacheReadTokens + result.cacheReadTokens,
-        cacheCreationTokens: prev.cacheCreationTokens + result.cacheCreationTokens,
-        thinkingTokens: prev.thinkingTokens + result.thinkingTokens,
-      }));
-      const finishedId = streamingIdRef.current;
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== finishedId) return m.isStreaming ? { ...m, isStreaming: false } : m;
-          return {
-            ...m,
-            isStreaming: false,
-            content: m.content.replace(CONFIDENCE_RE, ''),
-            confidence: result.confidence ?? undefined,
-          };
-        })
-      );
-      streamingIdRef.current = null;
-    });
+      window.electronAPI.onClaudeDone((result) => {
+        setIsStreaming(false);
+        // Claude Code reports running session totals — replace, don't sum.
+        setSessionUsage({
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          cacheReadTokens: result.cacheReadTokens,
+          cacheCreationTokens: result.cacheCreationTokens,
+          thinkingTokens: result.thinkingTokens,
+        });
+        setCostUsd(result.costUsd);
+        const finishedId = streamingIdRef.current;
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== finishedId) return m.isStreaming ? { ...m, isStreaming: false } : m;
+            return {
+              ...m,
+              isStreaming: false,
+              content: m.content.replace(CONFIDENCE_RE, ''),
+              confidence: result.confidence ?? undefined,
+              anchor: result.anchor,
+            };
+          }),
+        );
+        streamingIdRef.current = null;
+      }),
 
-    const unsubError = window.electronAPI.onClaudeError((err) => {
-      setError(err);
-      setIsStreaming(false);
-      setMessages((prev) =>
-        prev.filter((m) => !(m.isStreaming && m.content === ''))
-      );
-      streamingIdRef.current = null;
-    });
+      window.electronAPI.onClaudeError((err) => {
+        setError(err === 'Aborted' ? null : err);
+        setIsStreaming(false);
+        setMessages((prev) =>
+          prev
+            .filter((m) => !(m.isStreaming && m.content === ''))
+            .map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
+        );
+        streamingIdRef.current = null;
+      }),
 
-    // Write preview: Claude wants to write a file
-    const unsubPreview = window.electronAPI.onWritePreview((data) => {
-      onPendingWriteRef.current(data);
-    });
+      window.electronAPI.onEngineEvent((ev) => {
+        switch (ev.type) {
+          case 'session': setEngineModel(ev.model); break;
+          case 'sectors': setSectors(ev.sectors); break;
+          case 'mode': setModeState(ev.mode); break;
+          case 'context': setContext({ percentage: ev.percentage, totalTokens: ev.totalTokens, maxTokens: ev.maxTokens }); break;
+          case 'compacted':
+            setNotice(`Pit stop: context compacted from ${Math.round(ev.preTokens / 1000)}K tokens.`);
+            break;
+          case 'retry':
+            setNotice(`Engine hiccup, retrying (${ev.attempt}/${ev.maxRetries})…`);
+            break;
+          default: break;
+        }
+      }),
 
-    // ask_user: Claude wants the pilot to pick between options
-    const unsubAsk = window.electronAPI.onAskUser((data) => {
-      onPendingQuestionRef.current(data);
-    });
-
-    // teach mode: Claude is about to run a tool
-    const unsubTeach = window.electronAPI.onTeach((data) => {
-      onTeachRef.current(data);
-    });
-
-    // File written toast (autonomous mode)
-    const unsubWritten = window.electronAPI.onFileWritten((filePath) => {
-      if (!streamingIdRef.current) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === streamingIdRef.current
-            ? { ...m, content: m.content + `\n\`✓ wrote: ${filePath}\`` }
-            : m
-        )
-      );
-    });
-
-    return () => {
-      unsubDelta();
-      unsubActivity();
-      unsubDone();
-      unsubError();
-      unsubPreview();
-      unsubAsk();
-      unsubTeach();
-      unsubWritten();
-    };
+      window.electronAPI.onWritePreview((data) => cbs.current.onPendingWrite(data)),
+      window.electronAPI.onAskUser((data) => cbs.current.onPendingQuestion(data)),
+      window.electronAPI.onTeach((data) => cbs.current.onTeach(data)),
+      window.electronAPI.onPromptCancel((id) => cbs.current.onPromptCancel(id)),
+    ];
+    return () => unsubs.forEach((u) => u());
   }, []);
 
   const sendMessage = useCallback(
     (text: string) => {
       if (!text.trim() || isStreaming) return;
 
-      const userMsg: ChatMessage = {
-        id: uid(),
-        role: 'user',
-        content: text.trim(),
-        timestamp: Date.now(),
-      };
-
+      const userMsg: ChatMessage = { id: uid(), role: 'user', content: text.trim(), timestamp: Date.now() };
       const assistantId = uid();
       const assistantMsg: ChatMessage = {
-        id: assistantId,
-        role: 'assistant',
-        content: '',
-        timestamp: Date.now(),
-        isStreaming: true,
+        id: assistantId, role: 'assistant', content: '', timestamp: Date.now(), isStreaming: true,
       };
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsStreaming(true);
       setError(null);
+      setNotice(null);
       streamingIdRef.current = assistantId;
 
-      // Build history, dropping any messages the pilot has pruned from context.
-      const pruned = prunedIdsRef.current;
-      const history = [...messagesRef.current, userMsg]
-        .filter((m) => !pruned.has(m.id))
-        .map((m) => ({ role: m.role, content: m.content }));
-
-      window.electronAPI.claudeSend({
-        messages: history,
-        apiKey,
-        projectPath,
-        autonomousWrites,
-        model,
-        extendedThinking,
-        effort,
-        teachMode,
-        teachTimeout,
-      });
+      window.electronAPI.claudeSend({ text: text.trim(), settings });
     },
-    [apiKey, projectPath, autonomousWrites, model, extendedThinking, effort, teachMode, teachTimeout, isStreaming]
+    [settings, isStreaming],
   );
 
+  const abort = useCallback(() => {
+    if (isStreaming) window.electronAPI.claudeAbort();
+  }, [isStreaming]);
+
+  // Fresh session: Claude Code forgets the conversation, and so does the cockpit.
   const clearMessages = useCallback(() => {
-    if (isStreaming) {
-      window.electronAPI.claudeAbort();
-      setIsStreaming(false);
-      streamingIdRef.current = null;
-    }
+    window.electronAPI.claudeReset();
+    setIsStreaming(false);
+    streamingIdRef.current = null;
     setMessages([]);
     setError(null);
+    setNotice(null);
     setSessionUsage(ZERO_USAGE);
-    setPrunedIds(new Set());
-  }, [isStreaming]);
-
-  const togglePrune = useCallback((id: string) => {
-    setPrunedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    setCostUsd(0);
+    setContext(null);
+    setSectors([]);
   }, []);
 
-  const pruneMany = useCallback((ids: string[]) => {
-    setPrunedIds((prev) => {
-      const next = new Set(prev);
-      ids.forEach((id) => next.add(id));
-      return next;
-    });
-  }, []);
-
-  // Rewind: drop everything after the given message so the pilot can redirect from that point.
+  // Rewind: drop everything after the given message and resume Claude Code from the last completed
+  // turn at or before it, on a fork — so the next send really continues from that point.
   const rewindTo = useCallback((id: string) => {
-    if (isStreaming) {
-      window.electronAPI.claudeAbort();
-      setIsStreaming(false);
-      streamingIdRef.current = null;
+    const msgs = messagesRef.current;
+    const idx = msgs.findIndex((m) => m.id === id);
+    if (idx === -1) return;
+    // Cut back to the last completed turn so the screen shows exactly what the engine still knows.
+    let cut = -1;
+    for (let i = idx; i >= 0; i--) {
+      if (msgs[i].role === 'assistant' && msgs[i].anchor) { cut = i; break; }
     }
-    setMessages((prev) => {
-      const idx = prev.findIndex((m) => m.id === id);
-      return idx === -1 ? prev : prev.slice(0, idx + 1);
-    });
+    const anchor = cut >= 0 ? msgs[cut].anchor ?? null : null;
+    window.electronAPI.claudeRewind(anchor);
+    setIsStreaming(false);
+    streamingIdRef.current = null;
+    setMessages(msgs.slice(0, cut + 1));
+    if (!anchor) { setSectors([]); setContext(null); }
     setError(null);
-  }, [isStreaming]);
+  }, []);
+
+  const setMode = useCallback(async (m: DriveMode) => {
+    setModeState(await window.electronAPI.claudeSetMode(m));
+  }, []);
+
+  // Claude Code's /compact is the real context pruner now: it summarises the session in place.
+  const pitStop = useCallback(() => sendMessage('/compact'), [sendMessage]);
 
   return {
     messages,
     sendMessage,
     isStreaming,
     error,
+    notice,
     sessionUsage,
-    prunedIds,
-    togglePrune,
-    pruneMany,
+    costUsd,
+    context,
+    sectors,
+    mode,
+    setMode,
+    engineModel,
     rewindTo,
+    abort,
+    pitStop,
     clearMessages,
   };
 }

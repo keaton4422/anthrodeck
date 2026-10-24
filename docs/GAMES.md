@@ -85,6 +85,11 @@ your game's steering with no extra work.
 | `thinking` | Extended thinking is flowing | Ambient effect |
 | `boost` | The pilot approved a write | Speed burst |
 | `crash` | The pilot aborted the run | Destroy the player |
+| `sector` | A task in Claude's plan completed | Checkpoint, boost, points |
+| `milestone` | Tests / build / commit / push ran (`good: false` for a red flag) | Green flag reward, or a hazard |
+
+`sector` and `milestone` are the outcome events: they only fire when something real happened in the
+project, so they are the right things to reward. `tool` is activity and makes a better obstacle.
 
 Free-play modes should ignore `crash`/`done` so an agent event never ends a game the pilot is
 playing to pass the time.
@@ -100,7 +105,7 @@ if (playerHitStaleThing) s.intents.push({ type: 'prune-stale' });
 
 | Intent | Effect |
 |---|---|
-| `prune-stale` | Drops one agent-suggested superseded context item from the next request |
+| `prune-stale` | Pit-crew call: when Claude Code's context is above 70% the pilot gets a "box, box" nudge to take a pit stop (`/compact`). It never compacts by itself; that costs a model call |
 | `focus-question` | Surfaces a pending `ask_user` to the pilot |
 
 **Only non-destructive intents exist, on purpose.** Approving a file write or committing code from a

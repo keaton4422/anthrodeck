@@ -1,5 +1,5 @@
-// Pure helpers for the human-as-pilot UI (token HUD + context pruner). No React, no Electron —
-// unit-testable in isolation.
+// Pure helpers for the human-as-pilot UI (token HUD + tool-line collapsing). No React, no
+// Electron — unit-testable in isolation.
 
 // Rough client-side token estimate (~4 chars/token). This is a display heuristic for the context
 // inspector, not a billing figure — the real per-turn counts come from the API usage on claude:done.
@@ -38,9 +38,10 @@ export function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-// Inline tool-activity lines the agent loop appends to an assistant bubble, e.g. `read: src/App.tsx`,
-// `$ npm test`, `✓ wrote: x.ts`. D-pad left collapses them so long tool runs stay readable.
-const TOOL_LINE = /^\s*`(?:read:|list_files|\$ |ask:|✓ wrote:)[^`]*`\s*$/;
+// Inline tool-activity lines the engine appends to an assistant bubble, e.g. `read: src/App.tsx`,
+// `$ npm test`, `✓ wrote: x.ts`. D-pad left collapses them so long tool runs stay readable. The
+// prefixes mirror toolLabel() in main/engine/tools.ts — keep the two in sync.
+const TOOL_LINE = /^\s*`(?:read:|write:|edit:|glob:|grep:|web:|ask:|agent:|plan:|tool:|list_files|\$ |✓ wrote:)[^`]*`\s*$/;
 
 export function stripToolLines(content: string): string {
   return content
@@ -53,43 +54,4 @@ export function stripToolLines(content: string): string {
 
 export function countToolLines(content: string): number {
   return content.split('\n').filter((line) => TOOL_LINE.test(line)).length;
-}
-
-interface PrunableMessage {
-  id: string;
-  role: string;
-  content: string;
-}
-
-// Suggest messages whose work has been superseded: an assistant turn that read a file which a
-// LATER assistant turn read again (the earlier read is stale context worth dropping). Tool reads
-// surface inline as `read: <path>` activity labels in the assistant bubble.
-export function suggestPrunes(messages: PrunableMessage[]): string[] {
-  const readRe = /`read:\s*([^`\n]+)`/g;
-  const lastReadAt = new Map<string, number>();
-
-  messages.forEach((m, i) => {
-    if (m.role !== 'assistant') return;
-    readRe.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = readRe.exec(m.content)) !== null) {
-      lastReadAt.set(match[1].trim(), i);
-    }
-  });
-
-  const suggested: string[] = [];
-  messages.forEach((m, i) => {
-    if (m.role !== 'assistant') return;
-    readRe.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = readRe.exec(m.content)) !== null) {
-      const path = match[1].trim();
-      if ((lastReadAt.get(path) ?? i) > i) {
-        suggested.push(m.id);
-        break;
-      }
-    }
-  });
-
-  return suggested;
 }

@@ -291,6 +291,13 @@ export function createMode(): GameMode<RacerState> {
         if (ev.type === 'tool' || ev.type === 'error') {
           addCar('hunter', (s.tick * 7 + s.cars.length * 3) % LANES, ev.type === 'error' ? 110 : 70);
         }
+        // Real progress is pace: a finished sector or a green milestone is a boost and points.
+        // A red flag (failing tests/build) sends a fast hunter.
+        if (ev.type === 'sector') { s.boostT = BOOST_TIME; s.score += 300; }
+        if (ev.type === 'milestone') {
+          if (ev.good) { s.boostT = BOOST_TIME; s.score += 500; }
+          else addCar('hunter', (s.tick * 5 + 1) % LANES, 130);
+        }
       }
 
       // Three things drive speed now: the engine's throughput (the telemetry link), the pilot's own

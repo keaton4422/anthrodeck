@@ -11,7 +11,9 @@ export type FeedbackEvent =
   | 'voice-start'
   | 'voice-stop'
   | 'write-applied'
-  | 'crash';
+  | 'crash'
+  | 'sector'      // a task in Claude's plan completed
+  | 'level-up';   // the career moved — also used for achievement unlocks
 
 export interface RumblePattern {
   duration: number;         // ms
@@ -45,6 +47,8 @@ export const RUMBLE: Record<FeedbackEvent, RumblePattern | null> = {
   'voice-stop': { duration: 25, strongMagnitude: 0, weakMagnitude: 0.3 },
   'write-applied': { duration: 60, strongMagnitude: 0.25, weakMagnitude: 0.4 },
   'crash': { duration: 400, strongMagnitude: 0.9, weakMagnitude: 0.6 },
+  'sector': { duration: 120, strongMagnitude: 0.3, weakMagnitude: 0.55 },
+  'level-up': { duration: 320, strongMagnitude: 0.45, weakMagnitude: 0.7 },
 };
 
 // Chime on complete, low tone on error, keypress-style tick on voice start/stop.
@@ -61,6 +65,17 @@ export const TONES: Record<FeedbackEvent, ToneSpec[]> = {
   'crash': [
     { freq: 220, duration: 180, delay: 0, gain: 0.12, type: 'square' },
     { freq: 110, duration: 300, delay: 140, gain: 0.12, type: 'square' },
+  ],
+  // Sector: the purple-sector double beep. Level-up: a rising arpeggio.
+  'sector': [
+    { freq: 1046, duration: 70, delay: 0, gain: 0.08, type: 'sine' },
+    { freq: 1318, duration: 90, delay: 80, gain: 0.08, type: 'sine' },
+  ],
+  'level-up': [
+    { freq: 523, duration: 110, delay: 0, gain: 0.08, type: 'triangle' },
+    { freq: 659, duration: 110, delay: 110, gain: 0.08, type: 'triangle' },
+    { freq: 784, duration: 110, delay: 220, gain: 0.08, type: 'triangle' },
+    { freq: 1046, duration: 220, delay: 330, gain: 0.09, type: 'triangle' },
   ],
 };
 

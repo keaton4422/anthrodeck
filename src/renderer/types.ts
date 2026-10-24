@@ -1,3 +1,11 @@
+import type { EngineEvent } from '../main/engine/session';
+import type { TurnSummary } from '../main/engine/translate';
+import type { Sector, Milestone } from '../main/engine/tools';
+import type { DriveMode } from '../main/engine/config';
+
+// The engine's event vocabulary is defined once, in the main process, and shared here as types only.
+export type { EngineEvent, Sector, Milestone, DriveMode };
+
 export type Confidence = 'high' | 'med' | 'low';
 
 export interface ChatMessage {
@@ -7,12 +15,18 @@ export interface ChatMessage {
   timestamp: number;
   isStreaming?: boolean;
   confidence?: Confidence;
+  // Assistant turns: Claude Code message uuid a rewind to this turn resumes from.
+  anchor?: string | null;
 }
 
 export interface PendingQuestion {
   id: string;
+  // 'question' = Claude asking, 'approval' = a tool wants a yes/no, 'plan' = lights-out decision.
+  kind?: 'question' | 'approval' | 'plan';
   question: string;
-  options: { label: string; value: string }[];
+  // Optional monospace context: the command, file or plan the question is about.
+  detail?: string;
+  options: { label: string; value: string; description?: string }[];
 }
 
 export interface TeachRequest {
@@ -29,8 +43,24 @@ export interface Flashcard {
   timestamp: number;
 }
 
-export interface TurnResult extends TokenUsage {
-  confidence: Confidence | null;
+// Token and cost figures are session totals; replace, don't accumulate.
+export type TurnResult = TurnSummary;
+
+export interface EngineStatus {
+  found: boolean;
+  path: string | null;
+  source: 'override' | 'installer' | 'path' | 'bundled' | null;
+  version: string | null;
+  installCommand: string;
+  hasApiKey: boolean;
+}
+
+export interface EngineSettingsPayload {
+  model: string;
+  effort: string;
+  thinking: boolean;
+  teachMode: boolean;
+  teachTimeout: number;
 }
 
 export interface ShellResult {
@@ -47,7 +77,7 @@ export interface TokenUsage {
   thinkingTokens: number;
 }
 
-export type ModelId = 'claude-opus-4-8' | 'claude-sonnet-5' | 'claude-haiku-4-5';
+export type ModelId = 'sonnet' | 'opus' | 'haiku';
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export type ContentPart =
@@ -115,18 +145,16 @@ declare global {
       // Shell
       runShell: (code: string, language: string) => Promise<ShellResult>;
       // Claude (agentic)
-      claudeSend: (data: {
-        messages: Array<{ role: string; content: string }>;
-        apiKey: string;
-        projectPath: string | null;
-        autonomousWrites: boolean;
-        model: string;
-        extendedThinking: boolean;
-        effort: string;
-        teachMode: boolean;
-        teachTimeout: number;
-      }) => void;
+      claudeSend: (data: { text: string; settings: EngineSettingsPayload }) => void;
       claudeAbort: () => void;
+      claudeReset: () => void;
+      claudeRewind: (anchor: string | null) => void;
+      claudeSetMode: (mode: DriveMode) => Promise<DriveMode>;
+      claudeGetMode: () => Promise<DriveMode>;
+      onEngineEvent: (cb: (ev: EngineEvent) => void) => () => void;
+      onPromptCancel: (cb: (id: string) => void) => () => void;
+      engineStatus: () => Promise<EngineStatus>;
+      engineInstall: () => Promise<{ ok: boolean; output: string }>;
       onClaudeDelta: (cb: (delta: string) => void) => () => void;
       onClaudeThinkingDelta: (cb: (delta: string) => void) => () => void;
       onClaudeDone: (cb: (result: TurnResult) => void) => () => void;

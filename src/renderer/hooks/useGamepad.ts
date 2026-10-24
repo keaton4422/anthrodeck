@@ -9,6 +9,10 @@ interface GamepadActions {
   onXPress?: (modifier: boolean) => void;
   onYPress?: (modifier: boolean) => void;
   onStartPress?: () => void;
+  // Wheel controls: R1 is the drive-mode paddle; R2 (with L1 held, so it is never an accident)
+  // is the brake that interrupts Claude.
+  onR1Press?: () => void;
+  onR2Press?: (modifier: boolean) => void;
   onDpadUp?: () => void;
   onDpadDown?: () => void;
   onDpadLeft?: () => void;
@@ -37,9 +41,10 @@ export function useGamepad(actions: GamepadActions) {
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
 
-  const prevRef = useRef<{ buttons: boolean[]; l2Active: boolean; radialOpen: boolean }>({
+  const prevRef = useRef<{ buttons: boolean[]; l2Active: boolean; r2Active: boolean; radialOpen: boolean }>({
     buttons: [],
     l2Active: false,
+    r2Active: false,
     radialOpen: false,
   });
 
@@ -49,7 +54,7 @@ export function useGamepad(actions: GamepadActions) {
     const poll = () => {
       const gp = navigator.getGamepads()[0];
       if (gp) {
-        const { buttons: prevButtons, l2Active: prevL2, radialOpen: prevRadial } = prevRef.current;
+        const { buttons: prevButtons, l2Active: prevL2, r2Active: prevR2, radialOpen: prevRadial } = prevRef.current;
         const acts = actionsRef.current;
 
         const pressed = (idx: number) => gp.buttons[idx]?.pressed ?? false;
@@ -62,6 +67,7 @@ export function useGamepad(actions: GamepadActions) {
         if (pressed(BTN.X) && !prevButtons[BTN.X]) acts.onXPress?.(modifier);
         if (pressed(BTN.Y) && !prevButtons[BTN.Y]) acts.onYPress?.(modifier);
         if (pressed(BTN.START) && !prevButtons[BTN.START]) acts.onStartPress?.();
+        if (pressed(BTN.RB) && !prevButtons[BTN.RB]) acts.onR1Press?.();
 
         // Stick clicks
         if (pressed(BTN.L3) && !prevButtons[BTN.L3]) acts.onL3Press?.();
@@ -85,6 +91,10 @@ export function useGamepad(actions: GamepadActions) {
         if (l2Active && !prevL2) acts.onL2Press?.();
         if (!l2Active && prevL2) acts.onL2Release?.();
 
+        // R2 trigger — rising edge past the same threshold.
+        const r2Active = (gp.buttons[BTN.RT]?.value ?? 0) > L2_THRESHOLD;
+        if (r2Active && !prevR2) acts.onR2Press?.(modifier);
+
         // Right stick Y — scroll (suppressed while the radial is aiming)
         if (!radialHeld) {
           const ry = gp.axes[RIGHT_STICK_Y] ?? 0;
@@ -96,6 +106,7 @@ export function useGamepad(actions: GamepadActions) {
         prevRef.current = {
           buttons: gp.buttons.map((b) => b.pressed),
           l2Active,
+          r2Active,
           radialOpen: radialHeld,
         };
       }

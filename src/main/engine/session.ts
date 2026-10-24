@@ -36,11 +36,14 @@ export type EngineEvent =
   | { type: 'error'; message: string };
 
 export interface ChoiceOption { label: string; value: string; description?: string }
+export type ChoiceKind = 'question' | 'approval' | 'plan';
 
 export interface CockpitPort {
   emit(ev: EngineEvent): void;
   askWrite(req: { id: string; path: string; content: string }, signal: AbortSignal): Promise<{ accepted: boolean; feedback?: string }>;
-  askChoice(req: { id: string; question: string; detail?: string; options: ChoiceOption[] }, signal: AbortSignal): Promise<string>;
+  // kind: 'question' = Claude asking (AskUserQuestion), 'approval' = a tool needs a yes/no,
+  // 'plan' = leaving plan mode. The cockpit styles and scores them differently.
+  askChoice(req: { id: string; kind: ChoiceKind; question: string; detail?: string; options: ChoiceOption[] }, signal: AbortSignal): Promise<string>;
   askTeach(req: { id: string; tool: string; input: Record<string, unknown>; why: string; timeout: number }, signal: AbortSignal): Promise<{ action: 'continue' | 'redirect'; instruction?: string }>;
   // Commit a pre-write snapshot to the undo stack.
   recordWrite(rec: { absPath: string; relPath: string; previous: string | null }): void;
@@ -255,7 +258,12 @@ export class EngineSession {
         await this.handle(msg, q);
       }
     } catch (e) {
-      if (this.q === q) this.port.emit({ type: 'error', message: friendlyError((e as Error).message) });
+      // Mid-lap, the pilot needs to know. After the finish line (e.g. the engine exiting non-zero
+      // once it already reported the failure) it is only log noise.
+      if (this.q === q && this.busy) {
+        this.busy = false;
+        this.port.emit({ type: 'error', message: friendlyError((e as Error).message) });
+      } else this.port.log(`engine exited: ${(e as Error).message.split('\n')[0]}`);
     } finally {
       if (this.q === q) {
         this.q = null;
@@ -281,10 +289,11 @@ export class EngineSession {
 
       if (ev.type === 'result') {
         this.busy = false;
-        this.port.emit(ev);
+        // Error first: the cockpit closes the empty bubble on the error, then books the lap.
         if (ev.summary.isError && ev.summary.errors.length) {
           this.port.emit({ type: 'error', message: friendlyError(ev.summary.errors.join('\n')) });
         }
+        this.port.emit(ev);
         try {
           const ctx = await q.getContextUsage();
           this.port.emit({ type: 'context', percentage: ctx.percentage, totalTokens: ctx.totalTokens, maxTokens: ctx.maxTokens });
@@ -338,6 +347,7 @@ export class EngineSession {
     const description = typeof input.description === 'string' ? input.description : '';
     const pick = await this.port.askChoice({
       id: nextId(),
+      kind: 'approval',
       question: description || `Claude wants to use ${toolName}`,
       detail: [toolLabel(toolName, input, this.env.projectPath), decisionReason].filter(Boolean).join('\n'),
       options,
@@ -357,7 +367,7 @@ export class EngineSession {
         .map((o) => ({ label: String(o.label ?? ''), value: String(o.label ?? ''), description: String(o.description ?? '') }))
         .filter((o) => o.label);
       if (!text || opts.length === 0) continue;
-      answers[text] = await this.port.askChoice({ id: nextId(), question: text, detail: q.header ? String(q.header) : undefined, options: opts }, signal);
+      answers[text] = await this.port.askChoice({ id: nextId(), kind: 'question', question: text, detail: q.header ? String(q.header) : undefined, options: opts }, signal);
     }
     return { behavior: 'allow', updatedInput: { ...input, answers } };
   }
@@ -367,6 +377,7 @@ export class EngineSession {
     const plan = String(input.plan ?? '').trim();
     const pick = await this.port.askChoice({
       id: nextId(),
+      kind: 'plan',
       question: 'Formation lap done. Lights out?',
       detail: plan.length > 1800 ? `${plan.slice(0, 1800)}…` : plan,
       options: [

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useUpdater } from '../hooks/useUpdater';
 import { LocalVoiceStatus } from '../types';
 import { PairKeyPanel } from './PairKeyPanel';
+import { EnginePanel } from './EnginePanel';
 
 interface Props {
   apiKey: string;
@@ -30,10 +31,11 @@ interface Props {
   onSoundChange: (v: boolean) => void;
 }
 
+// Claude Code model aliases: they track the current generation, so this list never goes stale.
 const MODEL_OPTS: { id: string; label: string; sub: string }[] = [
-  { id: 'claude-sonnet-5', label: 'Sonnet 5', sub: 'Balanced · default · lower cost' },
-  { id: 'claude-opus-4-8', label: 'Opus 4.8', sub: 'Most capable · hardest turns' },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', sub: 'Fastest · cheapest' },
+  { id: 'sonnet', label: 'Sonnet', sub: 'Balanced · default · lower cost' },
+  { id: 'opus', label: 'Opus', sub: 'Most capable · hardest laps' },
+  { id: 'haiku', label: 'Haiku', sub: 'Fastest · cheapest' },
 ];
 
 const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -115,10 +117,12 @@ export function SettingsPanel({
             <h2 style={{ fontSize: 22, fontWeight: 700, color: '#ECECEC' }}>Settings</h2>
             <p style={{ fontSize: 13, color: '#6A6A6A', marginTop: 4 }}>Configure AnthroDeck</p>
           </div>
-          {apiKey && (
-            <button onClick={onClose} style={closeBtn}>✕</button>
-          )}
+          <button onClick={onClose} style={closeBtn}>✕</button>
         </div>
+
+        <EnginePanel />
+
+        <Divider />
 
         {/* ── API Key ─────────────────────────────────────────────────── */}
         <section>
@@ -126,7 +130,8 @@ export function SettingsPanel({
           <p style={hintStyle}>
             Get your key at{' '}
             <span style={{ color: '#CC785C' }}>console.anthropic.com</span>
-            . Stored locally on your device.
+            . Stored locally on your device and handed to Claude Code. Optional if Claude Code is
+            already signed in on this machine.
           </p>
           <div style={{ position: 'relative', marginTop: 10 }}>
             <input

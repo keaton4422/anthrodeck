@@ -243,6 +243,48 @@ describe('EngineSession', () => {
   });
 });
 
+describe('EngineSession failures', () => {
+  it('a not-logged-in turn reaches the pilot once, as an instruction, and the engine exit is quiet', async () => {
+    const queryFn: QueryFn = ({ prompt }) => {
+      async function* run(): AsyncGenerator<SDKMessage, void> {
+        for await (const _m of prompt as AsyncIterable<SDKUserMessage>) {
+          yield { type: 'assistant', uuid: 'x', parent_tool_use_id: null, message: { content: [{ type: 'text', text: 'Not logged in · Please run /login' }] } } as unknown as SDKMessage;
+          yield result({ is_error: true, result: 'Not logged in · Please run /login' }) as unknown as SDKMessage;
+          throw new Error('Claude Code process exited with code 1');
+        }
+      }
+      return Object.assign(run(), { getContextUsage: async () => { throw new Error('gone'); }, close: () => {} }) as unknown as Query;
+    };
+    const { port, events } = fakePort();
+    session(port, queryFn).send('hi');
+    await until(() => events.some((e) => e.type === 'result'));
+    await tick(); await tick();
+    const errors = events.filter((e) => e.type === 'error');
+    expect(errors).toEqual([{ type: 'error', message: 'Claude Code is not signed in. Pair an API key in Settings (⚙).' }]);
+    expect(events.findIndex((e) => e.type === 'error')).toBeLessThan(events.findIndex((e) => e.type === 'result'));
+  });
+
+  it('a crash mid-lap reports once and frees the session for a retry', async () => {
+    const calls: number[] = [];
+    const queryFn: QueryFn = ({ prompt }) => {
+      calls.push(1);
+      async function* run(): AsyncGenerator<SDKMessage, void> {
+        for await (const _m of prompt as AsyncIterable<SDKUserMessage>) throw new Error('spawn /x/claude ENOENT');
+      }
+      return Object.assign(run(), { close: () => {} }) as unknown as Query;
+    };
+    const { port, events } = fakePort();
+    const s = session(port, queryFn);
+    s.send('hi');
+    await until(() => events.some((e) => e.type === 'error'));
+    await tick();
+    expect(events.filter((e) => e.type === 'error')).toHaveLength(1);
+    expect(s.isBusy).toBe(false);
+    s.send('again');
+    expect(calls).toHaveLength(2);
+  });
+});
+
 describe('friendlyError', () => {
   it('translates engine failures into pilot instructions', () => {
     expect(friendlyError('401 invalid x-api-key')).toMatch(/API key/);

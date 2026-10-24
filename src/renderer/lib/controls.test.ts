@@ -80,7 +80,8 @@ describe('commandForAction', () => {
 
   it('returns null for in-app actions', () => {
     expect(commandForAction('undo-write')).toBeNull();
-    expect(commandForAction('prune-context')).toBeNull();
+    expect(commandForAction('pit-stop')).toBeNull();
+    expect(commandForAction('drive-mode')).toBeNull();
     expect(commandForAction('git-commit')).toBeNull();
   });
 });

@@ -188,6 +188,18 @@ describe('engine runner (cars)', () => {
     expect(s.crashed).toBe(false); // hunters don't wreck you
   });
 
+  it('real progress is pace: a sector or green milestone boosts, a red flag sends a hunter', () => {
+    const s0: RacerState = mode.init(W, H);
+    const sector = mode.step(s0, NEUTRAL_INPUT, tel({}, [{ type: 'sector' }]), 0.016);
+    expect(sector.boostT).toBeGreaterThan(0);
+    expect(sector.score).toBeGreaterThan(s0.score);
+    const green = mode.step(s0, NEUTRAL_INPUT, tel({}, [{ type: 'milestone', good: true }]), 0.016);
+    expect(green.boostT).toBeGreaterThan(0);
+    const red = mode.step(s0, NEUTRAL_INPUT, tel({}, [{ type: 'milestone', good: false }]), 0.016);
+    expect(red.cars.some((c) => c.kind === 'hunter')).toBe(true);
+    expect(red.boostT).toBe(0);
+  });
+
   it('hunting reds costs the hero nothing — no damage from a smash', () => {
     let s: RacerState = mode.init(W, H);
     for (let i = 0; i < 3; i++) {
