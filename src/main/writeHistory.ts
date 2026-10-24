@@ -14,16 +14,25 @@ export interface WriteRecord {
 const MAX_HISTORY = 20;
 const history: WriteRecord[] = [];
 
+// Read a file's current state without recording it. Pair with pushWrite once the write is known to
+// have happened — the engine snapshots before Claude Code's tool runs and commits only on success,
+// so a rejected or failed edit never shows up as undoable.
+export function snapshotFile(absPath: string): string | null {
+  try {
+    return fs.readFileSync(absPath, 'utf-8');
+  } catch {
+    return null; // new file
+  }
+}
+
+export function pushWrite(rec: WriteRecord): void {
+  history.push(rec);
+  if (history.length > MAX_HISTORY) history.shift();
+}
+
 // Call immediately BEFORE writing so we capture the pre-write state.
 export function recordWrite(absPath: string, relPath: string): void {
-  let previous: string | null = null;
-  try {
-    previous = fs.readFileSync(absPath, 'utf-8');
-  } catch {
-    previous = null; // new file
-  }
-  history.push({ absPath, relPath, previous });
-  if (history.length > MAX_HISTORY) history.shift();
+  pushWrite({ absPath, relPath, previous: snapshotFile(absPath) });
 }
 
 export function lastWrite(): WriteRecord | null {
