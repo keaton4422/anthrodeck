@@ -6,8 +6,8 @@ import fs from 'fs';
 import Store from 'electron-store';
 import { autoUpdater } from 'electron-updater';
 import Anthropic from '@anthropic-ai/sdk';
-import { runAgentLoop } from './agentLoop';
-import { resolveInferenceConfig, updaterErrorMessage } from './agentLoop.helpers';
+import { registerEngineIpc } from './engine/bridge';
+import { updaterErrorMessage } from './updaterMessages';
 import { getFlashcards, clearFlashcards, generateFlashcard } from './flashcards';
 import { undoLastWrite, recordWrite } from './writeHistory';
 import {
@@ -30,7 +30,6 @@ declare const MAIN_WINDOW_VITE_NAME: string;
 
 const store = new Store();
 let mainWindow: BrowserWindow | null = null;
-const abortRef = { aborted: false };
 const LOAD_TIMEOUT_MS = 25_000;
 
 // ─── Software rendering fallback ──────────────────────────────────────────────
@@ -259,56 +258,9 @@ ipcMain.handle('shell:run', async (_, { code, language }: { code: string; langua
   });
 });
 
-// ─── Claude Agentic IPC ───────────────────────────────────────────────────────
-ipcMain.on('claude:send', async (event, {
-  messages,
-  apiKey,
-  projectPath,
-  autonomousWrites,
-  model,
-  extendedThinking,
-  effort,
-  teachMode,
-  teachTimeout,
-}: {
-  messages: Array<{ role: string; content: string }>;
-  apiKey: string;
-  projectPath: string | null;
-  autonomousWrites: boolean;
-  model?: string;
-  extendedThinking?: boolean;
-  effort?: string;
-  teachMode?: boolean;
-  teachTimeout?: number;
-}) => {
-  abortRef.aborted = false;
-
-  if (!apiKey) {
-    event.sender.send('claude:error', 'No API key set. Open Settings (⚙) and enter your Anthropic API key.');
-    return;
-  }
-
-  // Validate/normalize whatever the renderer sent into a safe inference config.
-  const base = resolveInferenceConfig({ model, extendedThinking, effort });
-  const config = {
-    ...base,
-    teachMode: !!teachMode,
-    teachTimeout: typeof teachTimeout === 'number' && teachTimeout >= 0 ? teachTimeout : 5,
-  };
-
-  await runAgentLoop(
-    event,
-    messages as unknown as Anthropic.MessageParam[],
-    apiKey,
-    projectPath,
-    autonomousWrites,
-    config,
-    mainWindow,
-    abortRef,
-  );
-});
-
-ipcMain.on('claude:abort', () => { abortRef.aborted = true; });
+// ─── Claude Code engine IPC ───────────────────────────────────────────────────
+// Claude Code (through the Agent SDK) is the engine; see engine/bridge.ts for the channels.
+const engine = registerEngineIpc(store, () => mainWindow);
 
 // ─── Preview / LAN sharing IPC ────────────────────────────────────────────────
 ipcMain.handle('preview:start', async (_, opts: { port?: number; https?: boolean; devPort?: number | null }) => {
@@ -383,8 +335,6 @@ ipcMain.handle('flashcards:generate', async () => {
   const client = new Anthropic({ apiKey, maxRetries: 2 });
   return generateFlashcard(client, store.get('projectPath', null) as string | null);
 });
-
-// claude:write-decision is handled inside agentLoop via ipcMain.on (per-call listener)
 
 // ─── Auto-updater ─────────────────────────────────────────────────────────────
 function setupAutoUpdater() {
@@ -467,7 +417,7 @@ app.on('child-process-gone', (_e, details) => {
   app.exit(0);
 });
 
-app.on('before-quit', () => { void stopPreview(); void stopPairing(); });
+app.on('before-quit', () => { engine.shutdown(); void stopPreview(); void stopPairing(); });
 app.on('window-all-closed', () => { void stopPreview(); if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) { createWindow(); setupAutoUpdater(); }

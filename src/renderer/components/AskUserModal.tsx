@@ -14,6 +14,12 @@ const FACE = [
   { key: 'Y', color: '#D9A441' },
 ];
 
+const HEADER: Record<NonNullable<PendingQuestion['kind']>, { icon: string; title: string }> = {
+  question: { icon: '📻', title: 'PIT WALL · CLAUDE IS ASKING' },
+  approval: { icon: '🚦', title: 'RACE CONTROL · APPROVE?' },
+  plan: { icon: '🏁', title: 'FORMATION LAP COMPLETE' },
+};
+
 export default function AskUserModal({ question, onSelect }: Props) {
   const options = question.options.slice(0, 4);
 
@@ -47,15 +53,25 @@ export default function AskUserModal({ question, onSelect }: Props) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 16 }}>❓</span>
+          <span style={{ fontSize: 16 }}>{HEADER[question.kind ?? 'question'].icon}</span>
           <span style={{ color: '#CC785C', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em' }}>
-            CLAUDE IS ASKING
+            {HEADER[question.kind ?? 'question'].title}
           </span>
         </div>
 
         <p style={{ color: '#ECECEC', fontSize: 17, lineHeight: 1.5, margin: 0 }}>
           {question.question}
         </p>
+
+        {question.detail && (
+          <pre style={{
+            margin: 0, padding: '10px 12px', borderRadius: 8, background: '#111', border: '1px solid #2A2A2A',
+            color: '#B0B0B0', fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            maxHeight: 220, overflowY: 'auto',
+          }}>
+            {question.detail}
+          </pre>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {options.map((opt, i) => {
@@ -98,7 +114,10 @@ export default function AskUserModal({ question, onSelect }: Props) {
                 >
                   {face.key}
                 </span>
-                <span style={{ flex: 1 }}>{opt.label}</span>
+                <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span>{opt.label}</span>
+                  {opt.description && <span style={{ fontSize: 12, color: '#8A8A8A' }}>{opt.description}</span>}
+                </span>
               </button>
             );
           })}

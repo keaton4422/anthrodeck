@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StatusBar } from './components/StatusBar';
 import { ChatView } from './components/ChatView';
 import { InputBar } from './components/InputBar';
@@ -9,6 +9,7 @@ import ShareModal from './components/ShareModal';
 import GameCanvas from './components/GameCanvas';
 import TeachModal from './components/TeachModal';
 import RadialMenu from './components/RadialMenu';
+import { SectorStrip } from './components/SectorStrip';
 import { useFeedback } from './hooks/useFeedback';
 import {
   resolveChord,
@@ -19,17 +20,27 @@ import {
   type FaceButton,
   type RadialAction,
 } from './lib/controls';
-import { suggestPrunes } from './lib/pilot';
 import { useClaude } from './hooks/useClaude';
+import { useSeason } from './hooks/useSeason';
+import { DRIVE_MODE_LABELS, nextDriveMode, normalizeModel } from '../main/engine/config';
 import { useVoice } from './hooks/useVoice';
 import { useLocalVoice } from './hooks/useLocalVoice';
 import { useGamepad } from './hooks/useGamepad';
 import { useStore } from './hooks/useStore';
 import { useProject } from './hooks/useProject';
 import { useTelemetry } from './hooks/useTelemetry';
-import { PendingWrite, PendingQuestion, TeachRequest } from './types';
+import { EngineSettingsPayload, PendingWrite, PendingQuestion, TeachRequest } from './types';
 
 interface TeachLogEntry { tool: string; why: string; timestamp: number; }
+
+const MILESTONE_TOAST: Record<string, string> = {
+  'tests-pass': '🟢 Green flag · tests passing',
+  'tests-fail': '🔴 Red flag · tests failing',
+  'build-pass': '✅ Build clean',
+  'build-fail': '🟡 Yellow flag · build failing',
+  commit: '📦 Parc fermé · committed',
+  push: '🏁 Pushed · on the podium',
+};
 
 const SESSION_TOKEN_BUDGET = 200_000;
 
@@ -44,7 +55,7 @@ export default function App() {
   const [voiceRejecting, setVoiceRejecting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cockpitOpen, setCockpitOpen] = useState(false);
-  const [autonomousWrites, setAutonomousWrites] = useState(false);
+  const [engineReady, setEngineReady] = useState(true);
   const [apiKey, setApiKey] = useStore<string>('apiKey', '');
   const [previewPort, setPreviewPort] = useStore<number>('previewPort', 5757);
   const [previewHttps, setPreviewHttps] = useStore<boolean>('previewHttps', false);
@@ -58,41 +69,51 @@ export default function App() {
   const [collapseTools, setCollapseTools] = useState(false);
   const [radialOpen, setRadialOpen] = useState(false);
   const [radialIndex, setRadialIndex] = useState<number | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  // Toasts queue so a level-up and the achievement that caused it both get seen.
+  const [toasts, setToasts] = useState<string[]>([]);
+  const toast = toasts[0] ?? null;
 
   const telemetry = useTelemetry();
   const fireFeedback = useFeedback({ haptics, sound });
 
   const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 3200);
+    setToasts((q) => (q.includes(msg) ? q : [...q, msg].slice(-4)));
   }, []);
-  const [model, setModel] = useStore<string>('model', 'claude-sonnet-5');
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToasts((q) => q.slice(1)), 3200);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+  const [storedModel, setModel] = useStore<string>('model', 'sonnet');
+  const model = normalizeModel(storedModel);
   const [extendedThinking, setExtendedThinking] = useStore<boolean>('extendedThinking', false);
   const [effort, setEffort] = useStore<string>('effort', 'high');
 
   const { projectPath, files, openFolder, refreshFiles } = useProject();
+
+  const engineSettings = useMemo<EngineSettingsPayload>(
+    () => ({ model, effort, thinking: extendedThinking, teachMode, teachTimeout }),
+    [model, effort, extendedThinking, teachMode, teachTimeout],
+  );
 
   const {
     messages,
     sendMessage,
     isStreaming,
     error,
+    notice,
     sessionUsage,
-    prunedIds,
-    togglePrune,
-    pruneMany,
+    costUsd,
+    context,
+    sectors,
+    mode,
+    setMode,
     rewindTo,
+    abort,
+    pitStop,
     clearMessages,
   } = useClaude({
-    apiKey,
-    projectPath,
-    autonomousWrites,
-    model,
-    extendedThinking,
-    effort,
-    teachMode,
-    teachTimeout,
+    settings: engineSettings,
     onPendingWrite: setPendingWrite,
     onPendingQuestion: setPendingQuestion,
     onTeach: (req) => {
@@ -100,7 +121,41 @@ export default function App() {
       setTeachRedirectSignal(0);
       setTeachLog((prev) => [...prev, { tool: req.tool, why: req.why, timestamp: Date.now() }]);
     },
+    // The engine withdrew a card (interrupt / rewind): close it wherever it is showing.
+    onPromptCancel: (id) => {
+      setPendingWrite((w) => (w?.id === id ? null : w));
+      setPendingQuestion((q) => (q?.id === id ? null : q));
+      setPendingTeach((t) => (t?.id === id ? null : t));
+    },
   });
+
+  // The career. Every outcome that earned something gets a toast; unlocks and level-ups rumble.
+  const { season, record } = useSeason((u) => {
+    if (u.levelUp) {
+      fireFeedback('level-up');
+      showToast(`LEVEL ${u.levelUp} · +${u.gained} XP`);
+    } else if (u.unlocked.length) {
+      fireFeedback('level-up');
+    }
+    for (const a of u.unlocked) showToast(`🏆 ${a.name} · ${a.blurb}`);
+  });
+
+  const cycleMode = useCallback(() => {
+    const next = nextDriveMode(mode);
+    void setMode(next);
+    showToast(`Drive mode: ${DRIVE_MODE_LABELS[next]}`);
+  }, [mode, setMode, showToast]);
+
+  // Engine health: checked at start and whenever settings close (an install may have happened).
+  useEffect(() => {
+    if (showSettings) return;
+    void window.electronAPI.engineStatus().then((st) => {
+      setEngineReady(st.found);
+      if (!st.found) setShowSettings(true);
+    }).catch(() => {});
+  }, [showSettings]);
+
+  useEffect(() => { if (notice) showToast(notice); }, [notice, showToast]);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const writeDiffRef = useRef<HTMLPreElement>(null);
@@ -147,24 +202,34 @@ export default function App() {
     const unsubErr = window.electronAPI.onClaudeError(() => fireFeedback('tool-error'));
     const unsubDone = window.electronAPI.onClaudeDone(() => fireFeedback('message-complete'));
     const unsubWritten = window.electronAPI.onFileWritten(() => fireFeedback('write-applied'));
-    return () => { unsubTool(); unsubErr(); unsubDone(); unsubWritten(); };
-  }, [fireFeedback]);
+    const unsubEngine = window.electronAPI.onEngineEvent((ev) => {
+      if (ev.type === 'sector-done') {
+        fireFeedback('sector');
+        showToast(`🟣 Sector complete · ${ev.sector.title}`);
+      }
+      if (ev.type === 'milestone') {
+        const good = ev.kind !== 'tests-fail' && ev.kind !== 'build-fail';
+        fireFeedback(good ? 'write-applied' : 'tool-error');
+        showToast(MILESTONE_TOAST[ev.kind]);
+      }
+    });
+    return () => { unsubTool(); unsubErr(); unsubDone(); unsubWritten(); unsubEngine(); };
+  }, [fireFeedback, showToast]);
 
-  // Games act on the session here. Only non-destructive intents exist (see game/types.ts) — a
-  // stray flick of the stick must never approve a write, so pruning stale context is the whole
-  // surface. Smash a hunter car / sweep a data node / dust a rock and one superseded item really
-  // does leave the next request.
+  // Games act on the session here. Only non-destructive intents exist (see game/types.ts): a stray
+  // flick of the stick must never approve a write. Claude Code manages its own context now, so a
+  // cleanup intent (smash a hunter, sweep a node) is the pit crew calling the pilot in when the tank
+  // is low. It never compacts by itself; that costs a model call and is the pilot's decision.
+  const lastPitCall = useRef(0);
   const handleGameIntents = useCallback((intents: { type: string }[]) => {
-    let prunes = intents.filter((i) => i.type === 'prune-stale').length;
-    if (prunes <= 0) return;
-    const stale = suggestPrunes(
-      messages.map((m) => ({ id: m.id, role: m.role, content: m.content })),
-    ).filter((id) => !prunedIds.has(id));
-    if (stale.length === 0) return;
-    prunes = Math.min(prunes, stale.length);
-    pruneMany(stale.slice(0, prunes));
+    if (!intents.some((i) => i.type === 'prune-stale')) return;
+    if (!context || context.percentage < 70) return;
+    const now = Date.now();
+    if (now - lastPitCall.current < 60_000) return;
+    lastPitCall.current = now;
+    showToast(`Box, box: context at ${Math.round(context.percentage)}%. Radial → Pit stop.`);
     fireFeedback('tool-success');
-  }, [messages, prunedIds, pruneMany, fireFeedback]);
+  }, [context, showToast, fireFeedback]);
 
   // Meta actions reachable from the L1 chords and the radial menu.
   const runAction = useCallback(async (action: RadialAction) => {
@@ -174,14 +239,16 @@ export default function App() {
       fireFeedback(r.ok ? 'write-applied' : 'tool-error');
       return;
     }
-    if (action === 'prune-context') {
-      const ids = suggestPrunes(
-        messages.map((m) => ({ id: m.id, role: m.role, content: m.content })),
-      ).filter((id) => !prunedIds.has(id));
-      if (ids.length === 0) { showToast('Nothing to prune.'); return; }
-      pruneMany(ids);
-      showToast(`Pruned ${ids.length} superseded ${ids.length === 1 ? 'read' : 'reads'}.`);
-      fireFeedback('tool-success');
+    if (action === 'pit-stop') {
+      if (isStreaming) { showToast('Pit lane is closed mid-lap.'); return; }
+      pitStop();
+      showToast('Pit stop: compacting context…');
+      return;
+    }
+    if (action === 'drive-mode') { cycleMode(); return; }
+    if (action === 'new-session') {
+      clearMessages();
+      showToast('New session. Fresh tyres.');
       return;
     }
     if (action === 'git-commit') {
@@ -199,11 +266,13 @@ export default function App() {
       const out = (res.stdout || res.stderr || res.error || '(no output)').trim();
       showToast(out.split('\n').slice(0, 3).join(' · ').slice(0, 200) || '(no output)');
       fireFeedback(res.error ? 'tool-error' : 'tool-success');
+      // A test run the pilot fires themselves is as real as one Claude runs.
+      if (action === 'run-tests') record({ type: 'milestone', kind: res.error ? 'tests-fail' : 'tests-pass' });
     } catch (e) {
       showToast(`Failed: ${(e as Error).message}`);
       fireFeedback('tool-error');
     }
-  }, [projectPath, prunedIds, pruneMany, showToast, fireFeedback, messages]);
+  }, [projectPath, showToast, fireFeedback, isStreaming, pitStop, cycleMode, clearMessages, record]);
 
   // Clearing while streaming is an abort — that's a "crash" event for the cockpit.
   const handleClear = useCallback(() => {
@@ -217,7 +286,8 @@ export default function App() {
     setPendingWrite(null);
     setVoiceRejecting(false);
     telemetry.emit({ type: 'boost' }); // approving a write is a boost
-  }, [pendingWrite, telemetry]);
+    record({ type: 'edit-approved' });
+  }, [pendingWrite, telemetry, record]);
 
   const handleWriteReject = useCallback((feedback?: string) => {
     if (!pendingWrite) return;
@@ -236,8 +306,9 @@ export default function App() {
   const answerQuestion = useCallback((value: string) => {
     if (!pendingQuestion) return;
     window.electronAPI.sendAskUserDecision(pendingQuestion.id, value);
+    if ((pendingQuestion.kind ?? 'question') === 'question') record({ type: 'question-answered' });
     setPendingQuestion(null);
-  }, [pendingQuestion]);
+  }, [pendingQuestion, record]);
 
   const teachContinue = useCallback(() => {
     if (!pendingTeach) return;
@@ -314,6 +385,14 @@ export default function App() {
       else setDrawerOpen((s) => !s);
     },
     onStartPress: () => { if (!cockpitOpen) setShowSettings((s) => !s); },
+    // R1 paddle: drive mode, even mid-game (the games don't use it). L1+R2: the brake.
+    onR1Press: () => { if (!modalActive) cycleMode(); },
+    onR2Press: (mod) => {
+      if (!mod || cockpitOpen || !isStreaming) return;
+      abort();
+      telemetry.emit({ type: 'crash' });
+      showToast('Brake: Claude interrupted.');
+    },
     // L3 / R3 — quick panel toggles.
     onL3Press: () => { if (!cockpitOpen && !modalActive) setDrawerOpen((s) => !s); },
     onR3Press: () => { if (!cockpitOpen && !modalActive) setShowSettings((s) => !s); },
@@ -348,11 +427,6 @@ export default function App() {
     setDrawerOpen(false);
   }, [sendMessage]);
 
-  // Auto-open settings when no API key
-  useEffect(() => {
-    if (!apiKey) setShowSettings(true);
-  }, [apiKey]);
-
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (chatScrollRef.current) {
@@ -366,14 +440,20 @@ export default function App() {
         isListening={dictationListening}
         isTranscribing={transcribing}
         isStreaming={isStreaming}
-        hasApiKey={!!apiKey}
+        engineReady={engineReady}
         projectPath={projectPath}
         usage={sessionUsage}
         budget={SESSION_TOKEN_BUDGET}
+        contextPct={context?.percentage ?? null}
+        costUsd={costUsd}
+        mode={mode}
+        onCycleMode={cycleMode}
+        career={{ level: season.level, tier: season.tier, progress: season.progress }}
         onDrawer={() => setDrawerOpen((s) => !s)}
         onSettings={() => setShowSettings((s) => !s)}
         onCockpit={() => setCockpitOpen((s) => !s)}
       />
+      <SectorStrip sectors={sectors} />
 
       {/* Project drawer (slides in from left, over content) */}
       <ProjectDrawer
@@ -383,13 +463,14 @@ export default function App() {
         files={files}
         onOpenFolder={openFolder}
         onRefreshFiles={refreshFiles}
-        autonomousWrites={autonomousWrites}
-        onToggleAutonomous={() => setAutonomousWrites((s) => !s)}
+        autonomousWrites={mode === 'acceptEdits'}
+        onToggleAutonomous={() => void setMode(mode === 'acceptEdits' ? 'default' : 'acceptEdits')}
         onFileClick={handleFileClick}
-        messages={messages}
-        prunedIds={prunedIds}
-        onTogglePrune={togglePrune}
-        onPruneMany={pruneMany}
+        sectors={sectors}
+        context={context}
+        season={season}
+        onPitStop={() => { setDrawerOpen(false); pitStop(); }}
+        isStreaming={isStreaming}
         onShare={() => { setDrawerOpen(false); setShareOpen(true); }}
         teachLog={teachLog}
       />

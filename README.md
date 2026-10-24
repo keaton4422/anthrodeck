@@ -1,9 +1,31 @@
 # AnthroDeck
 
-A gamepad-driven agentic coding cockpit for the Steam Deck. The human is the **pilot**; the Claude
-agent is the **engine**. Voice, touch, and controller drive an agent loop that reads, writes, runs
-shell commands, and asks you targeted questions — with a token HUD, context pruner, LAN preview
-sharing, and a cockpit game layer along for the ride.
+A gamepad-driven coding cockpit for the Steam Deck. The human is the **pilot**; **Claude Code** is
+the **engine**. Voice, touch and controller steer a real Claude Code session (through the
+[Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview)) while the cockpit turns building
+software into a race: Claude's task list is your lap, every finished task is a sector, green test runs
+and commits score, and a career ladder runs from Karting to World Champion.
+
+## How it fits together
+
+AnthroDeck is **not** a second agent harness. Claude Code owns the agent loop, tools, context
+management and compaction, and it loads your own `CLAUDE.md`, skills, plugins, MCP servers and
+permission rules. AnthroDeck is the steering wheel and the dashboard:
+
+| Cockpit | What it does |
+|---|---|
+| `src/main/engine/session.ts` | One long-lived Claude Code session per project (streaming input). Routes every decision Claude Code wants a human for (edit approvals, command approvals, `AskUserQuestion`, plan approval, teach-mode pauses) to face-button cards. |
+| `src/main/engine/translate.ts` | Claude Code's message stream → cockpit events (text, tools, milestones, usage, context). |
+| `src/main/engine/tools.ts` | Tool labels, full-file previews for `Edit`/`MultiEdit`, milestone detection, the sector board. |
+| `src/main/engine/bridge.ts` | Electron IPC. Every engine event is also published on `engine:event`. |
+| `src/renderer/lib/season.ts` | The career: XP, levels, tiers, achievements. Pure and unit-tested. |
+
+**Drive modes** are Claude Code permission modes: *Formation lap* (`plan`: Claude explores and
+proposes), *Race* (`default`: every edit and command asks), *Push* (`acceptEdits`: edits land, commands
+still ask). There is deliberately no mode where nothing asks.
+
+**Scoring rule:** points come from outcomes, never activity. Tokens burned and tools called are worth
+nothing; finished tasks, passing tests, clean builds, commits and pushes are.
 
 Electron + React + Vite + TypeScript, packaged with Electron Forge.
 
@@ -33,9 +55,15 @@ anything to `external`.
 
 ## Configure
 
-Open **Settings (⚙)** and paste an Anthropic API key (stored locally via `electron-store`). Pick a
-model (Sonnet 5 default; Opus 4.8 for hard turns; Haiku 4.5 for speed), toggle extended thinking,
-and choose an effort level.
+**Engine.** AnthroDeck drives the Claude Code binary rather than bundling it (it is ~275 MB per
+platform and updates itself). **Settings (⚙) → Engine** shows whether it is installed and has a
+one-press install that runs the official installer (`curl -fsSL https://claude.ai/install.sh | bash`,
+which puts it in `~/.local/bin`). In development, `npm start` uses the copy the Agent SDK installs into
+`node_modules`, so nothing global is needed.
+
+**Key.** Paste or pair an Anthropic API key; AnthroDeck hands it to Claude Code. Pick a model alias
+(`sonnet` default, `opus` for hard laps, `haiku` for speed; aliases track the current generation),
+toggle extended thinking, and choose an effort level.
 
 ## Install on Steam Deck
 
@@ -107,6 +135,9 @@ not an OAuth identity. You can *log into* console.anthropic.com with Google, but
 is a key. Open **Settings (⚙)** and give AnthroDeck that key from
 [console.anthropic.com](https://console.anthropic.com). It's stored locally on the Deck via
 `electron-store` and never leaves the device except in calls to Anthropic's API.
+
+AnthroDeck passes the key to Claude Code. With no key paired, Claude Code falls back to whatever
+sign-in it already has on that machine.
 
 ### Pairing — get the key onto the Deck without typing it
 
@@ -198,9 +229,14 @@ against storefront expectations. The Non-Steam shortcut gets you the same Game M
 - **D-pad ← / →** — collapse / expand tool detail lines in the transcript.
 - **Write approval**: **A** apply · **X** reject · **B** reject with voice · **D-pad ↑↓** scroll the diff.
 - **ask_user / teach prompts**: face buttons **A/B/X/Y** map to the on-screen options.
+- **Approvals** (commands, tools): **A** allow · **B** deny · **X** always allow this session (only
+  when Claude Code proposes a scoped rule).
+- **R1** — drive-mode paddle: Formation lap → Race → Push. Works mid-game too.
+- **L1 + R2** — brake: interrupt Claude mid-lap.
 - **L1 + face button** — meta chords: **A** git status · **B** git commit · **X** run tests ·
   **Y** undo last write.
-- **Hold Select** — radial menu (git status / run tests / deploy / undo write / prune context); aim
+- **Hold Select** — radial menu (git status / run tests / deploy / undo write / pit stop / drive mode /
+  new session); aim
   with the right stick, release to pick. Map **trackpad center-click → Select** in Steam Input to get
   the trackpad radial.
 - **🎮 (status bar)** — open the cockpit game layer.

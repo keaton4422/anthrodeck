@@ -59,7 +59,7 @@ describe('sha512Base64', () => {
 });
 
 // ─── Updater error guidance ───────────────────────────────────────────────────
-import { updaterErrorMessage } from '../agentLoop.helpers';
+import { updaterErrorMessage } from '../updaterMessages';
 
 describe('updaterErrorMessage', () => {
   it('explains the .deb / unzipped case, which is the one that will actually bite', () => {

@@ -54,7 +54,13 @@ export function useTelemetry(): TelemetryController {
       streaming.current = false;
       events.current.push({ type: 'error' });
     });
-    return () => { unsubDelta(); unsubThink(); unsubTool(); unsubDone(); unsubErr(); };
+    const unsubEngine = window.electronAPI.onEngineEvent((ev) => {
+      if (ev.type === 'sector-done') events.current.push({ type: 'sector' });
+      else if (ev.type === 'milestone') {
+        events.current.push({ type: 'milestone', good: ev.kind !== 'tests-fail' && ev.kind !== 'build-fail' });
+      }
+    });
+    return () => { unsubDelta(); unsubThink(); unsubTool(); unsubDone(); unsubErr(); unsubEngine(); };
   }, []);
 
   const snapshot = (): TelemetrySnapshot => {

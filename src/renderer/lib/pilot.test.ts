@@ -4,7 +4,7 @@ import {
   budgetLevel,
   budgetFraction,
   formatTokens,
-  suggestPrunes,
+  countToolLines,
 } from './pilot';
 
 describe('estimateTokens', () => {
@@ -49,29 +49,14 @@ describe('formatTokens', () => {
   });
 });
 
-describe('suggestPrunes', () => {
-  it('flags an earlier assistant read superseded by a later read of the same file', () => {
-    const messages = [
-      { id: 'a1', role: 'assistant', content: 'looking… `read: src/App.tsx`' },
-      { id: 'u1', role: 'user', content: 'now change it' },
-      { id: 'a2', role: 'assistant', content: 're-reading `read: src/App.tsx` then editing' },
-    ];
-    expect(suggestPrunes(messages)).toEqual(['a1']);
-  });
-
-  it('does not flag a file read only once', () => {
-    const messages = [
-      { id: 'a1', role: 'assistant', content: '`read: src/A.ts`' },
-      { id: 'a2', role: 'assistant', content: '`read: src/B.ts`' },
-    ];
-    expect(suggestPrunes(messages)).toEqual([]);
-  });
-
-  it('ignores user messages', () => {
-    const messages = [
-      { id: 'u1', role: 'user', content: '`read: x` `read: x`' },
-      { id: 'a1', role: 'assistant', content: 'no reads here' },
-    ];
-    expect(suggestPrunes(messages)).toEqual([]);
+describe('tool-line collapsing stays in sync with the engine labels', () => {
+  it('collapses every label the engine can emit', async () => {
+    const { toolLabel } = await import('../../main/engine/tools');
+    const names = ['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'Glob', 'Grep', 'WebFetch',
+      'WebSearch', 'AskUserQuestion', 'Agent', 'TodoWrite', 'mcp__github__create_issue', 'SomethingNew'];
+    for (const n of names) {
+      const line = `\`${toolLabel(n, { file_path: '/p/a.ts', command: 'ls', pattern: 'x', url: 'u', query: 'q' }, '/p')}\``;
+      expect(countToolLines(line), n).toBe(1);
+    }
   });
 });

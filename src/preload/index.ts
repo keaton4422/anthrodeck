@@ -25,17 +25,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   runShell: (code: string, language: string) => ipcRenderer.invoke('shell:run', { code, language }),
 
   // ── Claude (agentic) ──────────────────────────────────────────────────────
-  claudeSend: (data: {
-    messages: Array<{ role: string; content: string }>;
-    apiKey: string;
-    projectPath: string | null;
-    autonomousWrites: boolean;
-    model: string;
-    extendedThinking: boolean;
-    effort: string;
-  }) => ipcRenderer.send('claude:send', data),
-
+  claudeSend: (data: { text: string; settings: Record<string, unknown> }) => ipcRenderer.send('claude:send', data),
   claudeAbort: () => ipcRenderer.send('claude:abort'),
+  claudeReset: () => ipcRenderer.send('claude:reset'),
+  claudeRewind: (anchor: string | null) => ipcRenderer.send('claude:rewind', anchor),
+  claudeSetMode: (mode: string) => ipcRenderer.invoke('claude:set-mode', mode),
+  claudeGetMode: () => ipcRenderer.invoke('claude:get-mode'),
+
+  // Every engine event, for consumers that want more than the chat channels below.
+  onEngineEvent: (cb: (ev: unknown) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, ev: unknown) => cb(ev);
+    ipcRenderer.on('engine:event', handler);
+    return () => ipcRenderer.removeListener('engine:event', handler);
+  },
+  // The engine withdrew a pending card (turn interrupted, session rewound).
+  onPromptCancel: (cb: (id: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, id: string) => cb(id);
+    ipcRenderer.on('claude:prompt-cancel', handler);
+    return () => ipcRenderer.removeListener('claude:prompt-cancel', handler);
+  },
+  engineStatus: () => ipcRenderer.invoke('engine:status'),
+  engineInstall: () => ipcRenderer.invoke('engine:install'),
 
   onClaudeDelta: (cb: (text: string) => void) => {
     const handler = (_: Electron.IpcRendererEvent, text: string) => cb(text);
