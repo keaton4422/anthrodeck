@@ -18,7 +18,8 @@ export function displayPath(p: string, root: string): string {
   if (!p) return '';
   if (!path.isAbsolute(p) || !root) return p;
   const rel = path.relative(root, p);
-  return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : p;
+  // Forward slashes on every platform: it is a label for the pilot, not a path to open.
+  return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel.split(path.sep).join('/') : p;
 }
 
 export function filePathOf(input: Input): string {

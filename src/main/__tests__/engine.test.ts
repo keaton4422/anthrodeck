@@ -70,6 +70,12 @@ describe('engine locate', () => {
     expect(locateEngine(null, deps([]))).toBeNull();
   });
 
+  it('uses Windows path rules on Windows, whatever the host', () => {
+    const win = deps(['C:\\tools\\claude.exe'], { platform: 'win32', home: 'C:\\Users\\deck', envPath: 'D:\\x;C:\\tools' });
+    expect(locateEngine(null, win)).toEqual({ path: 'C:\\tools\\claude.exe', source: 'path' });
+    expect(candidatePaths(null, win)[0].path).toBe('C:\\Users\\deck\\.local\\bin\\claude.exe');
+  });
+
   it('never looks for the bundled binary in a packaged build', () => {
     expect(candidatePaths(null, deps([])).some((c) => c.source === 'bundled')).toBe(false);
   });

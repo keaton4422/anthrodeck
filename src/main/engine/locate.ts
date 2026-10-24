@@ -11,7 +11,7 @@
 import { execFile } from 'child_process';
 import fs from 'fs';
 import os from 'os';
-import path from 'path';
+import nodePath from 'path';
 
 export type EngineSource = 'override' | 'installer' | 'path' | 'bundled';
 
@@ -33,6 +33,9 @@ export interface LocateDeps {
 export const INSTALL_COMMAND = 'curl -fsSL https://claude.ai/install.sh | bash';
 
 export function candidatePaths(override: string | null, d: LocateDeps): EngineLocation[] {
+  // Join with the TARGET platform's rules, not the host's, so the lookup is deterministic and the
+  // tests mean the same thing on every CI runner.
+  const path = d.platform === 'win32' ? nodePath.win32 : nodePath.posix;
   const exe = d.platform === 'win32' ? 'claude.exe' : 'claude';
   const out: EngineLocation[] = [];
   if (override) out.push({ path: override, source: 'override' });
