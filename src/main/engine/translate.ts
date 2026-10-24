@@ -55,6 +55,15 @@ type Block = { type: string; [k: string]: unknown };
 const blocks = (content: unknown): Block[] =>
   Array.isArray(content) ? (content as Block[]).filter((b) => b && typeof b === 'object') : [];
 
+// A tool_result's content is a string or an array of blocks; milestones only need its text.
+function resultText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  return blocks(content)
+    .filter((b) => b.type === 'text')
+    .map((b) => String(b.text ?? ''))
+    .join('\n');
+}
+
 export function translate(msg: SDKMessage, st: TranslateState): CockpitEvent[] {
   const out: CockpitEvent[] = [];
 
@@ -122,7 +131,7 @@ export function translate(msg: SDKMessage, st: TranslateState): CockpitEvent[] {
         out.push({ type: 'tool-result', id, name: call.name, ok });
         if (call.name === 'Bash') {
           const command = String(call.input.command ?? '');
-          const kind = milestoneFor(command, ok);
+          const kind = milestoneFor(command, ok, resultText(b.content));
           if (kind) out.push({ type: 'milestone', kind, command });
         }
       }

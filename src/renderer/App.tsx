@@ -427,12 +427,13 @@ export default function App() {
     setDrawerOpen(false);
   }, [sendMessage]);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages, and when an edit card arrives (it renders at the end of
+  // the chat, and the pilot must see it to approve it).
   useEffect(() => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages]);
+  }, [messages, pendingWrite]);
 
   return (
     <div className="app-root">

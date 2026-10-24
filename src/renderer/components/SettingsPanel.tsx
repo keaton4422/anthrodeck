@@ -91,15 +91,16 @@ export function SettingsPanel({
       style={{
         flex: 1,
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
         background: '#0F0F0F',
         padding: 40,
         overflowY: 'auto',
       }}
     >
+      {/* Centred with auto margins, not align-items: a centred flex child taller than the panel
+          overflows upward and its top can never be scrolled back into view. */}
       <div
         style={{
+          margin: 'auto',
           background: '#1A1A1A',
           border: '1px solid #3A3A3A',
           borderRadius: 14,
