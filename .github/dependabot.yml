@@ -1,0 +1,11 @@
+# Keep the workflow actions current. Without this, the first sign an action was out of date was a
+# deprecation warning on a release run (Node 20 in v0.8.3). One grouped PR a week, CI runs on it.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
