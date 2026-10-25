@@ -2,9 +2,10 @@ import type { EngineEvent } from '../main/engine/session';
 import type { TurnSummary } from '../main/engine/translate';
 import type { Sector, Milestone } from '../main/engine/tools';
 import type { DriveMode } from '../main/engine/config';
+import type { UpdateAvailable, WhatsNew } from '../main/releaseNotes';
 
 // The engine's event vocabulary is defined once, in the main process, and shared here as types only.
-export type { EngineEvent, Sector, Milestone, DriveMode };
+export type { EngineEvent, Sector, Milestone, DriveMode, UpdateAvailable, WhatsNew };
 
 export type Confidence = 'high' | 'med' | 'low';
 
@@ -190,7 +191,8 @@ declare global {
       updaterCheck: () => Promise<unknown>;
       updaterDownload: () => Promise<void>;
       updaterInstall: () => void;
-      onUpdaterAvailable: (cb: (info: { version: string }) => void) => () => void;
+      updaterLastAvailable: () => Promise<UpdateAvailable | null>;
+      onUpdaterAvailable: (cb: (info: UpdateAvailable) => void) => () => void;
       onUpdaterUpToDate: (cb: () => void) => () => void;
       onUpdaterProgress: (cb: (info: { percent: number; bytesPerSecond: number }) => void) => () => void;
       onUpdaterReady: (cb: (info: { version: string }) => void) => () => void;

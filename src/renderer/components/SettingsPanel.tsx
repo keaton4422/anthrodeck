@@ -391,6 +391,27 @@ export function SettingsPanel({
 }
 
 // ─── Update section ────────────────────────────────────────────────────────────
+// Plain text only: the main process has already stripped the release notes' HTML.
+function WhatsNewList({ notes }: { notes: NonNullable<ReturnType<typeof useUpdater>['status']['notes']> }) {
+  return (
+    <div style={{ background: '#161616', border: '1px solid #2A2A2A', borderRadius: 6, padding: '10px 12px' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#CC785C', marginBottom: 6 }}>
+        WHAT&apos;S NEW
+      </div>
+      {notes.map((n, i) => (
+        <div key={n.version ?? i} style={{ marginTop: i ? 8 : 0 }}>
+          {notes.length > 1 && n.version && (
+            <div style={{ fontSize: 11, color: '#777', marginBottom: 2 }}>v{n.version}</div>
+          )}
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#CFCFCF', lineHeight: 1.5 }}>
+            {n.items.map((item, j) => <li key={j}>{item}</li>)}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface UpdateProps {
   status: ReturnType<typeof useUpdater>['status'];
   onCheck: () => void;
@@ -412,6 +433,11 @@ function UpdateSection({ status, onCheck, onDownload, onInstall }: UpdateProps) 
           </span>
         )}
       </div>
+
+      {/* What's new, from the release notes */}
+      {status.newVersion && !!status.notes?.length && (status.state === 'available' || status.state === 'downloading' || status.state === 'ready') && (
+        <WhatsNewList notes={status.notes} />
+      )}
 
       {/* Download progress bar */}
       {status.state === 'downloading' && (

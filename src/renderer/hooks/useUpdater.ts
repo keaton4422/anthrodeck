@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { WhatsNew } from '../types';
 
 export type UpdateState =
   | 'idle'
@@ -13,6 +14,7 @@ export interface UpdaterStatus {
   state: UpdateState;
   version: string;           // current app version
   newVersion?: string;       // available version, if any
+  notes?: WhatsNew[];        // what's new in it (and any releases in between), plain text
   downloadPercent?: number;
   error?: string;
 }
@@ -25,12 +27,16 @@ export function useUpdater() {
     window.electronAPI.updaterGetVersion().then((v) => {
       setStatus((s) => ({ ...s, version: v }));
     });
+    // The launch check usually finishes before Settings is opened; pick up what it found.
+    window.electronAPI.updaterLastAvailable().then((info) => {
+      if (info) setStatus((s) => (s.state === 'idle' ? { ...s, state: 'available', newVersion: info.version, notes: info.notes } : s));
+    }).catch(() => {});
   }, []);
 
   // Subscribe to updater events from main process
   useEffect(() => {
     const unsubAvailable = window.electronAPI.onUpdaterAvailable((info) => {
-      setStatus((s) => ({ ...s, state: 'available', newVersion: info.version }));
+      setStatus((s) => ({ ...s, state: 'available', newVersion: info.version, notes: info.notes }));
     });
 
     const unsubUpToDate = window.electronAPI.onUpdaterUpToDate(() => {

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { UpdateAvailable } from '../main/releaseNotes';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // ── Store ──────────────────────────────────────────────────────────────────
@@ -180,9 +181,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updaterCheck: () => ipcRenderer.invoke('updater:check'),
   updaterDownload: () => ipcRenderer.invoke('updater:download'),
   updaterInstall: () => ipcRenderer.send('updater:install'),
+  updaterLastAvailable: () => ipcRenderer.invoke('updater:last-available'),
 
-  onUpdaterAvailable: (cb: (info: { version: string }) => void) => {
-    const handler = (_: Electron.IpcRendererEvent, info: { version: string }) => cb(info);
+  onUpdaterAvailable: (cb: (info: UpdateAvailable) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, info: UpdateAvailable) => cb(info);
     ipcRenderer.on('updater:update-available', handler);
     return () => ipcRenderer.removeListener('updater:update-available', handler);
   },

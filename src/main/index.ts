@@ -8,6 +8,7 @@ import { autoUpdater } from 'electron-updater';
 import Anthropic from '@anthropic-ai/sdk';
 import { registerEngineIpc } from './engine/bridge';
 import { updaterErrorMessage } from './updaterMessages';
+import { whatsNew, type RawReleaseNotes, type UpdateAvailable } from './releaseNotes';
 import { getFlashcards, clearFlashcards, generateFlashcard } from './flashcards';
 import { undoLastWrite, recordWrite } from './writeHistory';
 import {
@@ -337,12 +338,19 @@ ipcMain.handle('flashcards:generate', async () => {
 });
 
 // ─── Auto-updater ─────────────────────────────────────────────────────────────
+// The launch check fires before the pilot opens Settings, where the update UI lives, so the result
+// is kept here for Settings to read when it mounts.
+let lastAvailable: UpdateAvailable | null = null;
+
 function setupAutoUpdater() {
   const isDev = !!MAIN_WINDOW_VITE_DEV_SERVER_URL;
   if (isDev) return;
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+  // Notes for every release newer than this one, not just the latest: a Deck that skipped a few
+  // versions should hear about all of them.
+  autoUpdater.fullChangelog = true;
 
   // Point the updater at the GitHub releases explicitly. electron-forge (unlike electron-builder)
   // does not bake an app-update.yml into the package, so without this the updater throws
@@ -354,7 +362,8 @@ function setupAutoUpdater() {
   }
 
   autoUpdater.on('update-available', (info) => {
-    mainWindow?.webContents.send('updater:update-available', { version: info.version });
+    lastAvailable = { version: info.version, notes: whatsNew(info.releaseNotes as RawReleaseNotes) };
+    mainWindow?.webContents.send('updater:update-available', lastAvailable);
   });
   autoUpdater.on('update-not-available', () => {
     mainWindow?.webContents.send('updater:up-to-date');
@@ -379,6 +388,7 @@ function setupAutoUpdater() {
 }
 
 ipcMain.handle('updater:get-version', () => app.getVersion());
+ipcMain.handle('updater:last-available', () => lastAvailable);
 ipcMain.handle('updater:check', async () => {
   const isDev = !!MAIN_WINDOW_VITE_DEV_SERVER_URL;
   if (isDev) return { dev: true };

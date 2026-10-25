@@ -174,6 +174,12 @@ export default function App() {
 
   useEffect(() => { if (notice) showToast(notice); }, [notice, showToast]);
 
+  // The launch update check runs before anyone opens Settings: say so, with the headline change.
+  useEffect(() => window.electronAPI.onUpdaterAvailable((info) => {
+    const headline = info.notes[0]?.items[0];
+    showToast(`⬆ AnthroDeck v${info.version} is out${headline ? ` · ${headline}` : ''} · Settings to update`);
+  }), [showToast]);
+
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const writeDiffRef = useRef<HTMLPreElement>(null);
 
