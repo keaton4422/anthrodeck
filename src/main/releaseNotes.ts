@@ -57,6 +57,10 @@ export function cleanItem(raw: string): string {
   return s.length > MAX_ITEM_CHARS ? `${s.slice(0, MAX_ITEM_CHARS - 1).trimEnd()}…` : s;
 }
 
+// Pipeline and housekeeping changes, by their PR-title prefix: real work, but nothing a pilot on a
+// Deck can see. Dependabot's grouped bumps ("ci: bump the actions group…") land here too.
+const INTERNAL = /^(ci|chore|build|test|docs)(\([^)]*\))?!?:/i;
+
 export function parseNote(html: string): string[] {
   const listItems = [...html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)].map((m) => toText(m[1]));
   // Notes written by hand may be paragraphs rather than a list.
@@ -65,6 +69,7 @@ export function parseNote(html: string): string[] {
     : html.split(/<\/p>|<br\s*\/?>|\n/i).map(toText);
   return lines
     .filter((l) => l && !/^(full changelog|what'?s changed|new contributors)\b/i.test(l))
+    .filter((l) => !INTERNAL.test(l))
     .map(cleanItem)
     .filter(Boolean)
     .slice(0, MAX_ITEMS);
