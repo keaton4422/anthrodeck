@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   applySeason,
+  EMPTY_LAP,
   levelFor,
+  logLap,
   levelProgress,
   loadSeason,
   NEW_SEASON,
   tierFor,
+  type LapLog,
   type SeasonEvent,
   type SeasonState,
   type SeasonUpdate,
@@ -32,11 +35,23 @@ export function useSeason(onUpdate: (u: SeasonUpdate) => void) {
   const sectorsRef = useRef<Sector[]>([]);
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
+  // The lap in progress, and the last one finished (for the lap card).
+  const [lap, setLap] = useState<LapLog>(EMPTY_LAP);
+  const [lastLap, setLastLap] = useState<(LapLog & { number: number; at: number }) | null>(null);
+  const lapRef = useRef(lap);
 
   const record = useCallback((ev: SeasonEvent) => {
     const u = applySeason(stateRef.current, ev);
     stateRef.current = u.state;
     setState(u.state);
+    const logged = logLap(lapRef.current, ev, u.gained);
+    if (ev.type === 'lap') {
+      setLastLap({ ...logged, number: u.state.stats.laps, at: Date.now() });
+      lapRef.current = EMPTY_LAP;
+    } else {
+      lapRef.current = logged;
+    }
+    setLap(lapRef.current);
     if (loaded.current) void window.electronAPI.storeSet(KEY, u.state);
     if (u.gained > 0 || u.unlocked.length > 0) onUpdateRef.current(u);
   }, []);
@@ -66,5 +81,5 @@ export function useSeason(onUpdate: (u: SeasonUpdate) => void) {
 
   const level = levelFor(state.xp);
   const view: SeasonView = { state, level, tier: tierFor(level), progress: levelProgress(state.xp) };
-  return { season: view, record };
+  return { season: view, record, lap, lastLap };
 }

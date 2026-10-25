@@ -6,9 +6,10 @@ import { SettingsPanel } from './components/SettingsPanel';
 import ProjectDrawer from './components/ProjectDrawer';
 import AskUserModal from './components/AskUserModal';
 import ShareModal from './components/ShareModal';
-import GameCanvas from './components/GameCanvas';
+import GameCanvas, { formatLapTime, type LapCard } from './components/GameCanvas';
 import TeachModal from './components/TeachModal';
 import RadialMenu from './components/RadialMenu';
+import WritePreview from './components/WritePreview';
 import { SectorStrip } from './components/SectorStrip';
 import { useFeedback } from './hooks/useFeedback';
 import {
@@ -130,7 +131,7 @@ export default function App() {
   });
 
   // The career. Every outcome that earned something gets a toast; unlocks and level-ups rumble.
-  const { season, record } = useSeason((u) => {
+  const { season, record, lap, lastLap } = useSeason((u) => {
     if (u.levelUp) {
       fireFeedback('level-up');
       showToast(`LEVEL ${u.levelUp} · +${u.gained} XP`);
@@ -139,6 +140,22 @@ export default function App() {
     }
     for (const a of u.unlocked) showToast(`🏆 ${a.name} · ${a.blurb}`);
   });
+
+  // Lap timing: a lap runs from the moment Claude starts streaming to the chequered flag.
+  const lapStartRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (isStreaming && lapStartRef.current == null) lapStartRef.current = Date.now();
+  }, [isStreaming]);
+  const [lapCard, setLapCard] = useState<LapCard | null>(null);
+  useEffect(() => {
+    if (!lastLap) return;
+    const ms = lapStartRef.current != null ? lastLap.at - lapStartRef.current : null;
+    lapStartRef.current = null;
+    setLapCard({ number: lastLap.number, xp: lastLap.xp, ms, checkpoints: lastLap.checkpoints });
+    showToast(`🏁 Lap ${lastLap.number}${ms != null ? ` · ${formatLapTime(ms)}` : ''} · +${lastLap.xp} XP`);
+  }, [lastLap, showToast]);
+  // Without a plan from Claude, the strip shows what this lap (or the last one) actually achieved.
+  const checkpoints = isStreaming ? lap.checkpoints : (lastLap?.checkpoints ?? []);
 
   const cycleMode = useCallback(() => {
     const next = nextDriveMode(mode);
@@ -323,8 +340,11 @@ export default function App() {
   }, [pendingTeach]);
 
   const modalActive = !!pendingWrite || !!pendingQuestion || !!pendingTeach;
-  // When the cockpit game is open it owns the controller; App-level bindings stand down.
+  // When the cockpit game is open it owns the controller; App-level bindings stand down. A card
+  // always wins: the game pauses, the face buttons answer it, and play resumes. That is the loop:
+  // play while Claude drives, answer when it radios in.
   const padBusy = modalActive || cockpitOpen;
+  const gameOwnsPad = cockpitOpen && !modalActive;
 
   // L1 + face button fires a meta action instead of the button's normal job. Returns true when the
   // chord consumed the press.
@@ -348,21 +368,21 @@ export default function App() {
       fireFeedback('voice-stop');
     },
     onAPress: (mod) => {
-      if (cockpitOpen) return;
-      if (tryChord(mod, 'A')) return;
+      if (gameOwnsPad) return;
+      if (!cockpitOpen && tryChord(mod, 'A')) return;
       if (pendingTeach) teachContinue();
       else if (pendingWrite) handleWriteAccept();
       else if (pendingQuestion) answerOption(0);
     },
     onXPress: (mod) => {
-      if (cockpitOpen) return;
-      if (tryChord(mod, 'X')) return;
+      if (gameOwnsPad) return;
+      if (!cockpitOpen && tryChord(mod, 'X')) return;
       if (pendingWrite) handleWriteReject();
       else if (pendingQuestion) answerOption(2);
     },
     onBPress: (mod) => {
-      if (cockpitOpen) return;
-      if (tryChord(mod, 'B')) return;
+      if (gameOwnsPad) return;
+      if (!cockpitOpen && tryChord(mod, 'B')) return;
       if (pendingTeach) { setTeachRedirectSignal((s) => s + 1); return; }
       if (pendingWrite) {
         // Toggle spoken-rejection push-to-talk.
@@ -374,15 +394,15 @@ export default function App() {
         }
       } else if (pendingQuestion) {
         answerOption(1);
-      } else {
+      } else if (!cockpitOpen) {
         setShowSettings((s) => !s);
       }
     },
     onYPress: (mod) => {
-      if (cockpitOpen) return;
-      if (tryChord(mod, 'Y')) return;
+      if (gameOwnsPad) return;
+      if (!cockpitOpen && tryChord(mod, 'Y')) return;
       if (pendingQuestion) answerOption(3);
-      else setDrawerOpen((s) => !s);
+      else if (!cockpitOpen) setDrawerOpen((s) => !s);
     },
     onStartPress: () => { if (!cockpitOpen) setShowSettings((s) => !s); },
     // R1 paddle: drive mode, even mid-game (the games don't use it). L1+R2: the brake.
@@ -397,8 +417,8 @@ export default function App() {
     onL3Press: () => { if (!cockpitOpen && !modalActive) setDrawerOpen((s) => !s); },
     onR3Press: () => { if (!cockpitOpen && !modalActive) setShowSettings((s) => !s); },
     // D-pad: up/down scrolls a pending diff; left/right collapses/expands tool detail lines.
-    onDpadUp: () => { if (!cockpitOpen && pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop -= 48; },
-    onDpadDown: () => { if (!cockpitOpen && pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop += 48; },
+    onDpadUp: () => { if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop -= 48; },
+    onDpadDown: () => { if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop += 48; },
     onDpadLeft: () => { if (!cockpitOpen && !pendingWrite) setCollapseTools(true); },
     onDpadRight: () => { if (!cockpitOpen && !pendingWrite) setCollapseTools(false); },
     // Radial menu: hold Select (Steam Input can map trackpad center-click here), aim, release.
@@ -454,7 +474,7 @@ export default function App() {
         onSettings={() => setShowSettings((s) => !s)}
         onCockpit={() => setCockpitOpen((s) => !s)}
       />
-      <SectorStrip sectors={sectors} />
+      <SectorStrip sectors={sectors} checkpoints={checkpoints} />
 
       {/* Project drawer (slides in from left, over content) */}
       <ProjectDrawer
@@ -515,7 +535,8 @@ export default function App() {
             pendingWrite={pendingWrite}
             onWriteAccept={handleWriteAccept}
             onWriteReject={handleWriteReject}
-            writeDiffRef={writeDiffRef}
+            // Mid-game the edit card renders over the cockpit instead; only one copy owns the ref.
+            writeDiffRef={cockpitOpen ? undefined : writeDiffRef}
             voiceRejecting={voiceRejecting}
             onRewind={rewindTo}
             collapseTools={collapseTools}
@@ -584,7 +605,31 @@ export default function App() {
           telemetry={telemetry}
           paused={modalActive}
           onIntents={handleGameIntents}
+          sectors={sectors}
+          checkpoints={checkpoints}
+          lapCard={lapCard}
+          career={{ level: season.level, tier: season.tier, progress: season.progress }}
+          driveMode={mode}
         />
+      )}
+
+      {/* An edit card raised mid-game: shown over the cockpit so the pilot can answer it with the
+          face buttons and get straight back to the track. */}
+      {cockpitOpen && pendingWrite && (
+        <div className="overlay-in" style={{
+          position: 'fixed', inset: 0, zIndex: 82, background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+        }}>
+          <div style={{ width: '100%', maxWidth: 820, maxHeight: '90%', overflowY: 'auto' }}>
+            <WritePreview
+              write={pendingWrite}
+              onAccept={handleWriteAccept}
+              onReject={handleWriteReject}
+              contentRef={writeDiffRef}
+              voiceRejecting={voiceRejecting}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

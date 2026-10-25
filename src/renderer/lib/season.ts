@@ -212,6 +212,40 @@ export function applySeason(prev: SeasonState, ev: SeasonEvent): SeasonUpdate {
   return { state: s, gained, unlocked, levelUp: after > before ? after : null };
 }
 
+// ─── The lap log ──────────────────────────────────────────────────────────────
+// What one turn actually achieved, for the lap card and for the checkpoint strip when Claude
+// didn't lay out a plan. It only repeats outcomes the season already scored; it never adds XP.
+export interface Checkpoint { label: string; good: boolean }
+
+export interface LapLog {
+  xp: number;
+  checkpoints: Checkpoint[];
+}
+
+export const EMPTY_LAP: LapLog = { xp: 0, checkpoints: [] };
+
+const CHECKPOINT: Partial<Record<Milestone | 'edit-approved' | 'question-answered', Checkpoint>> = {
+  'edit-approved': { label: 'Edit', good: true },
+  'question-answered': { label: 'Radio', good: true },
+  'tests-pass': { label: 'Tests green', good: true },
+  'tests-fail': { label: 'Tests red', good: false },
+  'build-pass': { label: 'Build', good: true },
+  'build-fail': { label: 'Build failed', good: false },
+  commit: { label: 'Commit', good: true },
+  push: { label: 'Push', good: true },
+};
+
+// Folds one scored event into the running lap. A 'lap' event closes it: the caller keeps the
+// returned log as the finished lap and starts the next from EMPTY_LAP.
+export function logLap(log: LapLog, ev: SeasonEvent, gained: number): LapLog {
+  const key = ev.type === 'milestone' ? ev.kind : ev.type;
+  const cp = CHECKPOINT[key as keyof typeof CHECKPOINT];
+  return {
+    xp: log.xp + gained,
+    checkpoints: cp ? [...log.checkpoints, cp] : log.checkpoints,
+  };
+}
+
 // Tolerate whatever an older build (or a hand-edited store) left behind.
 export function loadSeason(raw: unknown): SeasonState {
   if (!raw || typeof raw !== 'object') return NEW_SEASON;

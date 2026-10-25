@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applySeason, levelFor, levelProgress, loadSeason, NEW_SEASON, tierFor, xpForLevel, XP, type SeasonEvent, type SeasonState } from './season';
+import { applySeason, EMPTY_LAP, logLap, levelFor, levelProgress, loadSeason, NEW_SEASON, tierFor, xpForLevel, XP, type SeasonEvent, type SeasonState } from './season';
 
 function run(events: SeasonEvent[], start: SeasonState = NEW_SEASON) {
   let s = start;
@@ -68,6 +68,28 @@ describe('season scoring', () => {
     const u2 = applySeason(u.state, { type: 'milestone', kind: 'commit' });
     expect(u2.levelUp).toBe(2);
     expect(u2.unlocked.map((a) => a.id)).toEqual(['parc-ferme']);
+  });
+});
+
+describe('lap log', () => {
+  it('repeats what the season scored and adds nothing of its own', () => {
+    const events: SeasonEvent[] = [
+      { type: 'edit-approved' },
+      { type: 'milestone', kind: 'tests-fail' },
+      { type: 'milestone', kind: 'tests-pass' },
+      { type: 'milestone', kind: 'commit' },
+      { type: 'lap', confidence: 'high', isError: false },
+    ];
+    let state = NEW_SEASON;
+    let log = EMPTY_LAP;
+    for (const e of events) {
+      const u = applySeason(state, e);
+      state = u.state;
+      log = logLap(log, e, u.gained);
+    }
+    expect(log.xp).toBe(state.xp);
+    expect(log.checkpoints.map((c) => c.label)).toEqual(['Edit', 'Tests red', 'Tests green', 'Commit']);
+    expect(log.checkpoints[1].good).toBe(false);
   });
 });
 
