@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
 import { exec } from 'child_process';
 import os from 'os';
@@ -9,6 +9,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { registerEngineIpc } from './engine/bridge';
 import { updaterErrorMessage } from './updaterMessages';
 import { whatsNew, type RawReleaseNotes, type UpdateAvailable } from './releaseNotes';
+import { LATEST_RELEASE_API, parseLatestRelease } from './manualUpdate';
 import { getFlashcards, clearFlashcards, generateFlashcard } from './flashcards';
 import { undoLastWrite, recordWrite } from './writeHistory';
 import {
@@ -342,9 +343,35 @@ ipcMain.handle('flashcards:generate', async () => {
 // is kept here for Settings to read when it mounts.
 let lastAvailable: UpdateAvailable | null = null;
 
+// The Windows build is a plain zip: no installer, no update manifest, nothing electron-updater can
+// apply. It still checks GitHub for a newer release and links the pilot to its page.
+const MANUAL_UPDATES = process.platform === 'win32';
+
+async function checkManually(): Promise<void> {
+  try {
+    const res = await fetch(LATEST_RELEASE_API, {
+      headers: { Accept: 'application/vnd.github.html+json', 'User-Agent': 'AnthroDeck' },
+    });
+    if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+    const found = parseLatestRelease(await res.json(), app.getVersion());
+    if (found) {
+      lastAvailable = found;
+      mainWindow?.webContents.send('updater:update-available', found);
+    } else {
+      mainWindow?.webContents.send('updater:up-to-date');
+    }
+  } catch (e) {
+    mainWindow?.webContents.send('updater:error', updaterErrorMessage((e as Error).message));
+  }
+}
+
 function setupAutoUpdater() {
   const isDev = !!MAIN_WINDOW_VITE_DEV_SERVER_URL;
   if (isDev) return;
+  if (MANUAL_UPDATES) {
+    setTimeout(() => void checkManually(), 3000);
+    return;
+  }
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -392,10 +419,14 @@ ipcMain.handle('updater:last-available', () => lastAvailable);
 ipcMain.handle('updater:check', async () => {
   const isDev = !!MAIN_WINDOW_VITE_DEV_SERVER_URL;
   if (isDev) return { dev: true };
+  if (MANUAL_UPDATES) { await checkManually(); return null; }
   try { return await autoUpdater.checkForUpdates(); }
   catch (e) { return { error: (e as Error).message }; }
 });
 ipcMain.handle('updater:download', async () => {
+  // Manual builds download from the release page. parseLatestRelease only accepts this repo's
+  // release URLs, so this can't be pointed anywhere else.
+  if (MANUAL_UPDATES) { if (lastAvailable?.manualUrl) await shell.openExternal(lastAvailable.manualUrl); return; }
   try { await autoUpdater.downloadUpdate(); }
   catch (e) { mainWindow?.webContents.send('updater:error', (e as Error).message); }
 });

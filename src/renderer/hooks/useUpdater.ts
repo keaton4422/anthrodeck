@@ -15,6 +15,7 @@ export interface UpdaterStatus {
   version: string;           // current app version
   newVersion?: string;       // available version, if any
   notes?: WhatsNew[];        // what's new in it (and any releases in between), plain text
+  manualUrl?: string;        // set when this build can't self-update: download from this page
   downloadPercent?: number;
   error?: string;
 }
@@ -29,14 +30,14 @@ export function useUpdater() {
     });
     // The launch check usually finishes before Settings is opened; pick up what it found.
     window.electronAPI.updaterLastAvailable().then((info) => {
-      if (info) setStatus((s) => (s.state === 'idle' ? { ...s, state: 'available', newVersion: info.version, notes: info.notes } : s));
+      if (info) setStatus((s) => (s.state === 'idle' ? { ...s, state: 'available', newVersion: info.version, notes: info.notes, manualUrl: info.manualUrl } : s));
     }).catch(() => {});
   }, []);
 
   // Subscribe to updater events from main process
   useEffect(() => {
     const unsubAvailable = window.electronAPI.onUpdaterAvailable((info) => {
-      setStatus((s) => ({ ...s, state: 'available', newVersion: info.version, notes: info.notes }));
+      setStatus((s) => ({ ...s, state: 'available', newVersion: info.version, notes: info.notes, manualUrl: info.manualUrl }));
     });
 
     const unsubUpToDate = window.electronAPI.onUpdaterUpToDate(() => {
@@ -82,7 +83,8 @@ export function useUpdater() {
   }, []);
 
   const downloadUpdate = useCallback(async () => {
-    setStatus((s) => ({ ...s, state: 'downloading', downloadPercent: 0 }));
+    // A manual build just opens the release page; there's no download to track.
+    setStatus((s) => (s.manualUrl ? s : { ...s, state: 'downloading', downloadPercent: 0 }));
     await window.electronAPI.updaterDownload();
   }, []);
 
