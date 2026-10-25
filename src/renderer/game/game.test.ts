@@ -311,6 +311,32 @@ describe('engine runner (cars)', () => {
     expect(Math.abs(s.camX - s.laneX)).toBeLessThan(2);
   });
 
+  it('a finished turn is a chequered flag, not the end: lap banked, a dent fixed, still racing', () => {
+    let s: RacerState = { ...mode.init(W, H), damage: 2 };
+    const before = s.score;
+    s = mode.step(s, NEUTRAL_INPUT, tel({}, [{ type: 'done' }]), 0.016);
+    expect(s.laps).toBe(1);
+    expect(s.flagT).toBeGreaterThan(0);
+    expect(s.damage).toBe(1);
+    expect(s.score).toBeGreaterThan(before);
+    expect(mode.isOver?.(s)).toBe(false);
+    const moved = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.016);
+    expect(moved.distance).toBeGreaterThan(s.distance);
+  });
+
+  it('real outcomes set the multiplier: green raises it and repairs, red resets it', () => {
+    let s: RacerState = { ...mode.init(W, H), damage: 1 };
+    s = mode.step(s, NEUTRAL_INPUT, tel({}, [{ type: 'sector' }, { type: 'milestone', good: true }]), 0.016);
+    expect(s.mult).toBeCloseTo(1.75);
+    expect(s.damage).toBe(0);
+    const lapAt = (st: RacerState) => mode.step(st, NEUTRAL_INPUT, tel({}, [{ type: 'done' }]), 0.016).lapBonus;
+    expect(lapAt(s)).toBeGreaterThan(lapAt(mode.init(W, H)));
+    s = mode.step(s, NEUTRAL_INPUT, tel({}, [{ type: 'milestone', good: false }]), 0.016);
+    expect(s.mult).toBe(1);
+    for (let i = 0; i < 40; i++) s = mode.step(s, NEUTRAL_INPUT, tel({}, [{ type: 'milestone', good: true }]), 0.016);
+    expect(s.mult).toBeLessThanOrEqual(4);
+  });
+
   it('reports a score and terminal state', () => {
     const s = stepN(mode, tel({ streaming: true, tokensPerSec: 30 }), 120);
     expect(typeof mode.score?.(s)).toBe('number');

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Sector } from '../types';
+import type { Checkpoint } from '../lib/season';
 
 const COLORS: Record<Sector['status'], string> = {
   completed: '#B57CF0',
@@ -8,9 +9,10 @@ const COLORS: Record<Sector['status'], string> = {
 };
 
 // F1-style sector bar under the status bar: one segment per task in Claude's plan, with the sector
-// currently being driven named on the right. Hidden until Claude has a plan.
-export function SectorStrip({ sectors }: { sectors: Sector[] }) {
-  if (sectors.length === 0) return null;
+// currently being driven named on the right. Without a plan it falls back to the lap's
+// checkpoints (applied edits, green tests, commits) as they happen; hidden until there is either.
+export function SectorStrip({ sectors, checkpoints = [] }: { sectors: Sector[]; checkpoints?: Checkpoint[] }) {
+  if (sectors.length === 0) return checkpoints.length ? <CheckpointStrip checkpoints={checkpoints} /> : null;
   const current = sectors.find((s) => s.status === 'in_progress')
     ?? sectors.find((s) => s.status === 'pending');
   const done = sectors.filter((s) => s.status === 'completed').length;
@@ -38,6 +40,28 @@ export function SectorStrip({ sectors }: { sectors: Sector[] }) {
       }}>
         {current ? current.title : 'All sectors complete'}
       </span>
+    </div>
+  );
+}
+
+function CheckpointStrip({ checkpoints }: { checkpoints: Checkpoint[] }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px',
+      background: '#111', borderBottom: '1px solid #1E1E1E', flexShrink: 0, overflow: 'hidden',
+    }}>
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: '#777', whiteSpace: 'nowrap' }}>
+        CHECKPOINTS
+      </span>
+      {checkpoints.map((c, i) => (
+        <span key={i} style={{
+          fontSize: 10, padding: '1px 7px', borderRadius: 3, whiteSpace: 'nowrap',
+          background: c.good ? 'rgba(181,124,240,0.18)' : 'rgba(224,82,82,0.18)',
+          color: c.good ? '#B57CF0' : '#E05252',
+        }}>
+          {c.label}
+        </span>
+      ))}
     </div>
   );
 }

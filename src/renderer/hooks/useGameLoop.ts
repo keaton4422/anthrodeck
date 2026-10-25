@@ -48,7 +48,9 @@ export function useGameLoop(
     if (!mode || !canvas) return;
     stateRef.current = mode.init(canvas.width, canvas.height);
     reportedRef.current = false;
-  }, [mode, restartKey, canvasRef]);
+    // Events queued while the cockpit was closed belong to no race: start this one clean.
+    telemetry.getFrame();
+  }, [mode, restartKey, canvasRef, telemetry]);
 
   useEffect(() => {
     if (!active || !mode) return;

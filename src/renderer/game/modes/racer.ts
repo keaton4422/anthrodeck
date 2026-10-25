@@ -11,6 +11,11 @@ import { VAPOR, drawSunsetSky, neon, drawScanlines } from '../vapor';
 // Their threat isn't the hit, it's where the hit puts you. Every ram shoves you sideways, and
 // they're aiming to shove you into the barrier or into GREY civilian traffic. Those are the only
 // two things that actually damage you. Four dents ends the run.
+//
+// The race spans the whole session, not one turn. Each finished turn is a chequered flag: a lap
+// bonus, one dent fixed in the pits, and you keep driving into the next lap. Claude's real
+// outcomes set the points multiplier: sectors and green flags raise it, a red flag resets it. So
+// the best score comes from driving well WHILE the work ships.
 
 
 // ─── Regions ──────────────────────────────────────────────────────────────────
@@ -158,7 +163,10 @@ export interface RacerState extends IntentCarrier {
   speed: number;
   cars: Car[];
   crashed: boolean;
-  finished: boolean;
+  laps: number;     // chequered flags taken this race
+  flagT: number;    // >0 while the chequered-flag banner shows
+  lapBonus: number; // points the last flag was worth, for the banner
+  mult: number;     // points multiplier, earned by real outcomes
   boostT: number;
   distance: number;
   smashed: number;
@@ -192,6 +200,11 @@ const CAM_LAG = 3.4;         // how fast the camera catches the car laterally (l
 const CAM_LEAD_PX = 46;      // how far ahead the car can pull before the camera reels it back
 const HERO_MASS = 1650;      // the hero is the heavy one — that's why it wins exchanges
 const RESTITUTION = 0.32;    // sheet metal crumples; very little bounce comes back
+const FLAG_TIME = 3;         // seconds the chequered-flag banner stays up
+const LAP_BONUS = 400;
+const MULT_MAX = 4;
+const MULT_SECTOR = 0.25;
+const MULT_GREEN = 0.5;
 
 function clampDt(dt: number): number { return Math.max(0, Math.min(dt, 0.05)); }
 
@@ -256,13 +269,13 @@ export function createMode(): GameMode<RacerState> {
     id: 'cockpit-runner',
     name: 'Engine Runner',
     kind: 'telemetry',
-    blurb: 'RT throttle · red hunters ram you toward the barrier and the traffic · smash one for a BOOST + a pruned context item · only civilians and the armco damage you',
+    blurb: 'RT throttle · smash red hunters for a BOOST · only civilians and the armco damage you · Claude\'s green tests and finished sectors raise your multiplier and fix dents · every finished turn is a lap',
 
     init(w, h): RacerState {
       return {
         w, h, lane: 1, laneX: laneCenter(w, 1),
         speed: BASE_SPEED, cars: [],
-        crashed: false, finished: false,
+        crashed: false, laps: 0, flagT: 0, lapBonus: 0, mult: 1,
         boostT: 0, distance: 0, smashed: 0, civWrecks: 0, damage: 0, heroVx: 0, railHits: 0,
         camX: laneCenter(w, 1), camLead: 0, prevSpeed: BASE_SPEED, score: 0, spawnAcc: 0,
         prevLeft: false, prevRight: false, tick: 0, intents: [],
@@ -270,7 +283,7 @@ export function createMode(): GameMode<RacerState> {
     },
 
     step(state, input: GameInput, tel: TelemetryFrame, dtRaw): RacerState {
-      if (state.crashed || state.finished) return state;
+      if (state.crashed) return state;
       const dt = clampDt(dtRaw);
       const s: RacerState = { ...state, tick: state.tick + 1, cars: state.cars.map((c) => ({ ...c })), intents: [] };
       const carY = s.h - CAR_Y_FROM_BOTTOM;
@@ -285,20 +298,42 @@ export function createMode(): GameMode<RacerState> {
 
       for (const ev of tel.events) {
         if (ev.type === 'crash') return { ...s, crashed: true };
-        if (ev.type === 'done') return { ...s, finished: true };
+        // Chequered flag: bank the lap, fix a dent in the pits, and keep racing into the next one.
+        if (ev.type === 'done') {
+          s.laps += 1;
+          s.lapBonus = Math.round(LAP_BONUS * s.mult);
+          s.score += s.lapBonus;
+          s.flagT = FLAG_TIME;
+          s.damage = Math.max(0, s.damage - 1);
+          s.boostT = BOOST_TIME;
+        }
         if (ev.type === 'boost') s.boostT = BOOST_TIME;
-        // Tool calls and errors send hunters after you.
+        // Tool calls and errors send hunters after you; an error also costs multiplier.
         if (ev.type === 'tool' || ev.type === 'error') {
           addCar('hunter', (s.tick * 7 + s.cars.length * 3) % LANES, ev.type === 'error' ? 110 : 70);
+          if (ev.type === 'error') s.mult = Math.max(1, s.mult - MULT_GREEN);
         }
-        // Real progress is pace: a finished sector or a green milestone is a boost and points.
-        // A red flag (failing tests/build) sends a fast hunter.
-        if (ev.type === 'sector') { s.boostT = BOOST_TIME; s.score += 300; }
+        // Real progress is pace: a finished sector or a green milestone is a boost, points and a
+        // bigger multiplier, and a green flag sends the pit crew to fix a dent. A red flag
+        // (failing tests/build) resets the multiplier and sends a fast hunter.
+        if (ev.type === 'sector') {
+          s.boostT = BOOST_TIME;
+          s.score += 300 * s.mult;
+          s.mult = Math.min(MULT_MAX, s.mult + MULT_SECTOR);
+        }
         if (ev.type === 'milestone') {
-          if (ev.good) { s.boostT = BOOST_TIME; s.score += 500; }
-          else addCar('hunter', (s.tick * 5 + 1) % LANES, 130);
+          if (ev.good) {
+            s.boostT = BOOST_TIME;
+            s.score += 500 * s.mult;
+            s.mult = Math.min(MULT_MAX, s.mult + MULT_GREEN);
+            s.damage = Math.max(0, s.damage - 1);
+          } else {
+            s.mult = 1;
+            addCar('hunter', (s.tick * 5 + 1) % LANES, 130);
+          }
         }
       }
+      if (s.flagT > 0) s.flagT = Math.max(0, s.flagT - dt);
 
       // Three things drive speed now: the engine's throughput (the telemetry link), the pilot's own
       // throttle, and a slow roll-on so a clean run keeps building without any input at all.
@@ -407,7 +442,7 @@ export function createMode(): GameMode<RacerState> {
             s.heroVx += Math.sign(s.laneX - c.x) * -1 * 340;
             s.boostT = Math.max(s.boostT, BOOST_TIME);
             s.smashed += 1;
-            s.score += 250;
+            s.score += 250 * s.mult;
             s.intents.push({ type: 'prune-stale' });
             next.push(c);
             continue;
@@ -428,7 +463,7 @@ export function createMode(): GameMode<RacerState> {
       }
       s.cars = next;
       s.distance += eff * dt;
-      s.score += eff * dt * 0.05; // distance survived
+      s.score += eff * dt * 0.05 * s.mult; // distance survived
 
       // Camera. It trails the car instead of being welded to it: laterally it eases toward the
       // car's lane, so a quick swerve visibly gets ahead of the shot before the camera settles.
@@ -566,30 +601,57 @@ export function createMode(): GameMode<RacerState> {
       }
       ctx.textAlign = 'left';
 
-      if (s.crashed || s.finished) {
+      if (s.flagT > 0 && !s.crashed) {
+        drawChequers(ctx, w, 54, Math.min(1, s.flagT));
+        ctx.textAlign = 'center';
+        ctx.globalAlpha = Math.min(1, s.flagT);
+        ctx.fillStyle = '#ECECEC';
+        ctx.font = 'bold 26px system-ui, sans-serif';
+        ctx.fillText(`LAP ${s.laps}`, w / 2, 112);
+        ctx.font = '13px system-ui, sans-serif';
+        ctx.fillStyle = '#FFD36A';
+        ctx.fillText(`+${s.lapBonus} pts · repairs in the pits · keep driving`, w / 2, 132);
+        ctx.globalAlpha = 1;
+        ctx.textAlign = 'left';
+      }
+
+      if (s.crashed) {
         ctx.fillStyle = 'rgba(0,0,0,0.58)';
         ctx.fillRect(0, 0, w, h);
         ctx.textAlign = 'center';
-        ctx.fillStyle = s.finished ? '#52A77C' : '#E05252';
+        ctx.fillStyle = '#E05252';
         ctx.font = 'bold 38px system-ui, sans-serif';
-        ctx.fillText(s.finished ? 'ARRIVED' : 'WRECKED', w / 2, h / 2 - 4);
+        ctx.fillText('WRECKED', w / 2, h / 2 - 4);
         ctx.font = '14px system-ui, sans-serif';
         ctx.fillStyle = '#9A9A9A';
-        ctx.fillText(`${Math.round(s.score)} pts · ${s.smashed} hunters smashed · ${s.civWrecks} civilian${s.civWrecks === 1 ? '' : 's'} hit`, w / 2, h / 2 + 22);
+        ctx.fillText(`${Math.round(s.score)} pts · ${s.laps} lap${s.laps === 1 ? '' : 's'} · ${s.smashed} hunters smashed · ${s.civWrecks} civilian${s.civWrecks === 1 ? '' : 's'} hit`, w / 2, h / 2 + 22);
+        ctx.fillText('↺ to restart', w / 2, h / 2 + 44);
       }
     },
 
     score: (s) => Math.round(s.score),
-    isOver: (s) => s.crashed || s.finished,
+    isOver: (s) => s.crashed,
 
     hud(s) {
       const bar = '●'.repeat(s.damage) + '○'.repeat(Math.max(0, MAX_DAMAGE - s.damage));
       if (s.crashed) return `WRECKED · ${Math.round(s.score)} pts`;
-      if (s.finished) return `ARRIVED · ${Math.round(s.score)} pts`;
       const bst = s.boostT > 0 ? ' · BOOST' : '';
-      return `${Math.round(s.score)} pts · ${s.smashed} smashed · dmg ${bar}${bst}`;
+      return `${Math.round(s.score)} pts · ×${+s.mult.toFixed(2)} · lap ${s.laps + 1} · dmg ${bar}${bst}`;
     },
   };
+}
+
+// A two-row chequered band across the top of the track, faded by `alpha`.
+function drawChequers(ctx: CanvasRenderingContext2D, w: number, y: number, alpha: number) {
+  const sq = 12;
+  ctx.globalAlpha = alpha * 0.9;
+  for (let row = 0; row < 2; row++) {
+    for (let x = 0, i = 0; x < w; x += sq, i++) {
+      ctx.fillStyle = (i + row) % 2 ? '#ECECEC' : '#111';
+      ctx.fillRect(x, y + row * sq, sq, sq);
+    }
+  }
+  ctx.globalAlpha = 1;
 }
 
 // Drawn at the origin, nose up. `hero` gives the blue car a squared-off 90s JDM coupe silhouette —

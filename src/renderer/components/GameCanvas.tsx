@@ -4,6 +4,27 @@ import { useGameLoop } from '../hooks/useGameLoop';
 import { TelemetryController } from '../hooks/useTelemetry';
 import CockpitHud from './CockpitHud';
 import { loadHighScores, applyScore, saveHighScores, type HighScores } from '../lib/highscores';
+import { SectorStrip } from './SectorStrip';
+import { DRIVE_MODE_LABELS } from '../../main/engine/config';
+import type { DriveMode, Sector } from '../types';
+import type { Checkpoint } from '../lib/season';
+
+// The result of the lap just finished: real XP and real outcomes, shown over the track.
+export interface LapCard {
+  number: number;
+  xp: number;
+  ms: number | null;
+  checkpoints: Checkpoint[];
+}
+
+export function formatLapTime(ms: number): string {
+  const total = Math.max(0, ms) / 1000;
+  const m = Math.floor(total / 60);
+  const sec = (total - m * 60).toFixed(1).padStart(4, '0');
+  return `${m}:${sec}`;
+}
+
+const LAP_CARD_MS = 7000;
 
 interface Props {
   onClose: () => void;
@@ -12,9 +33,25 @@ interface Props {
   telemetry: TelemetryController;
   paused: boolean; // an approval modal is up — freeze and tell the pilot
   onIntents?: (intents: import('../game/types').GameIntent[]) => void;
+  // The real race, kept in view while playing: Claude's lap plan, the drive mode and the career.
+  sectors: Sector[];
+  checkpoints: Checkpoint[];
+  lapCard: LapCard | null;
+  career: { level: number; tier: string; progress: number };
+  driveMode: DriveMode;
 }
 
-export default function GameCanvas({ onClose, selectedId, onSelect, telemetry, paused, onIntents }: Props) {
+export default function GameCanvas({
+  onClose, selectedId, onSelect, telemetry, paused, onIntents, sectors, checkpoints, lapCard, career, driveMode,
+}: Props) {
+  // The lap card shows for a few seconds after each chequered flag, then gets out of the way.
+  const [shownCard, setShownCard] = useState<LapCard | null>(null);
+  useEffect(() => {
+    if (!lapCard) return;
+    setShownCard(lapCard);
+    const id = window.setTimeout(() => setShownCard(null), LAP_CARD_MS);
+    return () => window.clearTimeout(id);
+  }, [lapCard]);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dims, setDims] = useState({ w: 960, h: 560 });
@@ -77,8 +114,9 @@ export default function GameCanvas({ onClose, selectedId, onSelect, telemetry, p
           🎮 COCKPIT
         </span>
 
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: 1 }}>
-          <ModeGroup label="Telemetry" modes={telemetryModes} selectedId={selectedId} onSelect={onSelect} />
+        <div style={{ display: 'flex', gap: 6, flex: 1, minWidth: 0, overflow: 'hidden' }}>
+          <ModeGroup label="Telemetry: driven by Claude's live session" modes={telemetryModes} selectedId={selectedId} onSelect={onSelect} />
+          <span style={{ width: 1, alignSelf: 'stretch', background: '#2A2A2A', margin: '2px 4px', flexShrink: 0 }} />
           <ModeGroup label="Free-play" modes={freeplayModes} selectedId={selectedId} onSelect={onSelect} />
         </div>
 
@@ -95,15 +133,31 @@ export default function GameCanvas({ onClose, selectedId, onSelect, telemetry, p
             {isRecord ? 'NEW BEST ' : 'BEST '}{(scores[mode.id] ?? 0).toLocaleString()}
           </span>
         )}
-        <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#8A8A8A', minWidth: 120, textAlign: 'right' }}>
+        <span style={{
+          fontFamily: 'monospace', fontSize: 12, color: '#8A8A8A', width: 260, flexShrink: 0, textAlign: 'right',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>
           {hud}
+        </span>
+        <span title="Drive mode (R1) · career" style={{ fontSize: 11, color: '#9A9A9A', whiteSpace: 'nowrap' }}>
+          {DRIVE_MODE_LABELS[driveMode]} · <span style={{ color: '#ECECEC', fontWeight: 700 }}>{career.tier}</span>{' '}
+          <span style={{ color: '#CC785C' }}>L{career.level}</span>
         </span>
         <button onClick={() => { setGen((g) => g + 1); setIsRecord(false); }} style={hdrBtn} title="Restart">↺</button>
         <button onClick={onClose} style={hdrBtn} title="Close cockpit">✕</button>
       </div>
 
+      {/* Claude's lap, live while you play. The row is reserved even while empty: the canvas
+          re-inits on resize, so a strip popping in mid-lap would wipe the race. */}
+      <div style={{ height: STRIP_H, flexShrink: 0, overflow: 'hidden', background: '#111', borderBottom: '1px solid #1E1E1E' }}>
+        <SectorStrip sectors={sectors} checkpoints={checkpoints} />
+      </div>
+
       {/* Blurb */}
-      <div style={{ padding: '6px 16px', fontSize: 12, color: '#6A6A6A', borderBottom: '1px solid #141414', flexShrink: 0 }}>
+      <div style={{
+        padding: '6px 16px', fontSize: 12, color: '#6A6A6A', borderBottom: '1px solid #141414', flexShrink: 0,
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+      }} title={mode.blurb}>
         {mode.blurb}
       </div>
 
@@ -118,13 +172,33 @@ export default function GameCanvas({ onClose, selectedId, onSelect, telemetry, p
             height={dims.h}
             style={{ width: '100%', height: '100%', display: 'block' }}
           />
+          {shownCard && !paused && (
+            <div style={{
+              position: 'absolute', top: 12, right: 12, padding: '10px 14px', borderRadius: 8,
+              background: 'rgba(10,11,13,0.85)', border: '1px solid #CC785C', minWidth: 190,
+              display: 'flex', flexDirection: 'column', gap: 4, pointerEvents: 'none',
+            }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#CC785C' }}>
+                🏁 LAP {shownCard.number} COMPLETE
+              </span>
+              <span style={{ fontFamily: 'monospace', fontSize: 18, color: '#ECECEC' }}>
+                {shownCard.ms != null ? formatLapTime(shownCard.ms) : '—'}
+                <span style={{ fontSize: 13, color: '#FFD36A', marginLeft: 10 }}>+{shownCard.xp} XP</span>
+              </span>
+              {shownCard.checkpoints.length > 0 && (
+                <span style={{ fontSize: 11, color: '#9A9A9A' }}>
+                  {shownCard.checkpoints.map((c) => (c.good ? '✓ ' : '✗ ') + c.label).join(' · ')}
+                </span>
+              )}
+            </div>
+          )}
           {paused && (
             <div style={{
               position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
               justifyContent: 'center', background: 'rgba(10,11,13,0.7)', flexDirection: 'column', gap: 8,
             }}>
               <span style={{ color: '#CC785C', fontSize: 20, fontWeight: 700 }}>Paused</span>
-              <span style={{ color: '#9A9A9A', fontSize: 14 }}>The engine needs you — resolve the prompt to resume.</span>
+              <span style={{ color: '#9A9A9A', fontSize: 14 }}>Pit wall on the radio: answer with the face buttons and you&apos;re back on track.</span>
             </div>
           )}
         </div>
@@ -148,8 +222,8 @@ function ModeGroup({
   label, modes, selectedId, onSelect,
 }: { label: string; modes: typeof GAME_MODES; selectedId: string; onSelect: (id: string) => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      <span style={{ fontSize: 10, color: '#555', letterSpacing: '0.05em', marginRight: 2 }}>{label}:</span>
+    // The header has no room for a text label at Deck width; it lives in the tooltip instead.
+    <div title={label} style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
       {modes.map((m) => {
         const active = m.id === selectedId;
         return (
@@ -161,6 +235,7 @@ function ModeGroup({
               border: `1px solid ${active ? '#CC785C' : '#333'}`,
               background: active ? 'rgba(204,120,92,0.12)' : '#1A1A1A',
               color: active ? '#CC785C' : '#9A9A9A', fontWeight: active ? 600 : 400,
+              whiteSpace: 'nowrap',
             }}
           >
             {m.name}
@@ -170,6 +245,9 @@ function ModeGroup({
     </div>
   );
 }
+
+// Height reserved for the sector / checkpoint strip under the header.
+const STRIP_H = 26;
 
 // Height reserved for the instrument strip below the playfield.
 const HUD_STRIP = 100;
