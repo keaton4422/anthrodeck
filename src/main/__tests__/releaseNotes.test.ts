@@ -36,6 +36,27 @@ describe('parseNote', () => {
     // Decoded text is rendered as React text, so "<script>" here is characters, not a tag.
   });
 
+  it('hides pipeline and housekeeping changes a pilot never sees', () => {
+    // The v0.8.4 note: two of its four PRs were CI-only.
+    const v084 = '<ul>'
+      + '<li>ci: Node 24 actions, Node 22 builds by @keaton4422 in #4</li>'
+      + '<li>feat(updater): show what\'s new in the update prompt by @keaton4422 in #6</li>'
+      + '<li>ci: Dependabot for GitHub Actions by @keaton4422 in #5</li>'
+      + '<li>feat(updater): Windows links to the latest release by @keaton4422 in #7</li>'
+      + '<li>chore(deps): bump vite by @dependabot[bot] in #8</li>'
+      + '<li>build: smaller AppImage in #9</li><li>test!: new harness in #10</li><li>docs(readme): typo in #11</li>'
+      + '</ul>';
+    expect(parseNote(v084)).toEqual([
+      "Show what's new in the update prompt",
+      'Windows links to the latest release',
+    ]);
+  });
+
+  it('keeps unprefixed titles and words that merely start like a prefix', () => {
+    expect(parseNote('<ul><li>Faster boot in #1</li><li>Testing mode for new pilots in #2</li><li>Chores list in the drawer in #3</li></ul>'))
+      .toEqual(['Faster boot', 'Testing mode for new pilots', 'Chores list in the drawer']);
+  });
+
   it('reads hand-written paragraph notes too', () => {
     expect(parseNote('<p>Faster boot.</p><p>New track: Monaco.</p><p><strong>Full Changelog</strong>: x</p>'))
       .toEqual(['Faster boot.', 'New track: Monaco.']);
@@ -53,6 +74,13 @@ describe('whatsNew', () => {
     const out = whatsNew(notes);
     expect(out.map((n) => n.version)).toEqual(['0.9.3', '0.9.2']);
     expect(out[0].items).toEqual(['Thing 0.9.3']);
+  });
+
+  it('drops a release that was all housekeeping', () => {
+    expect(whatsNew([
+      { version: '0.9.1', note: '<ul><li>ci: bump the actions group by @dependabot[bot] in #12</li></ul>' },
+      { version: '0.9.0', note: '<ul><li>feat: Monaco track in #11</li></ul>' },
+    ])).toEqual([{ version: '0.9.0', items: ['Monaco track'] }]);
   });
 
   it('is empty when there are no notes', () => {
