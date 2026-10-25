@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { GAME_MODES, getMode } from './registry';
 import { createMode as createFlight, type FlightState } from './modes/flight';
+import { carriedOver } from '../hooks/useGameLoop';
 import { createMode as createRacer, type RacerState, REGIONS, REGION_LENGTH, regionAt, perspAt, elevationAt, horizonAt } from './modes/racer';
 import { createMode as createGrid, type GridState } from './modes/gridcycles';
 import { createMode as createBelt, type ShooterState } from './modes/shooter';
-import { NEUTRAL_INPUT, EMPTY_TELEMETRY, GameInput, TelemetryFrame, GameIntent } from './types';
+import { NEUTRAL_INPUT, EMPTY_TELEMETRY, GameInput, TelemetryFrame, GameIntent, TelemetryEvent } from './types';
 import { project, depthAlpha, approach, clamp, makeRng } from './lib3d';
 import { applyScore } from '../lib/highscores';
 
@@ -609,5 +610,25 @@ describe('render does not throw', () => {
       const ended = m.step(m.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'crash' }]), 0.016);
       expect(() => m.render(ctx, ended, W, H)).not.toThrow();
     }
+  });
+});
+
+describe('parked race', () => {
+  it('carries real outcomes across a closed cockpit and drops the hazard pile-up', () => {
+    const queued: TelemetryEvent[] = [
+      { type: 'tool' }, { type: 'thinking' }, { type: 'sector' }, { type: 'tool' },
+      { type: 'milestone', good: true }, { type: 'error' }, { type: 'done' },
+    ];
+    expect(carriedOver(queued).map((e) => e.type)).toEqual(['sector', 'milestone', 'done']);
+  });
+
+  it('a resumed racer banks them: multiplier, repair and the lap', () => {
+    const mode = createRacer();
+    let s: RacerState = { ...mode.init(W, H), damage: 2 };
+    s = mode.step(s, NEUTRAL_INPUT, tel({}, carriedOver([{ type: 'tool' }, { type: 'milestone', good: true }, { type: 'done' }])), 0.016);
+    expect(s.laps).toBe(1);
+    expect(s.mult).toBeCloseTo(1.5);
+    expect(s.damage).toBe(0);
+    expect(s.cars.some((c) => c.kind === 'hunter')).toBe(false);
   });
 });

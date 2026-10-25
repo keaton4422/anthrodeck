@@ -17,8 +17,17 @@ export interface TelemetryController {
   setBudget(n: number): void;
 }
 
+// Nothing drains the queue while the cockpit is closed, and thinking streams an event per chunk.
+// Past this size the per-frame noise is shed and only the outcomes are kept.
+const QUEUE_CAP = 400;
+const NOISE = new Set<TelemetryEvent['type']>(['thinking', 'tool', 'error']);
+
 export function useTelemetry(): TelemetryController {
   const events = useRef<TelemetryEvent[]>([]);
+  const queue = (ev: TelemetryEvent) => {
+    events.current.push(ev);
+    if (events.current.length > QUEUE_CAP) events.current = events.current.filter((e) => !NOISE.has(e.type));
+  };
   const tokenTimes = useRef<number[]>([]); // timestamps of recently-streamed output tokens
   const streaming = useRef(false);
   const toolUntil = useRef(0);
@@ -37,10 +46,10 @@ export function useTelemetry(): TelemetryController {
     const unsubThink = window.electronAPI.onClaudeThinkingDelta(() => {
       streaming.current = true;
       thinkingUntil.current = performance.now() + 600;
-      events.current.push({ type: 'thinking' });
+      queue({ type: 'thinking' });
     });
     const unsubTool = window.electronAPI.onClaudeToolActivity((label) => {
-      events.current.push({ type: 'tool' });
+      queue({ type: 'tool' });
       toolUntil.current = performance.now() + 800;
       // Labels arrive as "\n`read: src/App.tsx`\n" — strip to a bare instrument readout.
       const clean = label.replace(/[`\n]/g, '').trim();
@@ -48,16 +57,16 @@ export function useTelemetry(): TelemetryController {
     });
     const unsubDone = window.electronAPI.onClaudeDone(() => {
       streaming.current = false;
-      events.current.push({ type: 'done' });
+      queue({ type: 'done' });
     });
     const unsubErr = window.electronAPI.onClaudeError(() => {
       streaming.current = false;
-      events.current.push({ type: 'error' });
+      queue({ type: 'error' });
     });
     const unsubEngine = window.electronAPI.onEngineEvent((ev) => {
-      if (ev.type === 'sector-done') events.current.push({ type: 'sector' });
+      if (ev.type === 'sector-done') queue({ type: 'sector' });
       else if (ev.type === 'milestone') {
-        events.current.push({ type: 'milestone', good: ev.kind !== 'tests-fail' && ev.kind !== 'build-fail' });
+        queue({ type: 'milestone', good: ev.kind !== 'tests-fail' && ev.kind !== 'build-fail' });
       }
     });
     return () => { unsubDelta(); unsubThink(); unsubTool(); unsubDone(); unsubErr(); unsubEngine(); };
@@ -90,7 +99,7 @@ export function useTelemetry(): TelemetryController {
       return { snapshot: snap, events: drained };
     },
     peek: () => snapshot(),
-    emit(ev) { events.current.push(ev); },
+    emit(ev) { queue(ev); },
     setSessionTokens(n) { sessionTokens.current = n; },
     setBudget(n) { budget.current = n; },
   });

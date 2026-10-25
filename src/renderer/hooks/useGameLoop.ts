@@ -1,11 +1,26 @@
 import { useEffect, useRef } from 'react';
-import { GameMode, GameInput, GameIntent, NEUTRAL_INPUT } from '../game/types';
+import { GameMode, GameInput, GameIntent, NEUTRAL_INPUT, type TelemetryEvent } from '../game/types';
 import { TelemetryController } from './useTelemetry';
 
 const DEAD = 0.18;
 
 function dz(v: number): number {
   return Math.abs(v) < DEAD ? 0 : v;
+}
+
+// A race outlives the cockpit overlay: closing it to read the chat parks the race, reopening it at
+// the same size resumes it. One parked race per mode; ↺ (forgetRace) or a wreck starts fresh.
+const parked = new Map<string, { state: unknown; w: number; h: number }>();
+
+export function forgetRace(modeId: string): void {
+  parked.delete(modeId);
+}
+
+// What happened while the race was parked. Real outcomes still count (the team's results don't
+// wait for the driver); a session's worth of tool-call hunters arriving at once would just be a
+// pile-up, so those are dropped.
+export function carriedOver(events: TelemetryEvent[]): TelemetryEvent[] {
+  return events.filter((e) => e.type === 'sector' || e.type === 'milestone' || e.type === 'done');
 }
 
 // Reads the gamepad (with keyboard fallback) and drives a GameMode's step()/render() on rAF.
@@ -15,7 +30,7 @@ export function useGameLoop(
   telemetry: TelemetryController,
   active: boolean,
   paused: boolean,
-  restartKey: number,
+  restartKey: number | string,
   onIntents?: (intents: GameIntent[]) => void,
   onGameOver?: (score: number) => void,
 ) {
@@ -26,6 +41,7 @@ export function useGameLoop(
   const reportedRef = useRef(false);
   const keys = useRef<Record<string, boolean>>({});
   const stateRef = useRef<unknown>(null);
+  const carryRef = useRef<TelemetryEvent[]>([]);
   const hudRef = useRef<string>('');
 
   // Track keyboard state for a controller-less fallback.
@@ -42,14 +58,21 @@ export function useGameLoop(
     };
   }, [active]);
 
-  // (Re)initialize the sim on mode change / restart.
+  // (Re)initialize the sim on mode change / restart / resize, or resume the parked race.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!mode || !canvas) return;
-    stateRef.current = mode.init(canvas.width, canvas.height);
+    const queued = telemetry.getFrame().events;
+    const p = parked.get(mode.id);
+    if (p && p.w === canvas.width && p.h === canvas.height && !mode.isOver?.(p.state as never)) {
+      stateRef.current = p.state;
+      carryRef.current = [...carryRef.current, ...carriedOver(queued)];
+    } else {
+      // A fresh race: whatever queued up before it belongs to no race.
+      stateRef.current = mode.init(canvas.width, canvas.height);
+      carryRef.current = [];
+    }
     reportedRef.current = false;
-    // Events queued while the cockpit was closed belong to no race: start this one clean.
-    telemetry.getFrame();
   }, [mode, restartKey, canvasRef, telemetry]);
 
   useEffect(() => {
@@ -104,8 +127,13 @@ export function useGameLoop(
         if (ctx) {
           if (!paused) {
             const input = active ? readInput() : NEUTRAL_INPUT;
-            const tel = telemetry.getFrame();
+            let tel = telemetry.getFrame();
+            if (carryRef.current.length) {
+              tel = { ...tel, events: [...carryRef.current, ...tel.events] };
+              carryRef.current = [];
+            }
             stateRef.current = mode.step(stateRef.current as never, input, tel, dt);
+            parked.set(mode.id, { state: stateRef.current, w: canvas.width, h: canvas.height });
             hudRef.current = mode.hud(stateRef.current as never);
 
             // Drain any intents the mode raised this step — this is how destroying the right thing
