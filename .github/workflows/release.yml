@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
 
+# Least privilege by default; only the release job can write (it creates the GitHub Release).
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -18,11 +22,14 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          # Node 20 reached end of life in April 2026. 22 matches the Node inside Electron 37.
+          node-version: 22
+          # No dependency cache in the release pipeline: a poisoned cache would ship to every Deck.
+          package-manager-cache: false
 
       - name: Install Linux deps
         if: matrix.platform == 'linux'
@@ -30,13 +37,17 @@ jobs:
 
       - run: npm ci
 
+      # Never publish a build that doesn't typecheck or pass its tests, on either platform.
+      - run: npx tsc --noEmit
+      - run: npm test
+
       - name: Make
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run make
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: anthrodeck-${{ matrix.platform }}
           path: out/make/**/*
@@ -48,9 +59,9 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -63,7 +74,7 @@ jobs:
           cat artifacts/latest-linux.yml
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: artifacts/**/*
           generate_release_notes: true

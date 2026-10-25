@@ -1,0 +1,35 @@
+name: CI
+
+# Typecheck and test every PR and every push to main, on both shipping platforms. Until now the
+# only workflow ran on tags, so a PR could merge with nothing checking it.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
