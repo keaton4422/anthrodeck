@@ -484,7 +484,7 @@ function UpdateSection({ status, onCheck, onDownload, onInstall }: UpdateProps) 
         )}
         {status.state === 'available' && (
           <button onClick={onDownload} style={primaryBtn}>
-            ↓ Download v{status.newVersion}
+            {status.manualUrl ? `↗ Get v${status.newVersion} from GitHub` : `↓ Download v${status.newVersion}`}
           </button>
         )}
         {status.state === 'ready' && (

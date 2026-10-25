@@ -16,6 +16,8 @@ export interface WhatsNew {
 export interface UpdateAvailable {
   version: string;
   notes: WhatsNew[];
+  // Set when this build can't update itself (Windows zip): the release page to download from.
+  manualUrl?: string;
 }
 
 // electron-updater's UpdateInfo.releaseNotes: one HTML string for the latest release, or (with
