@@ -12,6 +12,7 @@ import { registerEngineIpc } from './engine/bridge';
 import { updaterErrorMessage } from './updaterMessages';
 import { whatsNew, type RawReleaseNotes, type UpdateAvailable } from './releaseNotes';
 import { LATEST_RELEASE_API, parseLatestRelease } from './manualUpdate';
+import { quitWatchdog } from './quitWatchdog';
 import { getFlashcards, clearFlashcards, generateFlashcard } from './flashcards';
 import { undoLastWrite, recordWrite } from './writeHistory';
 import {
@@ -464,7 +465,15 @@ app.on('child-process-gone', (_e, details) => {
   app.exit(0);
 });
 
-app.on('before-quit', () => { engine.shutdown(); void stopPreview(); void stopPairing(); });
+// A quit that stalls must not leave Steam stuck on "Exiting": see quitWatchdog.ts.
+const armQuitWatchdog = quitWatchdog({
+  setTimer: (fn, ms) => { setTimeout(fn, ms).unref(); },
+  exit: (code) => app.exit(code),
+  kill: () => process.kill(process.pid, 'SIGKILL'),
+  log: (msg) => console.error(msg),
+});
+
+app.on('before-quit', () => { armQuitWatchdog(); engine.shutdown(); void stopPreview(); void stopPairing(); });
 app.on('window-all-closed', () => { void stopPreview(); if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) { createWindow(); setupAutoUpdater(); }
