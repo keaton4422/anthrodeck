@@ -6,7 +6,7 @@ import {
   parseConfidence,
   resolveEngineSettings,
 } from '../engine/config';
-import { candidatePaths, locateEngine, type LocateDeps } from '../engine/locate';
+import { candidatePaths, locateEngine, readClaudeSignIn, type LocateDeps } from '../engine/locate';
 import { displayPath, milestoneFor, proposedContent, SectorBoard, toolLabel } from '../engine/tools';
 import { newTranslateState, translate } from '../engine/translate';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -228,5 +228,18 @@ describe('engine translate', () => {
       .toEqual([{ type: 'compacted', preTokens: 9000, postTokens: 2000 }]);
     expect(translate(msg({ type: 'system', subtype: 'api_retry', attempt: 1, max_retries: 4, retry_delay_ms: 500 }), st))
       .toEqual([{ type: 'retry', attempt: 1, maxRetries: 4, delayMs: 500 }]);
+  });
+});
+
+describe('readClaudeSignIn', () => {
+  it('reads the signed-in account Claude Code records', () => {
+    const json = JSON.stringify({ oauthAccount: { emailAddress: 'pilot@example.com', organizationName: 'Pilot Co' }, other: 1 });
+    expect(readClaudeSignIn(json)).toEqual({ signedIn: true, email: 'pilot@example.com', org: 'Pilot Co' });
+  });
+
+  it('is signed out without an account, a file, or valid JSON', () => {
+    expect(readClaudeSignIn(JSON.stringify({ numStartups: 3 })).signedIn).toBe(false);
+    expect(readClaudeSignIn(null).signedIn).toBe(false);
+    expect(readClaudeSignIn('{not json').signedIn).toBe(false);
   });
 });

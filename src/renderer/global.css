@@ -138,3 +138,10 @@ html, body, #root {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Controller focus ring (hooks/usePadFocus). */
+.pad-focus {
+  outline: 2px solid #D97757 !important;
+  outline-offset: 3px;
+  border-radius: 8px;
+}

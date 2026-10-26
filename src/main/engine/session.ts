@@ -472,7 +472,7 @@ export function friendlyError(raw: string): string {
     return 'Claude rejected the API key. Re-pair or paste a new key in Settings (⚙).';
   }
   if (/not logged in|please run \/login|no api key|ANTHROPIC_API_KEY/i.test(raw)) {
-    return 'Claude Code is not signed in. Pair an API key in Settings (⚙).';
+    return 'Claude Code isn\'t signed in on this device. Sign in once from Desktop Mode (run claude), or add an API key in Settings (⚙).';
   }
   if (/ENOENT|spawn .*claude|native cli binary|not found/i.test(raw)) {
     return 'Claude Code engine not found. Install it from Settings (⚙) → Engine.';

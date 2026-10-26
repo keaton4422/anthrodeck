@@ -17,7 +17,8 @@ import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-ag
 import fs from 'fs';
 import type Store from 'electron-store';
 import { normalizeDriveMode, resolveEngineSettings } from './config';
-import { defaultLocateDeps, engineVersion, INSTALL_COMMAND, locateEngine } from './locate';
+import { defaultLocateDeps, engineVersion, INSTALL_COMMAND, locateEngine, readClaudeSignIn } from './locate';
+import path from 'path';
 import { EngineSession, type CockpitPort, type EngineEvent } from './session';
 import { generateFlashcard, recordToolCalls, setLastContext } from '../flashcards';
 import { pushWrite } from '../writeHistory';
@@ -204,6 +205,9 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
       version: engine ? await engineVersion(engine.path) : null,
       installCommand: INSTALL_COMMAND,
       hasApiKey: !!store.get('apiKey', ''),
+      claude: readClaudeSignIn((() => {
+        try { return fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8'); } catch { return null; }
+      })()),
     };
   });
 

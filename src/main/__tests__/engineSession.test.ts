@@ -272,7 +272,7 @@ describe('EngineSession failures', () => {
     await until(() => events.some((e) => e.type === 'result'));
     await tick(); await tick();
     const errors = events.filter((e) => e.type === 'error');
-    expect(errors).toEqual([{ type: 'error', message: 'Claude Code is not signed in. Pair an API key in Settings (⚙).' }]);
+    expect(errors).toEqual([{ type: 'error', message: 'Claude Code isn\'t signed in on this device. Sign in once from Desktop Mode (run claude), or add an API key in Settings (⚙).' }]);
     expect(events.findIndex((e) => e.type === 'error')).toBeLessThan(events.findIndex((e) => e.type === 'result'));
   });
 

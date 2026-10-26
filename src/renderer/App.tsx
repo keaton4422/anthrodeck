@@ -11,6 +11,7 @@ import TeachModal from './components/TeachModal';
 import RadialMenu from './components/RadialMenu';
 import WritePreview from './components/WritePreview';
 import Home, { type HomeNav } from './components/Home';
+import type { PadFocus } from './hooks/usePadFocus';
 import { SectorStrip } from './components/SectorStrip';
 import { useFeedback } from './hooks/useFeedback';
 import {
@@ -60,6 +61,7 @@ export default function App() {
   // Home is the launch screen; the chat takes over once a session is under way.
   const [showHome, setShowHome] = useState(true);
   const homeNav = useRef<HomeNav>(null);
+  const settingsNav = useRef<PadFocus | null>(null);
   const [engineReady, setEngineReady] = useState(true);
   const [apiKey, setApiKey] = useStore<string>('apiKey', '');
   const [previewPort, setPreviewPort] = useStore<number>('previewPort', 5757);
@@ -358,6 +360,8 @@ export default function App() {
   const gameOwnsPad = cockpitOpen && !modalActive;
   // Home takes the D-pad and A/B while it's up and nothing else is asking.
   const homeOwnsPad = showHome && !cockpitOpen && !modalActive && !showSettings && !drawerOpen;
+  // Settings takes the D-pad and A while it's open (B already closes it).
+  const settingsOwnsPad = showSettings && !cockpitOpen && !modalActive && !drawerOpen;
 
   // L1 + face button fires a meta action instead of the button's normal job. Returns true when the
   // chord consumed the press.
@@ -384,6 +388,7 @@ export default function App() {
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'A')) return;
       if (homeOwnsPad) { homeNav.current?.activate(); return; }
+      if (settingsOwnsPad) { settingsNav.current?.activate(); return; }
       if (pendingTeach) teachContinue();
       else if (pendingWrite) handleWriteAccept();
       else if (pendingQuestion) answerOption(0);
@@ -434,19 +439,23 @@ export default function App() {
     onR3Press: () => { if (!cockpitOpen && !modalActive) setShowSettings((s) => !s); },
     // D-pad: up/down scrolls a pending diff; left/right collapses/expands tool detail lines.
     onDpadUp: () => {
-      if (homeOwnsPad) homeNav.current?.move(0, -1);
+      if (settingsOwnsPad) settingsNav.current?.move('up');
+      else if (homeOwnsPad) homeNav.current?.move(0, -1);
       else if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop -= 48;
     },
     onDpadDown: () => {
-      if (homeOwnsPad) homeNav.current?.move(0, 1);
+      if (settingsOwnsPad) settingsNav.current?.move('down');
+      else if (homeOwnsPad) homeNav.current?.move(0, 1);
       else if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop += 48;
     },
     onDpadLeft: () => {
-      if (homeOwnsPad) homeNav.current?.move(-1, 0);
+      if (settingsOwnsPad) settingsNav.current?.move('left');
+      else if (homeOwnsPad) homeNav.current?.move(-1, 0);
       else if (!cockpitOpen && !pendingWrite) setCollapseTools(true);
     },
     onDpadRight: () => {
-      if (homeOwnsPad) homeNav.current?.move(1, 0);
+      if (settingsOwnsPad) settingsNav.current?.move('right');
+      else if (homeOwnsPad) homeNav.current?.move(1, 0);
       else if (!cockpitOpen && !pendingWrite) setCollapseTools(false);
     },
     // Radial menu: hold Select (Steam Input can map trackpad center-click here), aim, release.
@@ -555,6 +564,7 @@ export default function App() {
 
       {showSettings ? (
         <SettingsPanel
+          padNav={settingsNav}
           apiKey={apiKey}
           onSave={async (key) => { await setApiKey(key); setShowSettings(false); }}
           onPaired={async () => {
