@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon.png" width="128" alt="AnthroDeck"></p>
+
 # AnthroDeck
 
 A gamepad-driven coding cockpit for the Steam Deck. The human is the **pilot**; **Claude Code** is
