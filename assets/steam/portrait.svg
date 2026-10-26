@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" width="600" height="900">
+  <!-- Steam library tile (600x900). Same drawing as assets/logo.svg: ivory paper, ink Deck, clay screen. -->
+  <rect width="600" height="900" fill="#F0EEE6"/>
+  <g transform="translate(36 120) scale(0.515)"><path d="M180 330 L844 330 C905 330 944 368 952 430 C962 520 966 610 940 680 C920 732 860 748 812 730 C770 714 742 680 700 668 L324 668 C282 680 254 714 212 730 C164 748 104 732 84 680 C58 610 62 520 72 430 C80 368 119 330 180 330 Z" fill="#141413"/><rect x="300" y="372" width="424" height="258" rx="16" fill="#D97757"/><circle cx="186" cy="438" r="48" fill="#F0EEE6"/><circle cx="186" cy="438" r="24" fill="#141413"/><circle cx="838" cy="438" r="48" fill="#F0EEE6"/><circle cx="838" cy="438" r="24" fill="#141413"/><rect x="146" y="540" width="84" height="84" rx="14" fill="none" stroke="#F0EEE6" stroke-width="14"/><rect x="794" y="540" width="84" height="84" rx="14" fill="none" stroke="#F0EEE6" stroke-width="14"/></g>
+  <text x="300" y="640" text-anchor="middle" font-family="Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="64" font-weight="700" letter-spacing="6" fill="#141413">ANTHRO<tspan fill="#D97757">DECK</tspan></text>
+  <text x="300" y="700" text-anchor="middle" font-family="Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="26" letter-spacing="2" fill="#6B6A63">A cockpit for Claude Code</text>
+  <rect x="270" y="770" width="60" height="6" rx="3" fill="#D97757"/>
+</svg>
