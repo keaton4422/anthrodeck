@@ -30,6 +30,7 @@ import {
   type RemoteTarget,
 } from '../remote';
 import type { SDKSessionInfo, SessionMessage } from '@anthropic-ai/claude-agent-sdk';
+import { LiveLink, setupRelay, type LiveLinkStatus } from '../live';
 
 interface Pending<T> { resolve: (v: T) => void; fallback: T }
 
@@ -89,6 +90,33 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
     for (const [id, p] of pending) { send('claude:prompt-cancel', id); p.resolve(p.fallback); }
     pending.clear();
   };
+
+  // ─── live sessions on the remote computer (see main/live.ts) ─────────────────
+  // While a remote computer is set up, one SSH link watches its running Claude Code sessions and
+  // brings their permission prompts and questions here, as the same cards local sessions use.
+  let live: LiveLink | null = null;
+  const liveStatus = () => {
+    const t = remoteTarget();
+    const st: LiveLinkStatus = live?.current ?? { connected: false, error: null, state: null };
+    return t ? { ...st, label: t.label } : null;
+  };
+  const relink = () => {
+    const t = remoteTarget();
+    if (live && live.host === t?.host) return;
+    live?.stop();
+    live = t ? new LiveLink(t.host, t.label, {
+      ask: (card, signal) => ask('claude:ask-user', card, '', signal),
+      onStatus: () => send('live:state', liveStatus()),
+    }) : null;
+    send('live:state', liveStatus());
+  };
+  relink();
+  ipcMain.handle('live:get', () => liveStatus());
+  ipcMain.handle('live:relay', async (_e, op: 'install' | 'remove') => {
+    const t = remoteTarget();
+    if (!t) return { ok: false, error: 'No remote computer set up.' };
+    try { await setupRelay(t.host, op); return { ok: true }; } catch (e) { return { ok: false, error: (e as Error).message }; }
+  });
 
   ipcMain.on('claude:write-decision', (_: IpcMainEvent, id: string, accepted: boolean, feedback?: string) =>
     settle(id, { accepted, feedback }));
@@ -256,9 +284,10 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
   ipcMain.handle('remote:get', () => remoteTarget());
   ipcMain.handle('remote:set', (_e, host: string | null) => {
     const h = host?.trim();
-    if (!h) { store.set('remote', null); return null; }
+    if (!h) { store.set('remote', null); relink(); return null; }
     remoteClaude.delete(h);
     store.set('remote', { host: h, label: defaultLabel(h) });
+    relink();
     return remoteTarget();
   });
   ipcMain.handle('remote:test', async () => {
@@ -319,6 +348,7 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
   return {
     shutdown() {
       cancelAllPrompts();
+      live?.stop();
       session?.close();
       session = null;
     },

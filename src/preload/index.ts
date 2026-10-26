@@ -22,6 +22,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   remoteGet: () => ipcRenderer.invoke('remote:get'),
   remoteSet: (host: string | null) => ipcRenderer.invoke('remote:set', host),
   remoteTest: () => ipcRenderer.invoke('remote:test'),
+  liveGet: () => ipcRenderer.invoke('live:get'),
+  liveRelay: (op: 'install' | 'remove') => ipcRenderer.invoke('live:relay', op),
+  onLiveState: (cb: (s: unknown) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, s: unknown) => cb(s);
+    ipcRenderer.on('live:state', handler);
+    return () => ipcRenderer.removeListener('live:state', handler);
+  },
 
   // ── File System ────────────────────────────────────────────────────────────
   fsList: (dir?: string) => ipcRenderer.invoke('fs:list', dir),

@@ -238,6 +238,29 @@ Store publishing is a poor fit here regardless of cost: AnthroDeck is a develope
 game, and it requires each user to supply their own paid Anthropic API key — which is awkward
 against storefront expectations. The Non-Steam shortcut gets you the same Game Mode experience.
 
+## Your other computer
+
+AnthroDeck can pilot Claude Code on another computer, like your Mac, over SSH:
+
+1. On the Mac, turn on **System Settings → General → Sharing → Remote Login**, and add the Deck's
+   public key (`~/.ssh/id_ed25519.pub` on the Deck) to the Mac's `~/.ssh/authorized_keys`.
+2. On the Deck, **Settings → Remote computer**: enter `you@your-mac.local` and press **Save & test**.
+
+Home then switches between this device and the Mac (**Y**). On the Mac side you get:
+
+- **Its projects and sessions.** Resume one or start a new one; Claude Code runs on the Mac, in its
+  folders, under its own sign-in.
+- **What's running right now.** The sessions open in the Claude app or a terminal on the Mac are
+  listed at the top as **LIVE**, each marked working, idle or **NEEDS YOU**. Open an idle one to
+  carry it on from the Deck.
+- **Their approvals and questions.** In **Settings → Remote computer**, press **Install on <Mac>**
+  under "Approvals from <Mac>". This adds one `PermissionRequest` hook to Claude Code's settings on
+  the Mac (`~/.claude/settings.json`, backed up first). From then on, when a session on the Mac asks
+  for permission, asks a question or has a plan ready, the same card pops up on the Deck wherever
+  you are, game included. Answer on whichever is closer: the first answer wins, and the other
+  closes. While the Deck isn't connected, the hook returns at once and changes nothing.
+  **Remove** takes it out again.
+
 ## Controls
 
 - **L2** — hold to talk (push-to-talk); release to send.
