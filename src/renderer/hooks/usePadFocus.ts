@@ -10,12 +10,22 @@ import { pickNext, type Box, type Dir } from '../lib/spatialNav';
 export interface PadFocus {
   move(dir: Dir): void;
   activate(): void;
+  // Right stick: scroll the panel by `dy` pixels; the ring follows onto a visible control.
+  scroll(dy: number): void;
 }
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [data-pad-focusable]';
 const RING = 'pad-focus';
 
-export function usePadFocus(root: React.RefObject<HTMLElement>): PadFocus {
+// `resetKey`: when it changes, the ring goes back to the start (e.g. a new folder listing).
+// `start`: where the ring begins (default: the first control), e.g. the game already being played.
+export function usePadFocus(
+  root: React.RefObject<HTMLElement>,
+  resetKey?: unknown,
+  start?: () => HTMLElement | null | undefined,
+): PadFocus {
+  const startRef = useRef(start);
+  startRef.current = start;
   const current = useRef<HTMLElement | null>(null);
 
   const controls = useCallback((): HTMLElement[] => {
@@ -40,13 +50,17 @@ export function usePadFocus(root: React.RefObject<HTMLElement>): PadFocus {
   // requestAnimationFrame: frames pause while the window is hidden, and the first press would
   // then only reveal the ring instead of moving it.
   useEffect(() => {
-    const id = window.setTimeout(() => focusOn(controls()[0]), 0);
+    const id = window.setTimeout(() => {
+      current.current?.classList.remove(RING);
+      current.current = null;
+      focusOn(startRef.current?.() ?? controls()[0]);
+    }, 0);
     return () => {
       window.clearTimeout(id);
       current.current?.classList.remove(RING);
       current.current = null;
     };
-  }, [controls, focusOn]);
+  }, [controls, focusOn, resetKey]);
 
   const nav = useMemo<PadFocus>(() => ({
     move(dir) {
@@ -83,7 +97,33 @@ export function usePadFocus(root: React.RefObject<HTMLElement>): PadFocus {
         focusOn(list.reduce((a, b) => (near(b) < near(a) ? b : a)));
       }, 50);
     },
-  }), [controls, focusOn]);
+    scroll(dy) {
+      const rootEl = root.current;
+      if (!rootEl) return;
+      // The panel's scrolling area: the root itself, or the first scrollable thing inside it.
+      const scrollable = (el: HTMLElement) => el.scrollHeight > el.clientHeight + 1
+        && /(auto|scroll)/.test(getComputedStyle(el).overflowY);
+      const area = scrollable(rootEl) ? rootEl
+        : [...rootEl.querySelectorAll<HTMLElement>('*')].find(scrollable);
+      if (!area) return;
+      area.scrollTop += dy;
+      // If the ring scrolled out of view, move it to the first control that's fully in view.
+      const view = area.getBoundingClientRect();
+      const inView = (c: HTMLElement) => {
+        const b = c.getBoundingClientRect();
+        return b.top >= view.top && b.bottom <= view.bottom;
+      };
+      const cur = current.current;
+      if (cur && cur.isConnected && inView(cur)) return;
+      const visible = controls().filter((c) => area.contains(c) && inView(c));
+      const next = dy > 0 ? visible[0] : visible[visible.length - 1];
+      if (next && next !== cur) {
+        cur?.classList.remove(RING);
+        next.classList.add(RING);
+        current.current = next;
+      }
+    },
+  }), [controls, focusOn, root]);
 
   // Arrow keys and Enter do the same, for a Bluetooth keyboard (and the desktop). Left alone while
   // typing in a field, where the arrows move the cursor.

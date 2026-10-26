@@ -17,10 +17,17 @@ root.render(
 // rather than a timer means the splash lasts exactly as long as the boot does — on a fast machine
 // it is a blink, and on a cold Deck launch it stays up for the whole wait instead of handing over
 // to a black screen partway through.
-requestAnimationFrame(() => {
+// A timer backs it up: animation frames don't run while the window is hidden (started behind
+// something, or on another desktop), and the splash would otherwise sit over the loaded app.
+let bootDropped = false;
+const dropBoot = () => {
+  if (bootDropped) return;
+  bootDropped = true;
   const boot = document.getElementById('boot');
   if (!boot) return;
   boot.style.transition = 'opacity 220ms ease-out';
   boot.style.opacity = '0';
   setTimeout(() => boot.remove(), 240);
-});
+};
+requestAnimationFrame(dropBoot);
+setTimeout(dropBoot, 1000);

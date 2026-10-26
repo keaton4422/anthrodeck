@@ -8,6 +8,7 @@ import ModFrame from './ModFrame';
 import { useModGames } from '../hooks/useModGames';
 import { loadHighScores, applyScore, saveHighScores, type HighScores } from '../lib/highscores';
 import { SectorStrip } from './SectorStrip';
+import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
 import { DRIVE_MODE_LABELS } from '../../main/engine/config';
 import type { DriveMode, Sector } from '../types';
 import type { Checkpoint } from '../lib/season';
@@ -35,6 +36,11 @@ interface Props {
   onSelect: (id: string) => void;
   telemetry: TelemetryController;
   paused: boolean; // an approval modal is up — freeze and tell the pilot
+  // The game menu: every game and mod as a card. Opened with Start (or the header button); App
+  // routes the pad to it through menuNav while it's open, and the game pauses underneath.
+  menuOpen: boolean;
+  onMenu: (open: boolean) => void;
+  menuNav: React.MutableRefObject<PadFocus | null>;
   onIntents?: (intents: import('../game/types').GameIntent[]) => void;
   // The real race, kept in view while playing: Claude's lap plan, the drive mode and the career.
   sectors: Sector[];
@@ -45,8 +51,11 @@ interface Props {
 }
 
 export default function GameCanvas({
-  onClose, selectedId, onSelect, telemetry, paused, onIntents, sectors, checkpoints, lapCard, career, driveMode,
+  onClose, selectedId, onSelect, telemetry, paused: approvalPaused, onIntents, sectors, checkpoints, lapCard, career, driveMode,
+  menuOpen, onMenu, menuNav,
 }: Props) {
+  // The sim stops for an approval card and while the game menu is up.
+  const paused = approvalPaused || menuOpen;
   // The lap card shows for a few seconds after each chequered flag, then gets out of the way.
   const [shownCard, setShownCard] = useState<LapCard | null>(null);
   useEffect(() => {
@@ -127,10 +136,16 @@ export default function GameCanvas({
           🎮 COCKPIT
         </span>
 
-        <div style={{ display: 'flex', gap: 6, flex: 1, minWidth: 0, overflow: 'hidden' }}>
-          <ModeGroup label="Telemetry: driven by Claude's live session" modes={telemetryModes} selectedId={selectedId} onSelect={onSelect} />
-          <span style={{ width: 1, alignSelf: 'stretch', background: '#2A2A2A', margin: '2px 4px', flexShrink: 0 }} />
-          <ModeGroup label="Free-play" modes={freeplayModes} selectedId={selectedId} onSelect={onSelect} />
+        {/* One button however many games and mods there are; the full list is the game menu. */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <button onClick={() => onMenu(true)} title="All games and mods (Start)" style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%',
+            padding: '5px 12px', borderRadius: 6, fontSize: 13, cursor: 'pointer',
+            border: '1px solid #CC785C', background: 'rgba(204,120,92,0.12)', color: '#CC785C', fontWeight: 600,
+          }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mode.name}</span>
+            <span style={{ color: '#9A9A9A', fontWeight: 400, whiteSpace: 'nowrap' }}>▾ · Start</span>
+          </button>
         </div>
 
         {mode.score && (
@@ -159,6 +174,18 @@ export default function GameCanvas({
         <button onClick={restart} style={hdrBtn} title="Restart">↺</button>
         <button onClick={onClose} style={hdrBtn} title="Close cockpit">✕</button>
       </div>
+
+      {menuOpen && (
+        <GameMenu
+          telemetry={telemetryModes}
+          freeplay={freeplayModes}
+          modIds={new Set(modGames.map((g) => g.mode.id))}
+          selectedId={mode.id}
+          nav={menuNav}
+          onPick={(id) => { onSelect(id); onMenu(false); }}
+          onClose={() => onMenu(false)}
+        />
+      )}
 
       {/* Claude's lap, live while you play. The row is reserved even while empty: the canvas
           re-inits on resize, so a strip popping in mid-lap would wipe the race. */}
@@ -206,7 +233,7 @@ export default function GameCanvas({
               )}
             </div>
           )}
-          {paused && (
+          {approvalPaused && (
             <div style={{
               position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
               justifyContent: 'center', background: 'rgba(10,11,13,0.7)', flexDirection: 'column', gap: 8,
@@ -232,33 +259,87 @@ export default function GameCanvas({
   );
 }
 
-function ModeGroup({
-  label, modes, selectedId, onSelect,
-}: { label: string; modes: GameMode[]; selectedId: string; onSelect: (id: string) => void }) {
+// Every game as a card, in two groups. A modal over the cockpit (the game pauses underneath), so it
+// fits any number of games and mods, and it's driven by the pad: D-pad to move, A to pick,
+// B or Start to close.
+function GameMenu({
+  telemetry, freeplay, modIds, selectedId, nav, onPick, onClose,
+}: {
+  telemetry: GameMode[]; freeplay: GameMode[]; modIds: Set<string>; selectedId: string;
+  nav: React.MutableRefObject<PadFocus | null>; onPick: (id: string) => void; onClose: () => void;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  // The ring starts on the game being played.
+  const pad = usePadFocus(rootRef, undefined, () =>
+    rootRef.current?.querySelector<HTMLElement>(`[data-game="${CSS.escape(selectedId)}"]`));
+  useEffect(() => {
+    nav.current = pad;
+    return () => { nav.current = null; };
+  }, [nav, pad]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const section = (title: string, hint: string, modes: GameMode[]) => modes.length > 0 && (
+    <div>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', color: '#6A6A6A', margin: '0 2px 8px' }}>
+        {title} <span style={{ fontWeight: 400, letterSpacing: 0 }}>· {hint}</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+        {modes.map((m) => {
+          const active = m.id === selectedId;
+          return (
+            <button key={m.id} data-game={m.id} onClick={() => onPick(m.id)} style={{
+              textAlign: 'left', padding: '12px 14px', borderRadius: 10, cursor: 'pointer', minHeight: 92,
+              border: `1px solid ${active ? '#CC785C' : '#2A2A2A'}`,
+              background: active ? 'rgba(204,120,92,0.10)' : '#151515', color: '#ECECEC',
+              display: 'flex', flexDirection: 'column', gap: 6,
+            }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 15, fontWeight: 600, color: active ? '#CC785C' : '#ECECEC' }}>{m.name}</span>
+                {modIds.has(m.id) && <span style={menuTag}>mod</span>}
+                {active && <span style={menuTag}>playing</span>}
+              </span>
+              <span style={{
+                fontSize: 12, color: '#8A8A8A', lineHeight: 1.4,
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+              }}>
+                {m.blurb.replace(/^Mod by [^·]+·\s*/, '')}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   return (
-    // The header has no room for a text label at Deck width; it lives in the tooltip instead.
-    <div title={label} style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-      {modes.map((m) => {
-        const active = m.id === selectedId;
-        return (
-          <button
-            key={m.id}
-            onClick={() => onSelect(m.id)}
-            style={{
-              padding: '5px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
-              border: `1px solid ${active ? '#CC785C' : '#333'}`,
-              background: active ? 'rgba(204,120,92,0.12)' : '#1A1A1A',
-              color: active ? '#CC785C' : '#9A9A9A', fontWeight: active ? 600 : 400,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {m.name}
-          </button>
-        );
-      })}
+    <div style={{
+      // Solid: a see-through backdrop let the cockpit header ghost through behind the title.
+      position: 'absolute', inset: 0, zIndex: 5, background: '#0A0B0D',
+      display: 'flex', justifyContent: 'center', padding: '20px 24px',
+    }}>
+      <div ref={rootRef} style={{ width: '100%', maxWidth: 980, display: 'flex', flexDirection: 'column', gap: 18, overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.16em', color: '#ECECEC' }}>GAMES</div>
+            <div style={{ fontSize: 12, color: '#6A6A6A', marginTop: 3 }}>D-pad to move · A to play · B or Start to close</div>
+          </div>
+          <button onClick={onClose} style={hdrBtn} title="Close (B)">✕</button>
+        </div>
+        {section('REACTS TO CLAUDE', 'what Claude does shows up in the game', telemetry)}
+        {section('FREE PLAY', 'something to do while you wait', freeplay)}
+      </div>
     </div>
   );
 }
+
+const menuTag: React.CSSProperties = {
+  fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#CC785C',
+  border: '1px solid #CC785C', borderRadius: 3, padding: '0 4px',
+};
 
 // Height reserved for the sector / checkpoint strip under the header.
 const STRIP_H = 26;

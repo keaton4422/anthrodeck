@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Project ────────────────────────────────────────────────────────────────
   projectOpenDialog: () => ipcRenderer.invoke('project:open-dialog'),
+  foldersList: (dir?: string | null) => ipcRenderer.invoke('folders:list', dir ?? null),
+  foldersCreate: (parent: string, name: string) => ipcRenderer.invoke('folders:create', parent, name),
   projectGet: () => ipcRenderer.invoke('project:get'),
   projectSet: (p: string) => ipcRenderer.invoke('project:set', p),
 

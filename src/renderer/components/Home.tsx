@@ -156,6 +156,17 @@ const Home = forwardRef<HomeNav, Props>(function Home(
         </div>
       </div>
 
+      {/* Sessions live on the machine they ran on, so a fresh Deck has none: say so plainly. */}
+      {wall && !wall.error && !wall.projects.some((p) => p.sessions.length) && (
+        <div style={{
+          fontSize: 13, color: C.dim, lineHeight: 1.55, padding: '10px 12px', borderRadius: 8,
+          border: `1px solid ${C.line}`, background: C.panel,
+        }}>
+          No Claude Code sessions on this device yet. Sessions stay on the machine they ran on, so ones
+          from your other computers won&apos;t show up here. Open a project folder to start the first one.
+        </div>
+      )}
+
       {wall?.error && (
         <div style={{ fontSize: 12, color: C.amber }}>Couldn&apos;t read Claude Code&apos;s sessions: {wall.error}</div>
       )}

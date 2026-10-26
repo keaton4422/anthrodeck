@@ -31,6 +31,19 @@ describe('pickNext', () => {
     expect(pickNext([close, model, toggleLow], 0, 'down')).toBe(1);
   });
 
+  it('left/right keeps to the row: the last card stays put rather than jumping to a corner button', () => {
+    // The cockpit's game menu at 1280 px: three cards a row, the close button up in the corner.
+    const close: Box = { x: 1100, y: 25, w: 30, h: 30 };
+    const cards: Box[] = [
+      { x: 150, y: 102, w: 238, h: 92 }, { x: 398, y: 102, w: 238, h: 92 }, { x: 645, y: 102, w: 238, h: 92 },
+      { x: 150, y: 235, w: 238, h: 92 },
+    ];
+    const boxes = [close, ...cards];
+    expect(pickNext(boxes, 3, 'right')).toBe(3);   // last card in the row
+    expect(pickNext(boxes, 2, 'right')).toBe(3);   // still moves along the row
+    expect(pickNext(boxes, 1, 'down')).toBe(4);    // and down to the next row
+  });
+
   it('stays put at an edge, and starts at the top when nothing is focused', () => {
     expect(pickNext(boxes, 0, 'up')).toBe(0);
     expect(pickNext(boxes, 3, 'right')).toBe(3);
