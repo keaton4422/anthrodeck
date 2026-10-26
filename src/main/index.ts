@@ -27,12 +27,15 @@ import {
   downloadLocalVoiceModel,
   transcribeWav,
 } from './whisperTranscriber';
+import { registerModScheme, handleModProtocol, guardModFrames, scanMods, modsDir } from './mods';
 
 // Injected by electron-forge Vite plugin
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
 const store = new Store();
+// Before 'ready': cockpit mods are served from their own scheme (see mods.ts).
+registerModScheme();
 let mainWindow: BrowserWindow | null = null;
 const LOAD_TIMEOUT_MS = 25_000;
 
@@ -81,6 +84,7 @@ function createWindow() {
   // tell "still loading" from "the renderer is missing" from "the GPU process died". That cost
   // several rounds of guessing, so every one of those now announces itself.
   const wc = mainWindow.webContents;
+  guardModFrames(wc);
 
   wc.on('did-fail-load', (_e, code, desc, url) => {
     // -3 is ERR_ABORTED, which fires on ordinary in-app navigation.
@@ -150,6 +154,14 @@ function createWindow() {
 // ─── Store IPC ────────────────────────────────────────────────────────────────
 ipcMain.handle('store:get', (_, key: string) => store.get(key));
 ipcMain.handle('store:set', (_, key: string, value: unknown) => { store.set(key, value); });
+
+// ─── Cockpit mods IPC ─────────────────────────────────────────────────────────
+// Manifests only. A mod's code is never loaded here; the renderer frames it from anthrodeck-mod://.
+ipcMain.handle('mods:list', () => {
+  const scan = scanMods(modsDir());
+  for (const p of scan.problems) console.warn(`[mods] ${p.folder}: ${p.message}`);
+  return scan;
+});
 
 // ─── Project IPC ──────────────────────────────────────────────────────────────
 ipcMain.handle('project:open-dialog', async () => {
@@ -447,6 +459,7 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
   app.exit(0);
 } else {
   app.whenReady().then(() => {
+    handleModProtocol();
     createWindow();
     setupAutoUpdater();
   });

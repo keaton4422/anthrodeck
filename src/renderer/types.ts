@@ -137,6 +137,8 @@ declare global {
       // Store
       storeGet: (key: string) => Promise<unknown>;
       storeSet: (key: string, value: unknown) => Promise<void>;
+      // Cockpit mods (manifests only; see main/mods.ts)
+      modsList: () => Promise<import('../main/modManifest').ModScan>;
       // Project
       projectOpenDialog: () => Promise<string | null>;
       projectGet: () => Promise<string | null>;
