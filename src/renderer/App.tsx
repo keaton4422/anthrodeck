@@ -11,6 +11,7 @@ import TeachModal from './components/TeachModal';
 import RadialMenu from './components/RadialMenu';
 import WritePreview from './components/WritePreview';
 import Home, { type HomeNav } from './components/Home';
+import FolderPicker from './components/FolderPicker';
 import type { PadFocus } from './hooks/usePadFocus';
 import { SectorStrip } from './components/SectorStrip';
 import { useFeedback } from './hooks/useFeedback';
@@ -62,6 +63,9 @@ export default function App() {
   const [showHome, setShowHome] = useState(true);
   const homeNav = useRef<HomeNav>(null);
   const settingsNav = useRef<PadFocus | null>(null);
+  // The in-app folder picker (the system dialog can't open in the Deck's Game Mode).
+  const [folderPick, setFolderPick] = useState<null | { onPick: (p: string) => void }>(null);
+  const pickerNav = useRef<PadFocus | null>(null);
   const [engineReady, setEngineReady] = useState(true);
   const [apiKey, setApiKey] = useStore<string>('apiKey', '');
   const [previewPort, setPreviewPort] = useStore<number>('previewPort', 5757);
@@ -96,7 +100,7 @@ export default function App() {
   const [extendedThinking, setExtendedThinking] = useStore<boolean>('extendedThinking', false);
   const [effort, setEffort] = useStore<string>('effort', 'high');
 
-  const { projectPath, files, openFolder, refreshFiles, adoptProject } = useProject();
+  const { projectPath, files, refreshFiles, adoptProject } = useProject();
 
   const engineSettings = useMemo<EngineSettingsPayload>(
     () => ({ model, effort, thinking: extendedThinking, teachMode, teachTimeout }),
@@ -359,9 +363,11 @@ export default function App() {
   const padBusy = modalActive || cockpitOpen;
   const gameOwnsPad = cockpitOpen && !modalActive;
   // Home takes the D-pad and A/B while it's up and nothing else is asking.
-  const homeOwnsPad = showHome && !cockpitOpen && !modalActive && !showSettings && !drawerOpen;
+  // The folder picker sits over everything else, so it comes first.
+  const pickerOwnsPad = !!folderPick && !modalActive;
+  const homeOwnsPad = showHome && !cockpitOpen && !modalActive && !showSettings && !drawerOpen && !folderPick;
   // Settings takes the D-pad and A while it's open (B already closes it).
-  const settingsOwnsPad = showSettings && !cockpitOpen && !modalActive && !drawerOpen;
+  const settingsOwnsPad = showSettings && !cockpitOpen && !modalActive && !drawerOpen && !folderPick;
 
   // L1 + face button fires a meta action instead of the button's normal job. Returns true when the
   // chord consumed the press.
@@ -387,6 +393,7 @@ export default function App() {
     onAPress: (mod) => {
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'A')) return;
+      if (pickerOwnsPad) { pickerNav.current?.activate(); return; }
       if (homeOwnsPad) { homeNav.current?.activate(); return; }
       if (settingsOwnsPad) { settingsNav.current?.activate(); return; }
       if (pendingTeach) teachContinue();
@@ -403,6 +410,7 @@ export default function App() {
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'B')) return;
       // On Home, B goes back to the current session (when there is one).
+      if (pickerOwnsPad) { setFolderPick(null); return; }
       if (homeOwnsPad) { if (messages.length) setShowHome(false); return; }
       if (pendingTeach) { setTeachRedirectSignal((s) => s + 1); return; }
       if (pendingWrite) {
@@ -439,22 +447,26 @@ export default function App() {
     onR3Press: () => { if (!cockpitOpen && !modalActive) setShowSettings((s) => !s); },
     // D-pad: up/down scrolls a pending diff; left/right collapses/expands tool detail lines.
     onDpadUp: () => {
-      if (settingsOwnsPad) settingsNav.current?.move('up');
+      if (pickerOwnsPad) pickerNav.current?.move('up');
+      else if (settingsOwnsPad) settingsNav.current?.move('up');
       else if (homeOwnsPad) homeNav.current?.move(0, -1);
       else if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop -= 48;
     },
     onDpadDown: () => {
-      if (settingsOwnsPad) settingsNav.current?.move('down');
+      if (pickerOwnsPad) pickerNav.current?.move('down');
+      else if (settingsOwnsPad) settingsNav.current?.move('down');
       else if (homeOwnsPad) homeNav.current?.move(0, 1);
       else if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop += 48;
     },
     onDpadLeft: () => {
-      if (settingsOwnsPad) settingsNav.current?.move('left');
+      if (pickerOwnsPad) pickerNav.current?.move('left');
+      else if (settingsOwnsPad) settingsNav.current?.move('left');
       else if (homeOwnsPad) homeNav.current?.move(-1, 0);
       else if (!cockpitOpen && !pendingWrite) setCollapseTools(true);
     },
     onDpadRight: () => {
-      if (settingsOwnsPad) settingsNav.current?.move('right');
+      if (pickerOwnsPad) pickerNav.current?.move('right');
+      else if (settingsOwnsPad) settingsNav.current?.move('right');
       else if (homeOwnsPad) homeNav.current?.move(1, 0);
       else if (!cockpitOpen && !pendingWrite) setCollapseTools(false);
     },
@@ -470,7 +482,12 @@ export default function App() {
       }
       setRadialIndex(null);
     },
-    onScrollY: (d) => { if (!cockpitOpen) scrollChat(d); },
+    // Right stick: scrolls whichever panel is up (the ring follows), otherwise the chat.
+    onScrollY: (d) => {
+      if (pickerOwnsPad) pickerNav.current?.scroll(d * 18);
+      else if (settingsOwnsPad) settingsNav.current?.scroll(d * 18);
+      else if (!cockpitOpen) scrollChat(d);
+    },
   });
 
   function answerOption(index: number) {
@@ -548,7 +565,7 @@ export default function App() {
         onClose={() => setDrawerOpen(false)}
         projectPath={projectPath}
         files={files}
-        onOpenFolder={openFolder}
+        onOpenFolder={() => setFolderPick({ onPick: (p) => { setFolderPick(null); void adoptProject(p); } })}
         onRefreshFiles={refreshFiles}
         autonomousWrites={mode === 'acceptEdits'}
         onToggleAutonomous={() => void setMode(mode === 'acceptEdits' ? 'default' : 'acceptEdits')}
@@ -600,7 +617,7 @@ export default function App() {
           onContinue={() => setShowHome(false)}
           onResume={(s) => void openSession(s)}
           onNew={(cwd) => void startSession(cwd)}
-          onOpenFolder={() => void openFolder().then((p) => { if (p) void startSession(p); })}
+          onOpenFolder={() => setFolderPick({ onPick: (p) => { setFolderPick(null); void startSession(p); } })}
         />
       ) : (
         <>
@@ -688,6 +705,10 @@ export default function App() {
           career={{ level: season.level, tier: season.tier, progress: season.progress }}
           driveMode={mode}
         />
+      )}
+
+      {folderPick && (
+        <FolderPicker padNav={pickerNav} onPick={folderPick.onPick} onCancel={() => setFolderPick(null)} />
       )}
 
       {/* An edit card raised mid-game: shown over the cockpit so the pilot can answer it with the

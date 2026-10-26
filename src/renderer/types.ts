@@ -4,9 +4,10 @@ import type { Sector, Milestone } from '../main/engine/tools';
 import type { DriveMode } from '../main/engine/config';
 import type { UpdateAvailable, WhatsNew } from '../main/releaseNotes';
 import type { ProjectTile, SessionCard, GitState, RestoredMessage } from '../main/sessions';
+import type { FolderListing, FolderEntry } from '../main/folders';
 
 // The engine's event vocabulary is defined once, in the main process, and shared here as types only.
-export type { EngineEvent, Sector, Milestone, DriveMode, UpdateAvailable, WhatsNew, ProjectTile, SessionCard, GitState };
+export type { EngineEvent, Sector, Milestone, DriveMode, UpdateAvailable, WhatsNew, ProjectTile, SessionCard, GitState, FolderListing, FolderEntry };
 
 export interface PitWall {
   projects: ProjectTile[];
@@ -143,6 +144,8 @@ declare global {
       modsList: () => Promise<import('../main/modManifest').ModScan>;
       // Project
       projectOpenDialog: () => Promise<string | null>;
+      foldersList: (dir?: string | null) => Promise<FolderListing>;
+      foldersCreate: (parent: string, name: string) => Promise<{ path?: string; error?: string }>;
       projectGet: () => Promise<string | null>;
       projectSet: (p: string) => Promise<void>;
       // File system

@@ -13,6 +13,7 @@ import { updaterErrorMessage } from './updaterMessages';
 import { whatsNew, type RawReleaseNotes, type UpdateAvailable } from './releaseNotes';
 import { LATEST_RELEASE_API, parseLatestRelease } from './manualUpdate';
 import { quitWatchdog } from './quitWatchdog';
+import { listFolders, folderNameProblem } from './folders';
 import { getFlashcards, clearFlashcards, generateFlashcard } from './flashcards';
 import { undoLastWrite, recordWrite } from './writeHistory';
 import {
@@ -188,6 +189,28 @@ function listFilesRecursive(dir: string, rootDir: string, depth = 0, max = 3): s
   }
   return results;
 }
+
+// ─── Folder picker IPC (the in-app one; see folders.ts) ────────────────────────
+const folderDeps = {
+  readDir: (d: string) => fs.readdirSync(d, { withFileTypes: true }).map((e) => ({ name: e.name, isDir: e.isDirectory() })),
+  exists: (p: string) => fs.existsSync(p),
+};
+ipcMain.handle('folders:list', (_, dir?: string | null) => {
+  const start = dir || (store.get('projectPath', null) as string | null) || os.homedir();
+  return listFolders(start, folderDeps);
+});
+ipcMain.handle('folders:create', (_, parent: string, name: string) => {
+  const problem = folderNameProblem(name);
+  if (problem) return { error: problem };
+  const target = path.join(path.resolve(parent), name.trim());
+  if (fs.existsSync(target)) return { error: 'A folder with that name is already here.' };
+  try {
+    fs.mkdirSync(target);
+    return { path: target };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+});
 
 ipcMain.handle('fs:list', (_, subDir?: string) => {
   const root = store.get('projectPath', null) as string | null;

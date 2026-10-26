@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { holdFires, type HoldState } from '../lib/padRepeat';
 
 interface GamepadActions {
   onL2Press?: () => void;
@@ -48,6 +49,9 @@ export function useGamepad(actions: GamepadActions) {
     radialOpen: false,
   });
 
+  // D-pad hold state per direction, for hold-to-repeat.
+  const holdRef = useRef<Record<number, HoldState | null>>({});
+
   useEffect(() => {
     let rafId: number;
 
@@ -73,11 +77,18 @@ export function useGamepad(actions: GamepadActions) {
         if (pressed(BTN.L3) && !prevButtons[BTN.L3]) acts.onL3Press?.();
         if (pressed(BTN.R3) && !prevButtons[BTN.R3]) acts.onR3Press?.();
 
-        // D-pad (rising edge)
-        if (pressed(BTN.DPAD_UP) && !prevButtons[BTN.DPAD_UP]) acts.onDpadUp?.();
-        if (pressed(BTN.DPAD_DOWN) && !prevButtons[BTN.DPAD_DOWN]) acts.onDpadDown?.();
-        if (pressed(BTN.DPAD_LEFT) && !prevButtons[BTN.DPAD_LEFT]) acts.onDpadLeft?.();
-        if (pressed(BTN.DPAD_RIGHT) && !prevButtons[BTN.DPAD_RIGHT]) acts.onDpadRight?.();
+        // D-pad: one step on press, then hold-to-repeat (lib/padRepeat), so long lists and the
+        // Settings page don't take one press per row.
+        const now = performance.now();
+        const dpad: [number, (() => void) | undefined][] = [
+          [BTN.DPAD_UP, acts.onDpadUp], [BTN.DPAD_DOWN, acts.onDpadDown],
+          [BTN.DPAD_LEFT, acts.onDpadLeft], [BTN.DPAD_RIGHT, acts.onDpadRight],
+        ];
+        for (const [btn, fn] of dpad) {
+          const r = holdFires(pressed(btn), now, holdRef.current[btn] ?? null);
+          holdRef.current[btn] = r.st;
+          if (r.fire) fn?.();
+        }
 
         // Radial menu — hold Select (Steam Input can map trackpad center-click here).
         const radialHeld = pressed(BTN.SELECT);
