@@ -1,3 +1,5 @@
+// First, before anything else starts: relaunch without Steam's overlay if it was injected.
+import './steamOverlayGuard';
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
 import { exec } from 'child_process';
