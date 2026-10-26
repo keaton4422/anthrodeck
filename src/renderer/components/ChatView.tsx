@@ -32,7 +32,7 @@ function EmptyState() {
         gap: 20,
       }}
     >
-      <div style={{ opacity: 0.55 }}><Logo height={60} /></div>
+      <div style={{ opacity: 0.85 }}><Logo height={60} /></div>
       <div>
         <p style={{ fontSize: 22, fontWeight: 600, color: '#ECECEC', marginBottom: 10 }}>
           What can I help you build?

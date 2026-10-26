@@ -1,29 +1,29 @@
 import React from 'react';
 
-// The AnthroDeck mark: the handheld from assets/logo.svg without the app-icon background, cropped
-// to the body. Keep the two in step; the icon files are rendered from logo.svg.
+// The AnthroDeck mark for the dark UI: the drawing in assets/logo.svg inverted (an ivory Deck
+// with a clay screen, since an ink silhouette vanishes on near-black), cropped to the body.
+// Keep the geometry in step with logo.svg and the boot splash in index.html.
 export function Logo({ height = 20, title = 'AnthroDeck' }: { height?: number; title?: string }) {
   return (
     <svg
-      viewBox="48 284 928 456"
+      viewBox="56 322 916 432"
       height={height}
-      width={(height * 928) / 456}
+      width={(height * 916) / 432}
       role="img"
       aria-label={title}
       style={{ display: 'block', flexShrink: 0 }}
     >
-      <rect x="56" y="292" width="912" height="440" rx="200" fill="#3A3A42" stroke="#5C5C66" strokeWidth="8" />
-      <circle cx="186" cy="430" r="66" fill="#17171A" />
-      <circle cx="186" cy="430" r="44" fill="#55555E" />
-      <circle cx="838" cy="430" r="66" fill="#17171A" />
-      <circle cx="838" cy="430" r="44" fill="#55555E" />
-      <rect x="134" y="544" width="104" height="104" rx="24" fill="#1D1D21" stroke="#55555E" strokeWidth="6" />
-      <rect x="786" y="544" width="104" height="104" rx="24" fill="#1D1D21" stroke="#55555E" strokeWidth="6" />
-      <rect x="294" y="344" width="436" height="336" rx="34" fill="#09090B" />
       <path
-        d="M512 366 C525 470 554 499 658 512 C554 525 525 554 512 658 C499 554 470 525 366 512 C470 499 499 470 512 366 Z"
-        fill="#D9825F"
+        d="M180 330 L844 330 C905 330 944 368 952 430 C962 520 966 610 940 680 C920 732 860 748 812 730 C770 714 742 680 700 668 L324 668 C282 680 254 714 212 730 C164 748 104 732 84 680 C58 610 62 520 72 430 C80 368 119 330 180 330 Z"
+        fill="#F0EEE6"
       />
+      <rect x="300" y="372" width="424" height="258" rx="16" fill="#D97757" />
+      <circle cx="186" cy="438" r="48" fill="#141413" />
+      <circle cx="186" cy="438" r="24" fill="#F0EEE6" />
+      <circle cx="838" cy="438" r="48" fill="#141413" />
+      <circle cx="838" cy="438" r="24" fill="#F0EEE6" />
+      <rect x="146" y="540" width="84" height="84" rx="14" fill="none" stroke="#141413" strokeWidth="14" />
+      <rect x="794" y="540" width="84" height="84" rx="14" fill="none" stroke="#141413" strokeWidth="14" />
     </svg>
   );
 }
