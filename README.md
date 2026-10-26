@@ -133,6 +133,15 @@ Input presents a standard gamepad and everything lights up. It's also the only w
 optional **gyro → right stick** mapping that gives the flight mode tilt steering (add a Gyro action
 in the controller layout and bind it to Joystick Move).
 
+### Library art
+
+Non-Steam shortcuts show a blank tile until they get art. `assets/steam/png/` has the four images
+(rendered from the SVGs beside them by `npx electron tools/renderSteamArt.cjs`). Copy them into
+`~/.local/share/Steam/userdata/<your id>/config/grid/` as `<appid>p.png` (portrait),
+`<appid>.png` (wide), `<appid>_hero.png` and `<appid>_logo.png`, where `<appid>` is the shortcut's
+id (stored in `config/shortcuts.vdf`), then
+restart Steam. Or set each image by hand: select the tile → **Manage → Set custom artwork**.
+
 Text entry uses the Steam on-screen keyboard: **STEAM + X**. For the API key specifically, don't —
 use pairing (below) instead.
 
