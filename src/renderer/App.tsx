@@ -66,6 +66,10 @@ export default function App() {
   // The in-app folder picker (the system dialog can't open in the Deck's Game Mode).
   const [folderPick, setFolderPick] = useState<null | { onPick: (p: string) => void }>(null);
   const pickerNav = useRef<PadFocus | null>(null);
+  // The cockpit's game menu (every game and mod); Start opens it while the cockpit is up.
+  const [gameMenuOpen, setGameMenuOpen] = useState(false);
+  const gameMenuNav = useRef<PadFocus | null>(null);
+  useEffect(() => { if (!cockpitOpen) setGameMenuOpen(false); }, [cockpitOpen]);
   const [engineReady, setEngineReady] = useState(true);
   const [apiKey, setApiKey] = useStore<string>('apiKey', '');
   const [previewPort, setPreviewPort] = useStore<number>('previewPort', 5757);
@@ -361,7 +365,9 @@ export default function App() {
   // always wins: the game pauses, the face buttons answer it, and play resumes. That is the loop:
   // play while Claude drives, answer when it radios in.
   const padBusy = modalActive || cockpitOpen;
-  const gameOwnsPad = cockpitOpen && !modalActive;
+  // With the game menu up, the pad drives the menu instead of the game.
+  const menuOwnsPad = cockpitOpen && gameMenuOpen && !modalActive;
+  const gameOwnsPad = cockpitOpen && !modalActive && !gameMenuOpen;
   // Home takes the D-pad and A/B while it's up and nothing else is asking.
   // The folder picker sits over everything else, so it comes first.
   const pickerOwnsPad = !!folderPick && !modalActive;
@@ -391,6 +397,7 @@ export default function App() {
       fireFeedback('voice-stop');
     },
     onAPress: (mod) => {
+      if (menuOwnsPad) { gameMenuNav.current?.activate(); return; }
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'A')) return;
       if (pickerOwnsPad) { pickerNav.current?.activate(); return; }
@@ -407,6 +414,7 @@ export default function App() {
       else if (pendingQuestion) answerOption(2);
     },
     onBPress: (mod) => {
+      if (menuOwnsPad) { setGameMenuOpen(false); return; }
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'B')) return;
       // On Home, B goes back to the current session (when there is one).
@@ -433,7 +441,11 @@ export default function App() {
       if (pendingQuestion) answerOption(3);
       else if (!cockpitOpen) setDrawerOpen((s) => !s);
     },
-    onStartPress: () => { if (!cockpitOpen) setShowSettings((s) => !s); },
+    // Start: Settings normally; in the cockpit it opens and closes the game menu.
+    onStartPress: () => {
+      if (cockpitOpen) { if (!modalActive) setGameMenuOpen((o) => !o); }
+      else setShowSettings((s) => !s);
+    },
     // R1 paddle: drive mode, even mid-game (the games don't use it). L1+R2: the brake.
     onR1Press: () => { if (!modalActive) cycleMode(); },
     onR2Press: (mod) => {
@@ -447,25 +459,29 @@ export default function App() {
     onR3Press: () => { if (!cockpitOpen && !modalActive) setShowSettings((s) => !s); },
     // D-pad: up/down scrolls a pending diff; left/right collapses/expands tool detail lines.
     onDpadUp: () => {
-      if (pickerOwnsPad) pickerNav.current?.move('up');
+      if (menuOwnsPad) gameMenuNav.current?.move('up');
+      else if (pickerOwnsPad) pickerNav.current?.move('up');
       else if (settingsOwnsPad) settingsNav.current?.move('up');
       else if (homeOwnsPad) homeNav.current?.move(0, -1);
       else if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop -= 48;
     },
     onDpadDown: () => {
-      if (pickerOwnsPad) pickerNav.current?.move('down');
+      if (menuOwnsPad) gameMenuNav.current?.move('down');
+      else if (pickerOwnsPad) pickerNav.current?.move('down');
       else if (settingsOwnsPad) settingsNav.current?.move('down');
       else if (homeOwnsPad) homeNav.current?.move(0, 1);
       else if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop += 48;
     },
     onDpadLeft: () => {
-      if (pickerOwnsPad) pickerNav.current?.move('left');
+      if (menuOwnsPad) gameMenuNav.current?.move('left');
+      else if (pickerOwnsPad) pickerNav.current?.move('left');
       else if (settingsOwnsPad) settingsNav.current?.move('left');
       else if (homeOwnsPad) homeNav.current?.move(-1, 0);
       else if (!cockpitOpen && !pendingWrite) setCollapseTools(true);
     },
     onDpadRight: () => {
-      if (pickerOwnsPad) pickerNav.current?.move('right');
+      if (menuOwnsPad) gameMenuNav.current?.move('right');
+      else if (pickerOwnsPad) pickerNav.current?.move('right');
       else if (settingsOwnsPad) settingsNav.current?.move('right');
       else if (homeOwnsPad) homeNav.current?.move(1, 0);
       else if (!cockpitOpen && !pendingWrite) setCollapseTools(false);
@@ -698,6 +714,9 @@ export default function App() {
           onSelect={setCockpitMode}
           telemetry={telemetry}
           paused={modalActive}
+          menuOpen={gameMenuOpen}
+          onMenu={setGameMenuOpen}
+          menuNav={gameMenuNav}
           onIntents={handleGameIntents}
           sectors={sectors}
           checkpoints={checkpoints}

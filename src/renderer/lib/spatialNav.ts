@@ -31,10 +31,11 @@ export function pickNext(boxes: Box[], from: number, dir: Dir): number {
       ? Math.max(0, b.x - (cur.x + cur.w), cur.x - (b.x + b.w))
       : Math.max(0, b.y - (cur.y + cur.h), cur.y - (b.y + b.h));
     // Only things roughly that way count: sharing the column (up/down) or row (left/right), or
-    // within about 30 degrees. Otherwise a full-width field whose centre sits a few pixels to the
-    // right would count as "right" of a chip below it, and "left" from a toggle could climb rows.
+    // within a cone, about 30 degrees for up/down and a tighter 14 for left/right. Left/right keeps
+    // to the row: from the last card in a row it stays put rather than climbing to a close button
+    // up in the corner, and a full-width field just above a chip doesn't count as "right" of it.
     const drift = Math.abs(vertical ? dx : dy);
-    if (gap > 0 && drift >= ahead * 0.6) return;
+    if (gap > 0 && drift >= ahead * (vertical ? 0.6 : 0.25)) return;
     // Ties (several controls equally close, all overlapping) go to the one most directly ahead.
     const cross = gap + drift * 0.04;
     // Nearest wins, with sideways drift weighted more so "down" prefers what's straight below.

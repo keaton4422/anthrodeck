@@ -17,8 +17,15 @@ export interface PadFocus {
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [data-pad-focusable]';
 const RING = 'pad-focus';
 
-// `resetKey`: when it changes, the ring goes back to the first control (e.g. a new folder listing).
-export function usePadFocus(root: React.RefObject<HTMLElement>, resetKey?: unknown): PadFocus {
+// `resetKey`: when it changes, the ring goes back to the start (e.g. a new folder listing).
+// `start`: where the ring begins (default: the first control), e.g. the game already being played.
+export function usePadFocus(
+  root: React.RefObject<HTMLElement>,
+  resetKey?: unknown,
+  start?: () => HTMLElement | null | undefined,
+): PadFocus {
+  const startRef = useRef(start);
+  startRef.current = start;
   const current = useRef<HTMLElement | null>(null);
 
   const controls = useCallback((): HTMLElement[] => {
@@ -46,7 +53,7 @@ export function usePadFocus(root: React.RefObject<HTMLElement>, resetKey?: unkno
     const id = window.setTimeout(() => {
       current.current?.classList.remove(RING);
       current.current = null;
-      focusOn(controls()[0]);
+      focusOn(startRef.current?.() ?? controls()[0]);
     }, 0);
     return () => {
       window.clearTimeout(id);
