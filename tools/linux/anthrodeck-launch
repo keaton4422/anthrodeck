@@ -1,13 +1,43 @@
 #!/bin/sh
 # AnthroDeck's AppImage entry point (AppRun -> usr/bin/anthrodeck-launch -> here).
 #
-# Launched from Steam, every game gets Steam's overlay injected through LD_PRELOAD
-# (gameoverlayrenderer.so). It crashes Chromium's zygote while the library is still loading, before
-# any app code runs: in Game Mode the app then sits frozen for a minute and a half, or never paints.
-# So remove it here, before the binary starts, and keep anything else that was preloaded.
+# 1. Launched from Steam, every game gets Steam's overlay injected through LD_PRELOAD
+#    (gameoverlayrenderer.so). It crashes Chromium's zygote while the library is still loading,
+#    before any app code runs: in Game Mode the app then sits frozen for a minute and a half, or
+#    never paints. So remove it here, before the binary starts, and keep anything else preloaded.
+#
+# 2. Steam's "Exit game" sends SIGTERM to every process in the game at once, so Chromium's helper
+#    processes (GPU, renderers) die under the main process mid-shutdown. It then aborts (SIGTRAP and
+#    a core dump) or deadlocks writing to one of its own pipes, and Steam sits on "Exiting". Seen on
+#    the Deck both ways. A graceful shutdown can't work once the whole group is signalled, and the
+#    app can't rescue itself from inside, so this script stays as its parent and, on a signal, ends
+#    the app and everything it started at once. Settings and the career are saved as they change;
+#    quitting from inside the app still shuts down normally.
 HERE=$(dirname "$(readlink -f "$0")")
 if [ -n "$LD_PRELOAD" ]; then
   LD_PRELOAD=$(printf '%s' "$LD_PRELOAD" | tr ' :' '\n\n' | grep -v 'gameoverlayrenderer\.so$' | paste -sd: -)
   if [ -n "$LD_PRELOAD" ]; then export LD_PRELOAD; else unset LD_PRELOAD; fi
 fi
-exec "$HERE/anthrodeck" "$@"
+
+# Its own process group (setsid execs straight into the app here, so $! is the app and the group
+# id): Chromium's helpers and a Claude Code engine process inherit it, so one kill ends them all.
+if command -v setsid >/dev/null 2>&1; then
+  setsid "$HERE/anthrodeck" "$@" &
+else
+  "$HERE/anthrodeck" "$@" &   # no setsid (not Linux): the overlay fix still applies
+fi
+app=$!
+
+stop() {
+  kill -KILL -- "-$app" 2>/dev/null || kill -KILL "$app" 2>/dev/null
+}
+trap stop TERM HUP INT
+
+# `wait` returns early when a trapped signal arrives; keep waiting until the app has really gone,
+# and leave with its exit status.
+while :; do
+  wait "$app"
+  status=$?
+  kill -0 "$app" 2>/dev/null || break
+done
+exit "$status"
