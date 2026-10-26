@@ -79,3 +79,24 @@ export function engineVersion(bin: string): Promise<string | null> {
     });
   });
 }
+
+// Whether Claude Code is signed in on this machine, and as whom. Claude Code records the signed-in
+// account in ~/.claude.json (`oauthAccount`); with it, no API key is needed. Read-only and offline.
+export interface ClaudeSignIn {
+  signedIn: boolean;
+  email: string | null;
+  org: string | null;
+}
+
+export function readClaudeSignIn(claudeJson: string | null): ClaudeSignIn {
+  const none = { signedIn: false, email: null, org: null };
+  if (!claudeJson) return none;
+  try {
+    const acct = (JSON.parse(claudeJson) as { oauthAccount?: Record<string, unknown> }).oauthAccount;
+    if (!acct || typeof acct !== 'object') return none;
+    const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+    return { signedIn: true, email: str(acct.emailAddress), org: str(acct.organizationName) };
+  } catch {
+    return none;
+  }
+}

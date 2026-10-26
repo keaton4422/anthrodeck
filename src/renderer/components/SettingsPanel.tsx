@@ -1,10 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
 import { useUpdater } from '../hooks/useUpdater';
 import { LocalVoiceStatus } from '../types';
 import { PairKeyPanel } from './PairKeyPanel';
 import { EnginePanel } from './EnginePanel';
 
 interface Props {
+  // The controller drives Settings through this: App routes the D-pad and A here while it's open.
+  padNav?: React.MutableRefObject<PadFocus | null>;
   apiKey: string;
   onSave: (key: string) => void;
   // A paired key is written to electron-store by MAIN; this asks the app to re-read it.
@@ -41,6 +44,7 @@ const MODEL_OPTS: { id: string; label: string; sub: string }[] = [
 const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 export function SettingsPanel({
+  padNav,
   apiKey,
   onSave,
   onPaired,
@@ -69,6 +73,13 @@ export function SettingsPanel({
   const [draftKey, setDraftKey] = useState(apiKey);
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Claude Code's own sign-in on this device. With it, the API key is optional and stays folded away.
+  const [claude, setClaude] = useState<{ signedIn: boolean; email: string | null; org: string | null } | null>(null);
+  const [keyOpen, setKeyOpen] = useState(false);
+  useEffect(() => {
+    void window.electronAPI.engineStatus().then((st) => setClaude(st.claude)).catch(() => setClaude(null));
+  }, []);
+  const keyFolded = !!claude?.signedIn && !apiKey && !keyOpen;
 
   const { status, checkForUpdates, downloadUpdate, installUpdate } = useUpdater();
 
@@ -86,8 +97,17 @@ export function SettingsPanel({
     }
   };
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  const pad = usePadFocus(rootRef);
+  useEffect(() => {
+    if (!padNav) return;
+    padNav.current = pad;
+    return () => { padNav.current = null; };
+  }, [padNav, pad]);
+
   return (
     <div
+      ref={rootRef}
       style={{
         flex: 1,
         display: 'flex',
@@ -125,14 +145,38 @@ export function SettingsPanel({
 
         <Divider />
 
-        {/* ── API Key ─────────────────────────────────────────────────── */}
+        {/* ── Claude account ─────────────────────────────────────────── */}
+        <section>
+          <label style={labelStyle}>Claude account</label>
+          {claude?.signedIn ? (
+            <p style={{ ...hintStyle, color: '#9AC9A8' }}>
+              ✓ Claude Code is signed in on this device
+              {claude.email ? <> as <span style={{ color: '#ECECEC' }}>{claude.email}</span></> : null}
+              {/* A personal account's org is just "<email>'s Organization": nothing new to show. */}
+              {claude.org && !(claude.email && claude.org.includes(claude.email)) ? <> · {claude.org}</> : null}. No API key needed.
+            </p>
+          ) : (
+            <p style={hintStyle}>
+              Claude Code isn&apos;t signed in on this device. Sign in once from Desktop Mode (run{' '}
+              <code style={{ color: '#CC785C' }}>~/.local/bin/claude</code> in Konsole), or use an API key below.
+            </p>
+          )}
+          {keyFolded && (
+            <button onClick={() => setKeyOpen(true)} style={{ ...linkBtn, marginTop: 10 }}>
+              Use an API key instead ▸
+            </button>
+          )}
+        </section>
+
+        {/* ── API Key (optional when signed in) ─────────────────────────── */}
+        {!keyFolded && (
         <section>
           <label style={labelStyle}>Anthropic API Key</label>
           <p style={hintStyle}>
             Get your key at{' '}
             <span style={{ color: '#CC785C' }}>console.anthropic.com</span>
-            . Stored locally on your device and handed to Claude Code. Optional if Claude Code is
-            already signed in on this machine.
+            . Stored locally on your device and handed to Claude Code, which then bills that key
+            instead of your Claude account.
           </p>
           <div style={{ position: 'relative', marginTop: 10 }}>
             <input
@@ -187,6 +231,7 @@ export function SettingsPanel({
 
           <PairKeyPanel onPaired={onPaired} />
         </section>
+        )}
 
         <Divider />
 
@@ -581,6 +626,11 @@ function ToggleRow({ label, hint, value, onChange }: { label: string; hint: stri
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
+const linkBtn: React.CSSProperties = {
+  background: 'none', border: '1px solid #3A3A3A', borderRadius: 8, padding: '8px 12px',
+  color: '#9A9A9A', fontSize: 13, cursor: 'pointer', textAlign: 'left',
+};
+
 function Divider() {
   return <div style={{ height: 1, background: '#2A2A2A' }} />;
 }

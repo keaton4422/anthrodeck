@@ -56,9 +56,9 @@ export function EnginePanel({ onStatus }: { onStatus?: (s: EngineStatus) => void
               ● Ready {status.version ? `· ${status.version}` : ''}
             </span>
             <span style={mono}>{status.path} ({status.source ? SOURCE_LABEL[status.source] : ''})</span>
-            {!status.hasApiKey && (
+            {!status.hasApiKey && !status.claude.signedIn && (
               <span style={{ color: '#D9A441', fontSize: 12 }}>
-                No API key paired: Claude Code will use its own sign-in. Pair a key below if it isn&apos;t signed in.
+                Not signed in yet: see Claude account below.
               </span>
             )}
           </>

@@ -61,6 +61,8 @@ export interface EngineStatus {
   version: string | null;
   installCommand: string;
   hasApiKey: boolean;
+  // Claude Code's own sign-in on this machine; with it no API key is needed.
+  claude: { signedIn: boolean; email: string | null; org: string | null };
 }
 
 export interface EngineSettingsPayload {
