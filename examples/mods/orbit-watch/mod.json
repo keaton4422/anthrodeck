@@ -1,0 +1,12 @@
+{
+  "id": "orbit-watch",
+  "name": "Orbit Watch",
+  "version": "1.0.0",
+  "author": "AnthroDeck",
+  "description": "Example cockpit mod: keep a satellite on station while Claude works.",
+  "game": {
+    "kind": "telemetry",
+    "entry": "game.js",
+    "blurb": "Claude's output speed drives your orbit. Every finished task drops a beacon; every tool call throws debris."
+  }
+}

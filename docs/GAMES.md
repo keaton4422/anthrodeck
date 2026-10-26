@@ -4,6 +4,9 @@ A game mode is **one file**. Drop it in `src/renderer/game/modes/`, export `crea
 appears in the picker — no registry edit, no wiring. That's deliberate: it makes a new game a
 self-contained PR that touches exactly one file.
 
+To add a game *without* a PR or a rebuild, write it as a mod instead: the same contract, dropped
+into a folder and run in a sandbox. See [MODS.md](MODS.md).
+
 ```ts
 // src/renderer/game/modes/mygame.ts
 import { GameMode, GameInput, TelemetryFrame, GameIntent, IntentCarrier } from '../types';

@@ -6,6 +6,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storeGet: (key: string) => ipcRenderer.invoke('store:get', key),
   storeSet: (key: string, value: unknown) => ipcRenderer.invoke('store:set', key, value),
 
+  // ── Cockpit mods ───────────────────────────────────────────────────────────
+  modsList: () => ipcRenderer.invoke('mods:list'),
+
   // ── Project ────────────────────────────────────────────────────────────────
   projectOpenDialog: () => ipcRenderer.invoke('project:open-dialog'),
   projectGet: () => ipcRenderer.invoke('project:get'),

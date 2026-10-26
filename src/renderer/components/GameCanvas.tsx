@@ -1,8 +1,11 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { GAME_MODES, getMode } from '../game/registry';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { GAME_MODES } from '../game/registry';
+import type { GameMode } from '../game/types';
 import { useGameLoop, forgetRace } from '../hooks/useGameLoop';
 import { TelemetryController } from '../hooks/useTelemetry';
 import CockpitHud from './CockpitHud';
+import ModFrame from './ModFrame';
+import { useModGames } from '../hooks/useModGames';
 import { loadHighScores, applyScore, saveHighScores, type HighScores } from '../lib/highscores';
 import { SectorStrip } from './SectorStrip';
 import { DRIVE_MODE_LABELS } from '../../main/engine/config';
@@ -61,7 +64,12 @@ export default function GameCanvas({
   const [scores, setScores] = useState<HighScores>({});
   const [isRecord, setIsRecord] = useState(false);
 
-  const mode = getMode(selectedId) ?? GAME_MODES[0];
+  // Built-in modes plus any installed mod games (docs/MODS.md). A mod game is a proxy GameMode, so
+  // the loop, picker and high scores treat it like any other; ModFrame is where it really runs.
+  const modGames = useModGames();
+  const allModes = useMemo(() => [...GAME_MODES, ...modGames.map((g) => g.mode)], [modGames]);
+  const mode = allModes.find((m) => m.id === selectedId) ?? GAME_MODES[0];
+  const modGame = modGames.find((g) => g.mode === mode);
 
   useEffect(() => { loadHighScores().then(setScores); }, []);
 
@@ -100,8 +108,8 @@ export default function GameCanvas({
     return () => window.clearInterval(id);
   }, [hudRef]);
 
-  const telemetryModes = GAME_MODES.filter((m) => m.kind === 'telemetry');
-  const freeplayModes = GAME_MODES.filter((m) => m.kind === 'freeplay');
+  const telemetryModes = allModes.filter((m) => m.kind === 'telemetry');
+  const freeplayModes = allModes.filter((m) => m.kind === 'freeplay');
 
   return (
     <div
@@ -177,6 +185,7 @@ export default function GameCanvas({
             height={dims?.h ?? 560}
             style={{ width: '100%', height: '100%', display: 'block' }}
           />
+          {modGame && <ModFrame game={modGame} />}
           {shownCard && !paused && (
             <div style={{
               position: 'absolute', top: 12, right: 12, padding: '10px 14px', borderRadius: 8,
@@ -225,7 +234,7 @@ export default function GameCanvas({
 
 function ModeGroup({
   label, modes, selectedId, onSelect,
-}: { label: string; modes: typeof GAME_MODES; selectedId: string; onSelect: (id: string) => void }) {
+}: { label: string; modes: GameMode[]; selectedId: string; onSelect: (id: string) => void }) {
   return (
     // The header has no room for a text label at Deck width; it lives in the tooltip instead.
     <div title={label} style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
