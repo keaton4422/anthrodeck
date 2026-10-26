@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { GAME_MODES, getMode } from '../game/registry';
-import { useGameLoop } from '../hooks/useGameLoop';
+import { useGameLoop, forgetRace } from '../hooks/useGameLoop';
 import { TelemetryController } from '../hooks/useTelemetry';
 import CockpitHud from './CockpitHud';
 import { loadHighScores, applyScore, saveHighScores, type HighScores } from '../lib/highscores';
@@ -54,7 +54,8 @@ export default function GameCanvas({
   }, [lapCard]);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [dims, setDims] = useState({ w: 960, h: 560 });
+  // Null until measured: the sim must start (or resume) at the real size, not a placeholder one.
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [gen, setGen] = useState(0);
   const [hud, setHud] = useState('');
   const [scores, setScores] = useState<HighScores>({});
@@ -84,10 +85,14 @@ export default function GameCanvas({
     return () => ro.disconnect();
   }, []);
 
-  // Re-init the sim whenever the mode or the canvas size changes, or the pilot hits Restart.
-  useEffect(() => { setGen((g) => g + 1); setIsRecord(false); }, [selectedId, dims.w, dims.h]);
+  useEffect(() => { setIsRecord(false); }, [selectedId]);
+  const restart = () => { forgetRace(mode.id); setGen((g) => g + 1); setIsRecord(false); };
 
-  const hudRef = useGameLoop(canvasRef, mode, telemetry, true, paused, gen, onIntents, handleGameOver);
+  // The sim re-inits on a mode change, a resize or Restart, and otherwise resumes the parked race.
+  const sizeKey = dims ? `${dims.w}x${dims.h}` : '';
+  const hudRef = useGameLoop(
+    canvasRef, dims ? mode : undefined, telemetry, true, paused, `${gen}:${sizeKey}`, onIntents, handleGameOver,
+  );
 
   // Surface the sim's HUD string without re-rendering every frame.
   useEffect(() => {
@@ -143,7 +148,7 @@ export default function GameCanvas({
           {DRIVE_MODE_LABELS[driveMode]} · <span style={{ color: '#ECECEC', fontWeight: 700 }}>{career.tier}</span>{' '}
           <span style={{ color: '#CC785C' }}>L{career.level}</span>
         </span>
-        <button onClick={() => { setGen((g) => g + 1); setIsRecord(false); }} style={hdrBtn} title="Restart">↺</button>
+        <button onClick={restart} style={hdrBtn} title="Restart">↺</button>
         <button onClick={onClose} style={hdrBtn} title="Close cockpit">✕</button>
       </div>
 
@@ -168,8 +173,8 @@ export default function GameCanvas({
         <div ref={containerRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <canvas
             ref={canvasRef}
-            width={dims.w}
-            height={dims.h}
+            width={dims?.w ?? 960}
+            height={dims?.h ?? 560}
             style={{ width: '100%', height: '100%', display: 'block' }}
           />
           {shownCard && !paused && (
