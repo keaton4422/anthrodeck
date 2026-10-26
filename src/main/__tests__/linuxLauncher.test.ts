@@ -21,7 +21,8 @@ function launch(preload: string | undefined, args: string[] = []): string {
   return execFileSync(path.join(dir, 'AppRun'), args, { env, encoding: 'utf8' }).trim();
 }
 
-describe('linux launcher', () => {
+// A POSIX shell script for the Linux AppImage: there's no sh to run it on Windows.
+describe.skipIf(process.platform === 'win32')('linux launcher', () => {
   it('removes Steam\'s overlay before the binary starts, keeping the arguments', () => {
     expect(launch(STEAM_PRELOAD, ['--software-render', 'a b'])).toBe('preload=<unset> args=--software-render a b');
   });
