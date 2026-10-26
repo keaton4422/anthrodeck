@@ -1,0 +1,13 @@
+#!/bin/sh
+# AnthroDeck's AppImage entry point (AppRun -> usr/bin/anthrodeck-launch -> here).
+#
+# Launched from Steam, every game gets Steam's overlay injected through LD_PRELOAD
+# (gameoverlayrenderer.so). It crashes Chromium's zygote while the library is still loading, before
+# any app code runs: in Game Mode the app then sits frozen for a minute and a half, or never paints.
+# So remove it here, before the binary starts, and keep anything else that was preloaded.
+HERE=$(dirname "$(readlink -f "$0")")
+if [ -n "$LD_PRELOAD" ]; then
+  LD_PRELOAD=$(printf '%s' "$LD_PRELOAD" | tr ' :' '\n\n' | grep -v 'gameoverlayrenderer\.so$' | paste -sd: -)
+  if [ -n "$LD_PRELOAD" ]; then export LD_PRELOAD; else unset LD_PRELOAD; fi
+fi
+exec "$HERE/anthrodeck" "$@"

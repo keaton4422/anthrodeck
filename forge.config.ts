@@ -4,6 +4,12 @@ import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-nati
 import MakerAppImage from '@reforged/maker-appimage';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { shipInto } = require('./tools/shipDeps.mjs');
+import { copyFileSync, chmodSync } from 'fs';
+import path from 'path';
+
+// The AppImage starts through this script rather than the binary, so Steam's overlay can be removed
+// from LD_PRELOAD before Chromium starts. See tools/linux/anthrodeck-launch.
+const LINUX_LAUNCHER = 'anthrodeck-launch';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -25,6 +31,15 @@ const config: ForgeConfig = {
       const shipped = shipInto(buildPath, __dirname);
       console.log(`  shipped ${shipped.length} un-bundlable packages into the app`);
     },
+    // Put the launcher next to the Linux binary; the AppImage maker points AppRun at it (bin below).
+    postPackage: async (_config, { platform, outputPaths }) => {
+      if (platform !== 'linux') return;
+      for (const out of outputPaths) {
+        const dest = path.join(out, LINUX_LAUNCHER);
+        copyFileSync(path.join(__dirname, 'tools', 'linux', LINUX_LAUNCHER), dest);
+        chmodSync(dest, 0o755);
+      }
+    },
   },
   makers: [
     {
@@ -37,7 +52,7 @@ const config: ForgeConfig = {
     },
     // AppImage is the practical Steam Deck target: SteamOS is Arch-based with a read-only rootfs,
     // so a .deb can't be installed normally — an AppImage is chmod +x and run.
-    new MakerAppImage({ options: { categories: ['Utility'], icon: 'assets/icon.png' } }, ['linux']),
+    new MakerAppImage({ options: { categories: ['Utility'], icon: 'assets/icon.png', bin: LINUX_LAUNCHER } }, ['linux']),
   ],
   plugins: [
     new AutoUnpackNativesPlugin({}),
