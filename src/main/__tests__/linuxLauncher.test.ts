@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -29,6 +29,34 @@ describe.skipIf(process.platform === 'win32')('linux launcher', () => {
 
   it('keeps other preloaded libraries', () => {
     expect(launch(`/usr/lib/libfoo.so ${STEAM_PRELOAD}`)).toBe('preload=/usr/lib/libfoo.so args=');
+  });
+
+  // Process groups via setsid: Linux only (the Deck, and Ubuntu CI).
+  it.skipIf(process.platform !== 'linux')('on a signal, ends the app and everything it started at once', async () => {
+    // A stand-in app that starts a child of its own (like Chromium's helpers or a Claude Code
+    // process) and then hangs, the way Electron does after Steam's "Exit game".
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ad-launch-'));
+    fs.copyFileSync(LAUNCHER, path.join(dir, 'anthrodeck-launch'));
+    fs.chmodSync(path.join(dir, 'anthrodeck-launch'), 0o755);
+    const pidFile = path.join(dir, 'pids');
+    fs.writeFileSync(path.join(dir, 'anthrodeck'),
+      `#!/bin/sh\nsleep 300 &\necho "$$ $!" > "${pidFile}"\ntrap '' TERM\nwhile :; do sleep 1; done\n`, { mode: 0o755 });
+    const launcher = spawn(path.join(dir, 'anthrodeck-launch'), [], { stdio: 'ignore' });
+    for (let i = 0; i < 50 && !fs.existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 50));
+    const [appPid, childPid] = fs.readFileSync(pidFile, 'utf8').trim().split(' ').map(Number);
+    // A killed process can linger as a zombie until something reaps it; that counts as gone.
+    const alive = (p: number) => {
+      try { return !/^\S+ \(.*\) Z/.test(fs.readFileSync(`/proc/${p}/stat`, 'utf8')); } catch { return false; }
+    };
+    expect(alive(appPid) && alive(childPid)).toBe(true);
+
+    const t0 = Date.now();
+    launcher.kill('SIGTERM');
+    await new Promise((r) => launcher.once('exit', r));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(Date.now() - t0).toBeLessThan(1500);   // the app ignores SIGTERM; the launcher doesn't wait on it
+    expect(alive(appPid)).toBe(false);
+    expect(alive(childPid)).toBe(false);
   });
 
   it('leaves the environment alone when nothing is preloaded', () => {
