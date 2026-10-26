@@ -63,6 +63,10 @@ function createWindow() {
     fullscreen: !isDev,
     frame: isDev,
     backgroundColor: '#0F0F0F',
+    // Linux takes the window icon from here (Windows and macOS use the executable's).
+    icon: app.isPackaged
+      ? path.join(process.resourcesPath, 'icon.png')
+      : path.join(app.getAppPath(), 'assets', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,

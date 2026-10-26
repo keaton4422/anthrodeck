@@ -2,6 +2,7 @@ import React, { RefObject } from 'react';
 import { ChatMessage, PendingWrite } from '../types';
 import { MessageBubble } from './MessageBubble';
 import WritePreview from './WritePreview';
+import { Logo } from './Logo';
 
 interface Props {
   messages: ChatMessage[];
@@ -31,7 +32,7 @@ function EmptyState() {
         gap: 20,
       }}
     >
-      <div style={{ fontSize: 56, lineHeight: 1, opacity: 0.3 }}>◆</div>
+      <div style={{ opacity: 0.55 }}><Logo height={60} /></div>
       <div>
         <p style={{ fontSize: 22, fontWeight: 600, color: '#ECECEC', marginBottom: 10 }}>
           What can I help you build?

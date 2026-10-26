@@ -10,6 +10,11 @@ const config: ForgeConfig = {
     asar: true,
     name: 'AnthroDeck',
     executableName: 'anthrodeck',
+    // Packager adds the platform extension: assets/icon.ico on Windows, assets/icon.icns on macOS.
+    // All of them are rendered from assets/logo.svg by tools/renderIcons.cjs.
+    icon: 'assets/icon',
+    // The window icon on Linux (taskbar, Alt+Tab). Ships beside app.asar as resources/icon.png.
+    extraResource: ['assets/icon.png'],
   },
   rebuildConfig: {},
   hooks: {
@@ -28,11 +33,11 @@ const config: ForgeConfig = {
     },
     {
       name: '@electron-forge/maker-deb',
-      config: { options: { categories: ['Utility'] } },
+      config: { options: { categories: ['Utility'], icon: 'assets/icon.png' } },
     },
     // AppImage is the practical Steam Deck target: SteamOS is Arch-based with a read-only rootfs,
     // so a .deb can't be installed normally — an AppImage is chmod +x and run.
-    new MakerAppImage({ options: { categories: ['Utility'] } }, ['linux']),
+    new MakerAppImage({ options: { categories: ['Utility'], icon: 'assets/icon.png' } }, ['linux']),
   ],
   plugins: [
     new AutoUnpackNativesPlugin({}),

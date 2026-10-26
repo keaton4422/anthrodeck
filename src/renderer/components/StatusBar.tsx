@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { DriveMode, TokenUsage } from '../types';
 import { DRIVE_MODE_LABELS } from '../../main/engine/config';
+import { Logo } from './Logo';
 import {
   budgetLevel,
   budgetFraction,
@@ -180,7 +181,7 @@ export function StatusBar({
           ☰
         </button>
 
-        <span style={{ fontSize: 20, lineHeight: 1 }}>◆</span>
+        <Logo height={18} />
         <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '0.08em', color: '#ECECEC' }}>
           ANTHRO<span style={{ color: '#CC785C' }}>DECK</span>
         </span>
