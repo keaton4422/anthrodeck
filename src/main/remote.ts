@@ -88,7 +88,9 @@ export async function remotePython<T>(host: string, script: string, args: string
 // cwd are local notions; the remote side gets its Claude path and the project folder instead.
 export function remoteSpawner(host: string, claudePath: string, cwd: string) {
   return (opts: { args: string[]; env: Record<string, string | undefined>; signal?: AbortSignal }): ChildProcess => {
-    const cmd = remoteClaudeCommand(claudePath, cwd, opts.args, forwardedEnv(opts.env));
+    // ANTHRODECK_SESSION: this session's prompts already come to the Deck, so the live relay
+    // (main/live.ts) leaves them alone.
+    const cmd = remoteClaudeCommand(claudePath, cwd, opts.args, { ...forwardedEnv(opts.env), ANTHRODECK_SESSION: '1' });
     return spawn('ssh', sshArgs(host, cmd), { stdio: ['pipe', 'pipe', 'pipe'], signal: opts.signal });
   };
 }

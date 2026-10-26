@@ -1,6 +1,7 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import type { Machine, PitWall, ProjectTile, RemoteTarget, SessionCard } from '../types';
+import type { LiveSession, Machine, PitWall, ProjectTile, RemoteTarget, SessionCard } from '../types';
 import { timeAgo } from '../lib/timeAgo';
+import { useLive } from '../hooks/useLive';
 import { Logo } from './Logo';
 
 // Home: the launch screen. Every project on this device (the folders Claude Code has worked in)
@@ -13,7 +14,9 @@ import { Logo } from './Logo';
 // work too.
 //
 // With a remote computer set up (Settings → Remote computer), Home switches between "This device"
-// and that computer (Y, or the tabs): its projects and sessions, run there over SSH.
+// and that computer (Y, or the tabs): its projects and sessions, run there over SSH. Its sessions
+// running right now (in the Claude app or a terminal) lead the list as LIVE, with what each is doing;
+// their approvals and questions pop up as cards wherever the pilot is (main/live.ts).
 
 export interface HomeNav {
   move(dx: number, dy: number): void;
@@ -34,6 +37,7 @@ interface Props {
 
 type Item =
   | { kind: 'continue' }
+  | { kind: 'live'; session: LiveSession; waiting: number }
   | { kind: 'project'; project: ProjectTile }
   | { kind: 'open' }
   | { kind: 'new'; cwd: string; name: string }
@@ -63,6 +67,8 @@ const Home = forwardRef<HomeNav, Props>(function Home(
   const [remote, setRemote] = useState<RemoteTarget | null>(null);
   // Start on the computer the open project is on.
   const [machine, setMachine] = useState<Machine>(projectHost ? 'remote' : 'local');
+  const live = useLive();
+  const [liveHint, setLiveHint] = useState<string | null>(null);
 
   useEffect(() => { void window.electronAPI.remoteGet().then(setRemote); }, []);
   useEffect(() => {
@@ -87,11 +93,21 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     return list;
   }, [wall, projectPath, projectHost, machine]);
 
+  // Live now on the remote computer, apart from the session the Deck itself has open.
+  const liveItems = useMemo<Item[]>(() => {
+    if (machine !== 'remote' || !live?.state) return [];
+    const reqs = live.state.requests;
+    return live.state.live
+      .filter((s) => s.sessionId !== wall?.currentId)
+      .map((session) => ({ kind: 'live', session, waiting: reqs.filter((r) => r.sessionId === session.sessionId).length } as Item));
+  }, [machine, live, wall]);
+
   const left = useMemo<Item[]>(() => [
     ...(current ? [{ kind: 'continue' } as Item] : []),
+    ...liveItems,
     ...projects.map((project) => ({ kind: 'project', project } as Item)),
     { kind: 'open' } as Item,
-  ], [current, projects]);
+  ], [current, liveItems, projects]);
 
   // The right column shows the project under the cursor; otherwise the last one visited, then the
   // open project (so the current session sits beside its own project's list), then the most recent.
@@ -117,8 +133,18 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     else if (item.kind === 'open') onOpenFolder(machine);
     else if (item.kind === 'new') onNew(item.cwd, machine);
     else if (item.kind === 'session') onResume(item.session, machine);
+    else if (item.kind === 'live') {
+      const s = item.session;
+      if (s.status === 'busy') {
+        // Two copies of one session would talk over each other: wait for it to finish its turn.
+        setLiveHint(`"${s.name || folderName(s.cwd)}" is working on ${remote?.label ?? 'that computer'}. Its prompts come here as cards; open it once it's idle.`);
+        return;
+      }
+      setLiveHint(null);
+      onResume({ id: s.sessionId, title: s.name || folderName(s.cwd), project: folderName(s.cwd), cwd: s.cwd, branch: null, lastModified: s.updatedAt }, machine);
+    }
     else if (item.kind === 'project') { setCol(1); setRow((r) => [r[0], 0]); }
-  }, [onContinue, onOpenFolder, onNew, onResume, machine]);
+  }, [onContinue, onOpenFolder, onNew, onResume, machine, remote]);
 
   const stateRef = useRef({ col, row, columns });
   stateRef.current = { col, row, columns };
@@ -207,6 +233,8 @@ const Home = forwardRef<HomeNav, Props>(function Home(
         </div>
       )}
 
+      {liveHint && <div style={{ fontSize: 12, color: C.amber }}>{liveHint}</div>}
+
       {wall?.error && (
         <div style={{ fontSize: 12, color: C.amber }}>Couldn&apos;t read Claude Code&apos;s sessions on {where}: {wall.error}</div>
       )}
@@ -223,6 +251,30 @@ const Home = forwardRef<HomeNav, Props>(function Home(
                   <div style={{ fontSize: 14, color: C.text, marginTop: 3 }}>{current.title}</div>
                   <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
                     {current.project ?? 'No project'} · A to continue
+                  </div>
+                </Row>
+              );
+            }
+            if (item.kind === 'live') {
+              const s = item.session;
+              const busy = s.status === 'busy';
+              return (
+                <Row key={`live-${s.sessionId}`} focused={focused} accent onClick={() => { setCol(0); setRow([i, row[1]]); activate(item); }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{
+                      width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                      background: item.waiting ? C.amber : busy ? C.green : C.faint,
+                    }} />
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: item.waiting ? C.amber : C.clay }}>
+                      {item.waiting ? 'NEEDS YOU' : busy ? 'LIVE · WORKING' : 'LIVE · IDLE'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 14, color: C.text, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.name || folderName(s.cwd)}
+                  </div>
+                  <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
+                    {folderName(s.cwd)} · {s.entrypoint === 'claude-desktop' ? 'Claude app' : s.entrypoint === 'cli' ? 'terminal' : 'another app'}
+                    {busy ? '' : ' · A to open here'}
                   </div>
                 </Row>
               );

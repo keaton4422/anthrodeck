@@ -53,7 +53,9 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pendingWrite, setPendingWrite] = useState<PendingWrite | null>(null);
-  const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
+  // Cards wait their turn: a live session on the remote computer can ask while this one does.
+  const [questions, setQuestions] = useState<PendingQuestion[]>([]);
+  const pendingQuestion = questions[0] ?? null;
   const [pendingTeach, setPendingTeach] = useState<TeachRequest | null>(null);
   const [teachRedirectSignal, setTeachRedirectSignal] = useState(0);
   const [teachLog, setTeachLog] = useState<TeachLogEntry[]>([]);
@@ -136,7 +138,7 @@ export default function App() {
   } = useClaude({
     settings: engineSettings,
     onPendingWrite: setPendingWrite,
-    onPendingQuestion: setPendingQuestion,
+    onPendingQuestion: (q) => setQuestions((qs) => [...qs.filter((x) => x.id !== q.id), q]),
     onTeach: (req) => {
       setPendingTeach(req);
       setTeachRedirectSignal(0);
@@ -145,7 +147,7 @@ export default function App() {
     // The engine withdrew a card (interrupt / rewind): close it wherever it is showing.
     onPromptCancel: (id) => {
       setPendingWrite((w) => (w?.id === id ? null : w));
-      setPendingQuestion((q) => (q?.id === id ? null : q));
+      setQuestions((qs) => qs.filter((q) => q.id !== id));
       setPendingTeach((t) => (t?.id === id ? null : t));
     },
   });
@@ -350,7 +352,7 @@ export default function App() {
     if (!pendingQuestion) return;
     window.electronAPI.sendAskUserDecision(pendingQuestion.id, value);
     if ((pendingQuestion.kind ?? 'question') === 'question') record({ type: 'question-answered' });
-    setPendingQuestion(null);
+    setQuestions((qs) => qs.filter((q) => q.id !== pendingQuestion.id));
   }, [pendingQuestion, record]);
 
   const teachContinue = useCallback(() => {

@@ -6,10 +6,14 @@ import type { UpdateAvailable, WhatsNew } from '../main/releaseNotes';
 import type { ProjectTile, SessionCard, GitState, RestoredMessage } from '../main/sessions';
 import type { FolderListing, FolderEntry } from '../main/folders';
 import type { RemoteTarget } from '../main/remote';
+import type { LiveLinkStatus, LiveSession } from '../main/live';
 
 // Which computer something is on: this one, or the remote computer set up in Settings.
 export type Machine = 'local' | 'remote';
-export type { RemoteTarget };
+export type { RemoteTarget, LiveSession };
+
+// The remote computer's live sessions, as the Deck sees them (null: no remote computer set up).
+export type LiveStatus = (LiveLinkStatus & { label: string }) | null;
 
 // The engine's event vocabulary is defined once, in the main process, and shared here as types only.
 export type { EngineEvent, Sector, Milestone, DriveMode, UpdateAvailable, WhatsNew, ProjectTile, SessionCard, GitState, FolderListing, FolderEntry };
@@ -157,6 +161,9 @@ declare global {
       remoteGet: () => Promise<RemoteTarget | null>;
       remoteSet: (host: string | null) => Promise<RemoteTarget | null>;
       remoteTest: () => Promise<{ ok: boolean; claudePath?: string; version?: string; error?: string }>;
+      liveGet: () => Promise<LiveStatus>;
+      liveRelay: (op: 'install' | 'remove') => Promise<{ ok: boolean; error?: string }>;
+      onLiveState: (cb: (s: LiveStatus) => void) => () => void;
       // File system
       fsList: (dir?: string) => Promise<string[]>;
       fsRead: (relPath: string) => Promise<string>;

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
 import { useUpdater } from '../hooks/useUpdater';
+import { useLive } from '../hooks/useLive';
 import { LocalVoiceStatus } from '../types';
 import { PairKeyPanel } from './PairKeyPanel';
 import { EnginePanel } from './EnginePanel';
@@ -97,6 +98,17 @@ export function SettingsPanel({
     setRemoteStatus(r.ok
       ? { ok: true, text: `✓ Connected to ${t.label} · Claude Code ${r.version?.replace(/\s*\(Claude Code\)/, '') ?? ''}. Press Y on Home to see its projects.` }
       : { ok: false, text: r.error ?? 'Could not connect.' });
+  };
+
+  // Live sessions there: the relay that brings their approvals and questions to the Deck.
+  const live = useLive();
+  const [relayBusy, setRelayBusy] = useState(false);
+  const [relayError, setRelayError] = useState<string | null>(null);
+  const setRelay = async (op: 'install' | 'remove') => {
+    setRelayBusy(true); setRelayError(null);
+    const r = await window.electronAPI.liveRelay(op);
+    setRelayBusy(false);
+    if (!r.ok) setRelayError(r.error ?? 'That didn\'t work.');
   };
 
   const { status, checkForUpdates, downloadUpdate, installUpdate } = useUpdater();
@@ -213,6 +225,40 @@ export function SettingsPanel({
             <p style={{ ...hintStyle, marginTop: 8, color: remoteStatus.busy ? '#9A9A9A' : remoteStatus.ok ? '#9AC9A8' : '#D9A35B' }}>
               {remoteStatus.text}
             </p>
+          )}
+
+          {live && (
+            <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 8, border: '1px solid #2E2E2E', background: '#151515' }}>
+              <div style={{ fontSize: 13, color: '#ECECEC', fontWeight: 600 }}>Approvals from {live.label}</div>
+              {!live.connected ? (
+                <p style={{ ...hintStyle, marginTop: 4, color: live.error ? '#D9A35B' : '#9A9A9A' }}>
+                  {live.error ? `Not connected: ${live.error}` : `Connecting to ${live.label}…`}
+                </p>
+              ) : live.state?.relay ? (
+                <>
+                  <p style={{ ...hintStyle, marginTop: 4, color: '#9AC9A8' }}>
+                    ✓ When a Claude Code session on {live.label} asks for permission or asks a question, it shows up
+                    here too. Answer on whichever is closer: the first answer wins.
+                  </p>
+                  <button onClick={() => void setRelay('remove')} disabled={relayBusy} style={{ ...linkBtn, marginTop: 6 }}>
+                    {relayBusy ? 'Removing…' : 'Remove from ' + live.label}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p style={{ ...hintStyle, marginTop: 4 }}>
+                    Sessions running on {live.label} (in the Claude app or a terminal) can send their permission
+                    prompts and questions here, so you can approve from the Deck. This adds one hook to Claude
+                    Code&apos;s settings on {live.label} (~/.claude/settings.json, backed up first). When the Deck
+                    isn&apos;t connected the hook does nothing.
+                  </p>
+                  <button onClick={() => void setRelay('install')} disabled={relayBusy} style={{ ...linkBtn, marginTop: 6, color: '#CC785C', borderColor: '#CC785C' }}>
+                    {relayBusy ? 'Installing…' : `Install on ${live.label}`}
+                  </button>
+                </>
+              )}
+              {relayError && <p style={{ ...hintStyle, marginTop: 6, color: '#D9A35B' }}>{relayError}</p>}
+            </div>
           )}
         </section>
 
