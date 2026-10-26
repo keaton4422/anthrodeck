@@ -44,7 +44,10 @@ describe.skipIf(process.platform === 'win32')('linux launcher', () => {
     const launcher = spawn(path.join(dir, 'anthrodeck-launch'), [], { stdio: 'ignore' });
     for (let i = 0; i < 50 && !fs.existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 50));
     const [appPid, childPid] = fs.readFileSync(pidFile, 'utf8').trim().split(' ').map(Number);
-    const alive = (p: number) => { try { process.kill(p, 0); return true; } catch { return false; } };
+    // A killed process can linger as a zombie until something reaps it; that counts as gone.
+    const alive = (p: number) => {
+      try { return !/^\S+ \(.*\) Z/.test(fs.readFileSync(`/proc/${p}/stat`, 'utf8')); } catch { return false; }
+    };
     expect(alive(appPid) && alive(childPid)).toBe(true);
 
     const t0 = Date.now();

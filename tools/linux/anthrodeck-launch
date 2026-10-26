@@ -29,7 +29,9 @@ fi
 app=$!
 
 stop() {
-  kill -KILL -- "-$app" 2>/dev/null || kill -KILL "$app" 2>/dev/null
+  # pkill -g, not `kill -- -$app`: /bin/sh is bash on the Deck but dash elsewhere, and dash's kill
+  # doesn't take a process group that way.
+  pkill -KILL -g "$app" 2>/dev/null || kill -KILL "$app" 2>/dev/null
 }
 trap stop TERM HUP INT
 
