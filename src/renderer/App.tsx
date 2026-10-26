@@ -10,6 +10,7 @@ import GameCanvas, { formatLapTime, type LapCard } from './components/GameCanvas
 import TeachModal from './components/TeachModal';
 import RadialMenu from './components/RadialMenu';
 import WritePreview from './components/WritePreview';
+import Home, { type HomeNav } from './components/Home';
 import { SectorStrip } from './components/SectorStrip';
 import { useFeedback } from './hooks/useFeedback';
 import {
@@ -56,6 +57,9 @@ export default function App() {
   const [voiceRejecting, setVoiceRejecting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cockpitOpen, setCockpitOpen] = useState(false);
+  // The pit wall is the launch screen; the chat takes over once a stint is under way.
+  const [showHome, setShowHome] = useState(true);
+  const homeNav = useRef<HomeNav>(null);
   const [engineReady, setEngineReady] = useState(true);
   const [apiKey, setApiKey] = useStore<string>('apiKey', '');
   const [previewPort, setPreviewPort] = useStore<number>('previewPort', 5757);
@@ -90,7 +94,7 @@ export default function App() {
   const [extendedThinking, setExtendedThinking] = useStore<boolean>('extendedThinking', false);
   const [effort, setEffort] = useStore<string>('effort', 'high');
 
-  const { projectPath, files, openFolder, refreshFiles } = useProject();
+  const { projectPath, files, openFolder, refreshFiles, adoptProject } = useProject();
 
   const engineSettings = useMemo<EngineSettingsPayload>(
     () => ({ model, effort, thinking: extendedThinking, teachMode, teachTimeout }),
@@ -110,6 +114,7 @@ export default function App() {
     mode,
     setMode,
     rewindTo,
+    resumeSession,
     abort,
     pitStop,
     clearMessages,
@@ -270,8 +275,8 @@ export default function App() {
     }
     if (action === 'drive-mode') { cycleMode(); return; }
     if (action === 'new-session') {
-      clearMessages();
-      showToast('New session. Fresh tyres.');
+      // A new stint starts at the pit wall, where the project is picked.
+      setShowHome(true);
       return;
     }
     if (action === 'git-commit') {
@@ -351,6 +356,8 @@ export default function App() {
   // play while Claude drives, answer when it radios in.
   const padBusy = modalActive || cockpitOpen;
   const gameOwnsPad = cockpitOpen && !modalActive;
+  // The pit wall takes the D-pad and A/B while it's up and nothing else is asking.
+  const homeOwnsPad = showHome && !cockpitOpen && !modalActive && !showSettings && !drawerOpen;
 
   // L1 + face button fires a meta action instead of the button's normal job. Returns true when the
   // chord consumed the press.
@@ -376,6 +383,7 @@ export default function App() {
     onAPress: (mod) => {
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'A')) return;
+      if (homeOwnsPad) { homeNav.current?.activate(); return; }
       if (pendingTeach) teachContinue();
       else if (pendingWrite) handleWriteAccept();
       else if (pendingQuestion) answerOption(0);
@@ -389,6 +397,8 @@ export default function App() {
     onBPress: (mod) => {
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'B')) return;
+      // On the pit wall, B goes back to the stint on track (when there is one).
+      if (homeOwnsPad) { if (messages.length) setShowHome(false); return; }
       if (pendingTeach) { setTeachRedirectSignal((s) => s + 1); return; }
       if (pendingWrite) {
         // Toggle spoken-rejection push-to-talk.
@@ -423,10 +433,22 @@ export default function App() {
     onL3Press: () => { if (!cockpitOpen && !modalActive) setDrawerOpen((s) => !s); },
     onR3Press: () => { if (!cockpitOpen && !modalActive) setShowSettings((s) => !s); },
     // D-pad: up/down scrolls a pending diff; left/right collapses/expands tool detail lines.
-    onDpadUp: () => { if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop -= 48; },
-    onDpadDown: () => { if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop += 48; },
-    onDpadLeft: () => { if (!cockpitOpen && !pendingWrite) setCollapseTools(true); },
-    onDpadRight: () => { if (!cockpitOpen && !pendingWrite) setCollapseTools(false); },
+    onDpadUp: () => {
+      if (homeOwnsPad) homeNav.current?.move(0, -1);
+      else if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop -= 48;
+    },
+    onDpadDown: () => {
+      if (homeOwnsPad) homeNav.current?.move(0, 1);
+      else if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop += 48;
+    },
+    onDpadLeft: () => {
+      if (homeOwnsPad) homeNav.current?.move(-1, 0);
+      else if (!cockpitOpen && !pendingWrite) setCollapseTools(true);
+    },
+    onDpadRight: () => {
+      if (homeOwnsPad) homeNav.current?.move(1, 0);
+      else if (!cockpitOpen && !pendingWrite) setCollapseTools(false);
+    },
     // Radial menu: hold Select (Steam Input can map trackpad center-click here), aim, release.
     onRadialOpen: () => { if (!cockpitOpen && !modalActive) { setRadialOpen(true); setRadialIndex(null); } },
     onRadialAim: (x, y) => { if (radialOpen) setRadialIndex(radialIndexFromStick(x, y, RADIAL_ITEMS.length)); },
@@ -446,6 +468,34 @@ export default function App() {
     const opt = pendingQuestion?.options[index];
     if (opt) answerQuestion(opt.value);
   }
+
+  // ─── Pit wall actions ──────────────────────────────────────────────────────
+  const currentStint = useMemo(() => {
+    const first = messages.find((m) => m.role === 'user');
+    if (!first) return null;
+    const title = first.content.replace(/\s+/g, ' ').trim();
+    return {
+      title: title.length > 80 ? `${title.slice(0, 79)}…` : title,
+      project: projectPath ? projectPath.split(/[\\/]/).filter(Boolean).pop() ?? null : null,
+    };
+  }, [messages, projectPath]);
+
+  const resumeStint = useCallback(async (s: { id: string; cwd: string; title: string }) => {
+    if (isStreaming) { showToast('Claude is still on a lap. Abort it first, or wait for the finish line.'); return; }
+    const err = await resumeSession(s.id, s.cwd);
+    if (err) { showToast(err); return; }
+    await adoptProject(s.cwd);
+    setShowHome(false);
+    showToast(`Back on track · ${s.title}`);
+  }, [isStreaming, resumeSession, adoptProject, showToast]);
+
+  const newStint = useCallback(async (cwd: string) => {
+    if (isStreaming) { showToast('Claude is still on a lap. Abort it first, or wait for the finish line.'); return; }
+    if (cwd !== projectPath) await adoptProject(cwd);
+    clearMessages();
+    setShowHome(false);
+    showToast('New stint. Fresh tyres.');
+  }, [isStreaming, projectPath, adoptProject, clearMessages, showToast]);
 
   // Inject file path into input when user taps a file in the drawer
   const handleFileClick = useCallback((file: string) => {
@@ -479,6 +529,7 @@ export default function App() {
         onDrawer={() => setDrawerOpen((s) => !s)}
         onSettings={() => setShowSettings((s) => !s)}
         onCockpit={() => setCockpitOpen((s) => !s)}
+        onHome={() => { setShowSettings(false); setShowHome(true); }}
       />
       <SectorStrip sectors={sectors} checkpoints={checkpoints} />
 
@@ -530,6 +581,16 @@ export default function App() {
           onHapticsChange={setHaptics}
           sound={sound}
           onSoundChange={setSound}
+        />
+      ) : showHome ? (
+        <Home
+          ref={homeNav}
+          projectPath={projectPath}
+          current={currentStint}
+          onContinue={() => setShowHome(false)}
+          onResume={(s) => void resumeStint(s)}
+          onNew={(cwd) => void newStint(cwd)}
+          onOpenFolder={() => void openFolder().then((p) => { if (p) void newStint(p); })}
         />
       ) : (
         <>

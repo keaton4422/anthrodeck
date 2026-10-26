@@ -177,6 +177,23 @@ export function useClaude({ settings, onPendingWrite, onPendingQuestion, onTeach
     setSectors([]);
   }, []);
 
+  // Reopen a session from the pit wall: the engine resumes it on the next send, and its conversation
+  // comes back on screen so the pilot knows where they left off.
+  const resumeSession = useCallback(async (id: string, cwd: string): Promise<string | null> => {
+    const r = await window.electronAPI.sessionsResume(id, cwd, settings as unknown as Record<string, unknown>);
+    if (r.error || !r.history) return r.error ?? 'Could not reopen that session.';
+    setIsStreaming(false);
+    streamingIdRef.current = null;
+    setMessages(r.history.map((m) => ({ ...m })));
+    setError(null);
+    setNotice(null);
+    setSessionUsage(ZERO_USAGE);
+    setCostUsd(0);
+    setContext(null);
+    setSectors([]);
+    return null;
+  }, [settings]);
+
   // Rewind: drop everything after the given message and resume Claude Code from the last completed
   // turn at or before it, on a fork — so the next send really continues from that point.
   const rewindTo = useCallback((id: string) => {
@@ -218,6 +235,7 @@ export function useClaude({ settings, onPendingWrite, onPendingQuestion, onTeach
     setMode,
     engineModel,
     rewindTo,
+    resumeSession,
     abort,
     pitStop,
     clearMessages,

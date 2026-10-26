@@ -207,6 +207,18 @@ describe('EngineSession', () => {
     ]);
   });
 
+  it('picks up a session from the dashboard: the next send resumes it, not a fork', async () => {
+    const eng = fakeEngine(() => [result()]);
+    const { port, events } = fakePort();
+    const s = session(port, eng.queryFn);
+    s.resumeFrom('old-session');
+    s.send('carry on');
+    expect(eng.calls[0]).toMatchObject({ resume: 'old-session' });
+    expect(eng.calls[0].resumeSessionAt).toBeUndefined();
+    expect(eng.calls[0].forkSession).toBeUndefined();
+    expect(events).toContainEqual({ type: 'sectors', sectors: [] });
+  });
+
   it('rewinds by resuming a fork at the chosen turn', async () => {
     const eng = fakeEngine(() => [
       { type: 'system', subtype: 'init', session_id: 'sess-9', model: 'sonnet', cwd: dir },

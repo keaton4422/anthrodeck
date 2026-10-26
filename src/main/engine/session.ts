@@ -186,6 +186,15 @@ export class EngineSession {
     this.rewind(null);
   }
 
+  // Pick up an existing Claude Code session (one from the home dashboard): the next send resumes it.
+  resumeFrom(sessionId: string): void {
+    this.stop();
+    this.sessionId = sessionId;
+    this.resumeAt = null;
+    this.board.reset();
+    this.port.emit({ type: 'sectors', sectors: [] });
+  }
+
   close(): void {
     this.stop();
   }

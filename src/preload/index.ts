@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   claudeAbort: () => ipcRenderer.send('claude:abort'),
   claudeReset: () => ipcRenderer.send('claude:reset'),
   claudeRewind: (anchor: string | null) => ipcRenderer.send('claude:rewind', anchor),
+  sessionsList: () => ipcRenderer.invoke('sessions:list'),
+  sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>) =>
+    ipcRenderer.invoke('sessions:resume', { id, cwd, settings }),
   claudeSetMode: (mode: string) => ipcRenderer.invoke('claude:set-mode', mode),
   claudeGetMode: () => ipcRenderer.invoke('claude:get-mode'),
 

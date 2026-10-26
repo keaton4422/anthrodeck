@@ -3,9 +3,16 @@ import type { TurnSummary } from '../main/engine/translate';
 import type { Sector, Milestone } from '../main/engine/tools';
 import type { DriveMode } from '../main/engine/config';
 import type { UpdateAvailable, WhatsNew } from '../main/releaseNotes';
+import type { ProjectTile, SessionCard, GitState, RestoredMessage } from '../main/sessions';
 
 // The engine's event vocabulary is defined once, in the main process, and shared here as types only.
-export type { EngineEvent, Sector, Milestone, DriveMode, UpdateAvailable, WhatsNew };
+export type { EngineEvent, Sector, Milestone, DriveMode, UpdateAvailable, WhatsNew, ProjectTile, SessionCard, GitState };
+
+export interface PitWall {
+  projects: ProjectTile[];
+  currentId: string | null;
+  error?: string;
+}
 
 export type Confidence = 'high' | 'med' | 'low';
 
@@ -150,6 +157,9 @@ declare global {
       claudeAbort: () => void;
       claudeReset: () => void;
       claudeRewind: (anchor: string | null) => void;
+      sessionsList: () => Promise<PitWall>;
+      sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>) =>
+        Promise<{ cwd?: string; history?: RestoredMessage[]; error?: string }>;
       claudeSetMode: (mode: DriveMode) => Promise<DriveMode>;
       claudeGetMode: () => Promise<DriveMode>;
       onEngineEvent: (cb: (ev: EngineEvent) => void) => () => void;

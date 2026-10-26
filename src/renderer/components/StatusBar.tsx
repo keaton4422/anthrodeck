@@ -26,6 +26,7 @@ interface Props {
   onDrawer: () => void;
   onSettings: () => void;
   onCockpit: () => void;
+  onHome: () => void;
 }
 
 // The fuel gauge. When Claude Code has reported its context fill, that is the gauge (it is what
@@ -140,7 +141,7 @@ function CareerBadge({ level, tier, progress }: { level: number; tier: string; p
 
 export function StatusBar({
   isListening, isTranscribing, isStreaming, engineReady, projectPath, usage, budget, contextPct, costUsd,
-  mode, onCycleMode, career, onDrawer, onSettings, onCockpit,
+  mode, onCycleMode, career, onDrawer, onSettings, onCockpit, onHome,
 }: Props) {
   const folderName = projectPath ? projectPath.split(/[\\/]/).pop() : null;
 
@@ -181,10 +182,16 @@ export function StatusBar({
           ☰
         </button>
 
-        <Logo height={18} />
-        <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '0.08em', color: '#ECECEC' }}>
-          ANTHRO<span style={{ color: '#CC785C' }}>DECK</span>
-        </span>
+        <button
+          onClick={onHome}
+          title="Pit wall: all programs and stints"
+          style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+        >
+          <Logo height={18} />
+          <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '0.08em', color: '#ECECEC' }}>
+            ANTHRO<span style={{ color: '#CC785C' }}>DECK</span>
+          </span>
+        </button>
       </div>
 
       {/* Center: project name */}
