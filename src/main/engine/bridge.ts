@@ -9,11 +9,12 @@
 //   * Every engine event is ALSO published on `engine:event`. New consumers (sectors, milestones,
 //     drive mode, context gauge) subscribe there instead of growing a channel each.
 
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { app, BrowserWindow, ipcMain, IpcMainEvent } from 'electron';
 import os from 'os';
 import Anthropic from '@anthropic-ai/sdk';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, listSessions, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
+import fs from 'fs';
 import type Store from 'electron-store';
 import { normalizeDriveMode, resolveEngineSettings } from './config';
 import { defaultLocateDeps, engineVersion, INSTALL_COMMAND, locateEngine } from './locate';
@@ -22,6 +23,7 @@ import { generateFlashcard, recordToolCalls, setLastContext } from '../flashcard
 import { pushWrite } from '../writeHistory';
 import { detectDevPortFromOutput } from '../network';
 import { setDetectedDevPort } from '../previewServer';
+import { parseGitStatus, toProjects, toRestoredMessages, toSessionCards, type GitState } from '../sessions';
 
 interface Pending<T> { resolve: (v: T) => void; fallback: T }
 
@@ -144,6 +146,40 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
     if (s.isBusy) { send('claude:error', 'Claude is still on a lap. Abort it first, or wait for the finish line.'); return; }
     turnText = '';
     s.send(text);
+  });
+
+  // ─── home dashboard ─────────────────────────────────────────────────────────
+  // The pit wall: this device's projects (from its Claude Code sessions), each with its git state
+  // and its stints newest first, plus which session the cockpit has open right now.
+  const gitState = (cwd: string) => new Promise<GitState | null>((resolve) => {
+    execFile('git', ['-C', cwd, 'status', '--porcelain=v1', '-b'], { timeout: 3000 }, (err, stdout) => {
+      resolve(err ? null : parseGitStatus(stdout));
+    });
+  });
+  ipcMain.handle('sessions:list', async () => {
+    try {
+      const cards = toSessionCards(await listSessions({ limit: 80 }), (d) => fs.existsSync(d), 80);
+      const cwds = [...new Set(cards.map((c) => c.cwd))].slice(0, 12);
+      const states = await Promise.all(cwds.map(gitState));
+      const git = Object.fromEntries(cwds.map((c, i) => [c, states[i]]));
+      return { projects: toProjects(cards, git), currentId: session?.currentSessionId ?? null };
+    } catch (e) {
+      return { projects: [], currentId: null, error: (e as Error).message };
+    }
+  });
+
+  // Reopen one: its folder becomes the project, the engine resumes it on the next send, and its
+  // conversation comes back for the chat to show.
+  ipcMain.handle('sessions:resume', async (_e, { id, cwd, settings }: { id: string; cwd: string; settings?: Record<string, unknown> }) => {
+    if (session?.isBusy) return { error: 'Claude is still on a lap. Abort it first, or wait for the finish line.' };
+    if (!fs.existsSync(cwd)) return { error: `That session's folder is gone: ${cwd}` };
+    cancelAllPrompts();
+    store.set('projectPath', cwd);
+    const s = sessionFor(cwd, settings ?? {});
+    if (typeof s === 'string') return { error: s };
+    s.resumeFrom(id);
+    const history = toRestoredMessages(await getSessionMessages(id, { dir: cwd }));
+    return { cwd, history };
   });
 
   ipcMain.on('claude:abort', () => { void session?.interrupt(); });

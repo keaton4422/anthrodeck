@@ -29,13 +29,22 @@ export function useProject() {
     }
   }, [projectPath]);
 
-  const openFolder = useCallback(async () => {
+  // Returns the folder picked, or null if the dialog was cancelled.
+  const openFolder = useCallback(async (): Promise<string | null> => {
     const p = await window.electronAPI.projectOpenDialog();
-    if (!p) return;
+    if (!p) return null;
+    await window.electronAPI.projectSet(p);
+    setProjectPath(p);
+    await refreshFiles(p);
+    return p;
+  }, [refreshFiles]);
+
+  // Switch to a folder chosen elsewhere (a project on the pit wall, or a reopened session's folder).
+  const adoptProject = useCallback(async (p: string) => {
     await window.electronAPI.projectSet(p);
     setProjectPath(p);
     await refreshFiles(p);
   }, [refreshFiles]);
 
-  return { projectPath, files, loading, openFolder, refreshFiles };
+  return { projectPath, files, loading, openFolder, refreshFiles, adoptProject };
 }
