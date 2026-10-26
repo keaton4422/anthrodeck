@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 
 export function useProject() {
   const [projectPath, setProjectPath] = useState<string | null>(null);
+  // The computer the project is on: null for this one, else the remote host (Settings → Remote).
+  const [projectHost, setProjectHost] = useState<string | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -13,6 +15,7 @@ export function useProject() {
         refreshFiles(p);
       }
     });
+    void window.electronAPI.projectHost().then(setProjectHost);
   }, []);
 
   const refreshFiles = useCallback(async (overridePath?: string) => {
@@ -40,11 +43,12 @@ export function useProject() {
   }, [refreshFiles]);
 
   // Switch to a folder chosen elsewhere (a project on the pit wall, or a reopened session's folder).
-  const adoptProject = useCallback(async (p: string) => {
-    await window.electronAPI.projectSet(p);
+  const adoptProject = useCallback(async (p: string, host: string | null = null) => {
+    await window.electronAPI.projectSet(p, host);
     setProjectPath(p);
+    setProjectHost(host);
     await refreshFiles(p);
   }, [refreshFiles]);
 
-  return { projectPath, files, loading, openFolder, refreshFiles, adoptProject };
+  return { projectPath, projectHost, files, loading, openFolder, refreshFiles, adoptProject };
 }

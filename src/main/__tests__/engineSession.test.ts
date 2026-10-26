@@ -174,6 +174,35 @@ describe('EngineSession', () => {
     expect(events).toContainEqual({ type: 'file-written', path: 'b.txt' });
   });
 
+  it('runs a remote project\'s Claude Code over SSH, previews from that machine, and keeps its writes out of undo', async () => {
+    const recordWrite = vi.fn();
+    const askWrite = vi.fn(async () => ({ accepted: true }));
+    const eng = fakeEngine(() => []);
+    const { port, events } = fakePort({ recordWrite, askWrite });
+    const remoteFile = '/Users/me/app/main.ts';
+    const readText = vi.fn(async (p: string) => (p === remoteFile ? 'let a = 1;\n' : null));
+    const s = new EngineSession(
+      { projectPath: '/Users/me/app', executable: '/bin/claude', apiKey: '', remote: { host: 'me@mac', claudePath: '/Users/me/.local/bin/claude' }, readText },
+      resolveEngineSettings({}), port, eng.queryFn,
+    );
+    s.send('go');
+    const o = eng.calls[0];
+    expect(o.pathToClaudeCodeExecutable).toBe('/Users/me/.local/bin/claude');
+    expect(typeof o.spawnClaudeCodeProcess).toBe('function');
+    expect(o.cwd).toBe('/Users/me/app');
+
+    await o.canUseTool!('Edit', { file_path: remoteFile, old_string: '1', new_string: '2' }, { signal, toolUseID: 'e' } as never);
+    expect(readText).toHaveBeenCalledWith(remoteFile);
+    expect(askWrite).toHaveBeenCalledWith(expect.objectContaining({ path: 'main.ts', content: 'let a = 2;\n' }), signal);
+
+    const pre = o.hooks!.PreToolUse![0].hooks[0];
+    const post = o.hooks!.PostToolUse![0].hooks[0];
+    await pre({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: remoteFile }, tool_use_id: 'r1' } as never, 'r1', { signal } as never);
+    await post({ hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_use_id: 'r1' } as never, 'r1', { signal } as never);
+    expect(recordWrite).not.toHaveBeenCalled();
+    expect(events).toContainEqual({ type: 'file-written', path: 'main.ts' });
+  });
+
   it('teach mode pauses before tools and a redirect denies with the instruction', async () => {
     const askTeach = vi.fn(async () => ({ action: 'redirect' as const, instruction: 'check the docs first' }));
     const eng = fakeEngine(() => []);

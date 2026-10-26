@@ -25,12 +25,39 @@ import { pushWrite } from '../writeHistory';
 import { detectDevPortFromOutput } from '../network';
 import { setDetectedDevPort } from '../previewServer';
 import { parseGitStatus, toProjects, toRestoredMessages, toSessionCards, type GitState } from '../sessions';
+import {
+  defaultLabel, remoteExec, remotePython, sshProblem, LOCATE_CLAUDE_SH, LIST_SESSIONS_PY, READ_SESSION_PY, READ_FILE_PY,
+  type RemoteTarget,
+} from '../remote';
+import type { SDKSessionInfo, SessionMessage } from '@anthropic-ai/claude-agent-sdk';
 
 interface Pending<T> { resolve: (v: T) => void; fallback: T }
 
 export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow | null): { shutdown(): void } {
   let session: EngineSession | null = null;
   let turnText = '';
+
+  // ─── remote computer (see main/remote.ts) ─────────────────────────────────────
+  const remoteTarget = (): RemoteTarget | null => {
+    const r = store.get('remote', null) as { host?: string; label?: string } | null;
+    return r?.host ? { host: r.host, label: r.label || defaultLabel(r.host) } : null;
+  };
+  // The open project's computer: null for this one, else the remote host.
+  const projectHost = () => (store.get('projectHost', null) as string | null) || null;
+  // Where Claude Code lives on each remote computer, found once per run.
+  const remoteClaude = new Map<string, string>();
+  async function locateRemoteClaude(host: string): Promise<string> {
+    const cached = remoteClaude.get(host);
+    if (cached) return cached;
+    const r = await remoteExec(host, LOCATE_CLAUDE_SH);
+    const found = r.stdout.trim().split('\n').pop() ?? '';
+    if (r.code !== 0 && !found) throw new Error(sshProblem(r.stderr) ?? (r.stderr.trim() || 'Could not reach that computer.'));
+    if (!found) throw new Error('Claude Code isn\'t installed on that computer (or the Claude app hasn\'t set it up yet).');
+    remoteClaude.set(host, found);
+    return found;
+  }
+  const remoteReader = (host: string) => (abs: string) =>
+    remotePython<{ content: string | null }>(host, READ_FILE_PY, [abs]).then((r) => r.content).catch(() => null);
 
   const send = (channel: string, ...args: unknown[]) => {
     const win = getWindow();
@@ -121,12 +148,18 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
     defaultLocateDeps(app.isPackaged ? null : app.getAppPath()),
   );
 
-  function sessionFor(projectPath: string, raw: Record<string, unknown>): EngineSession | string {
-    const engine = locate();
-    if (!engine) return 'Claude Code engine not found. Install it from Settings (⚙) → Engine.';
+  function sessionFor(projectPath: string, raw: Record<string, unknown>, remote?: { host: string; claudePath: string }): EngineSession | string {
+    const engine = remote ? null : locate();
+    if (!remote && !engine) return 'Claude Code engine not found. Install it from Settings (⚙) → Engine.';
     const settings = resolveEngineSettings({ ...raw, mode: store.get('driveMode', 'default') });
-    const env = { projectPath, executable: engine.path, apiKey: (store.get('apiKey', '') as string) };
-    if (session && session.projectPath !== projectPath) {
+    const env = {
+      projectPath,
+      executable: engine?.path ?? '',
+      apiKey: (store.get('apiKey', '') as string),
+      ...(remote ? { remote, readText: remoteReader(remote.host) } : {}),
+    };
+    // A different folder, or the same path on a different computer, is a different session.
+    if (session && (session.projectPath !== projectPath || session.remoteHost !== (remote?.host ?? null))) {
       session.close();
       session = null;
     }
@@ -140,9 +173,14 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
   }
 
   // ─── channels ───────────────────────────────────────────────────────────────
-  ipcMain.on('claude:send', (_e, { text, settings }: { text: string; settings?: Record<string, unknown> }) => {
+  ipcMain.on('claude:send', async (_e, { text, settings }: { text: string; settings?: Record<string, unknown> }) => {
     const projectPath = (store.get('projectPath', null) as string | null) ?? os.homedir();
-    const s = sessionFor(projectPath, settings ?? {});
+    const host = projectHost();
+    let remote: { host: string; claudePath: string } | undefined;
+    if (host) {
+      try { remote = { host, claudePath: await locateRemoteClaude(host) }; } catch (e) { send('claude:error', (e as Error).message); return; }
+    }
+    const s = sessionFor(projectPath, settings ?? {}, remote);
     if (typeof s === 'string') { send('claude:error', s); return; }
     if (s.isBusy) { send('claude:error', 'Claude is still working. Stop it first, or wait for it to finish.'); return; }
     turnText = '';
@@ -157,13 +195,26 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
       resolve(err ? null : parseGitStatus(stdout));
     });
   });
-  ipcMain.handle('sessions:list', async () => {
+  ipcMain.handle('sessions:list', async (_e, machine?: 'local' | 'remote') => {
+    if (machine === 'remote') {
+      const t = remoteTarget();
+      if (!t) return { projects: [], currentId: null, error: 'No remote computer set up. Add one in Settings.' };
+      try {
+        const data = await remotePython<{ sessions: SDKSessionInfo[]; git: Record<string, string | null> }>(t.host, LIST_SESSIONS_PY);
+        const cards = toSessionCards(data.sessions, () => true, 80);   // folders already checked over there
+        const git = Object.fromEntries(Object.entries(data.git).map(([k, v]) => [k, v === null ? null : parseGitStatus(v)]));
+        const current = session && session.remoteHost === t.host ? session.currentSessionId : null;
+        return { projects: toProjects(cards, git), currentId: current };
+      } catch (e) {
+        return { projects: [], currentId: null, error: (e as Error).message };
+      }
+    }
     try {
       const cards = toSessionCards(await listSessions({ limit: 80 }), (d) => fs.existsSync(d), 80);
       const cwds = [...new Set(cards.map((c) => c.cwd))].slice(0, 12);
       const states = await Promise.all(cwds.map(gitState));
       const git = Object.fromEntries(cwds.map((c, i) => [c, states[i]]));
-      return { projects: toProjects(cards, git), currentId: session?.currentSessionId ?? null };
+      return { projects: toProjects(cards, git), currentId: session && !session.remoteHost ? session.currentSessionId : null };
     } catch (e) {
       return { projects: [], currentId: null, error: (e as Error).message };
     }
@@ -171,16 +222,58 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
 
   // Reopen one: its folder becomes the project, the engine resumes it on the next send, and its
   // conversation comes back for the chat to show.
-  ipcMain.handle('sessions:resume', async (_e, { id, cwd, settings }: { id: string; cwd: string; settings?: Record<string, unknown> }) => {
+  ipcMain.handle('sessions:resume', async (_e, { id, cwd, settings, machine }: { id: string; cwd: string; settings?: Record<string, unknown>; machine?: 'local' | 'remote' }) => {
     if (session?.isBusy) return { error: 'Claude is still working. Stop it first, or wait for it to finish.' };
+    if (machine === 'remote') {
+      const t = remoteTarget();
+      if (!t) return { error: 'No remote computer set up. Add one in Settings.' };
+      try {
+        const claudePath = await locateRemoteClaude(t.host);
+        const entries = await remotePython<SessionMessage[]>(t.host, READ_SESSION_PY, [id], 60_000);
+        cancelAllPrompts();
+        store.set('projectPath', cwd);
+        store.set('projectHost', t.host);
+        const s = sessionFor(cwd, settings ?? {}, { host: t.host, claudePath });
+        if (typeof s === 'string') return { error: s };
+        s.resumeFrom(id);
+        return { cwd, history: toRestoredMessages(entries) };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    }
     if (!fs.existsSync(cwd)) return { error: `That session's folder is gone: ${cwd}` };
     cancelAllPrompts();
     store.set('projectPath', cwd);
+    store.set('projectHost', null);
     const s = sessionFor(cwd, settings ?? {});
     if (typeof s === 'string') return { error: s };
     s.resumeFrom(id);
     const history = toRestoredMessages(await getSessionMessages(id, { dir: cwd }));
     return { cwd, history };
+  });
+
+  // The remote computer: what it's called, and a check that SSH, Claude Code and python3 all work.
+  ipcMain.handle('remote:get', () => remoteTarget());
+  ipcMain.handle('remote:set', (_e, host: string | null) => {
+    const h = host?.trim();
+    if (!h) { store.set('remote', null); return null; }
+    remoteClaude.delete(h);
+    store.set('remote', { host: h, label: defaultLabel(h) });
+    return remoteTarget();
+  });
+  ipcMain.handle('remote:test', async () => {
+    const t = remoteTarget();
+    if (!t) return { ok: false, error: 'No remote computer set up.' };
+    remoteClaude.delete(t.host);
+    try {
+      const claudePath = await locateRemoteClaude(t.host);
+      const v = await remoteExec(t.host, `${JSON.stringify(claudePath)} --version 2>&1 | head -1; python3 --version 2>&1`);
+      const [version = '', python = ''] = v.stdout.trim().split('\n');
+      if (!/python 3/i.test(python)) return { ok: false, claudePath, version, error: 'python3 isn\'t available on that computer (needed to list its sessions).' };
+      return { ok: true, claudePath, version };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
   });
 
   ipcMain.on('claude:abort', () => { void session?.interrupt(); });

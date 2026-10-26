@@ -5,6 +5,11 @@ import type { DriveMode } from '../main/engine/config';
 import type { UpdateAvailable, WhatsNew } from '../main/releaseNotes';
 import type { ProjectTile, SessionCard, GitState, RestoredMessage } from '../main/sessions';
 import type { FolderListing, FolderEntry } from '../main/folders';
+import type { RemoteTarget } from '../main/remote';
+
+// Which computer something is on: this one, or the remote computer set up in Settings.
+export type Machine = 'local' | 'remote';
+export type { RemoteTarget };
 
 // The engine's event vocabulary is defined once, in the main process, and shared here as types only.
 export type { EngineEvent, Sector, Milestone, DriveMode, UpdateAvailable, WhatsNew, ProjectTile, SessionCard, GitState, FolderListing, FolderEntry };
@@ -144,10 +149,14 @@ declare global {
       modsList: () => Promise<import('../main/modManifest').ModScan>;
       // Project
       projectOpenDialog: () => Promise<string | null>;
-      foldersList: (dir?: string | null) => Promise<FolderListing>;
-      foldersCreate: (parent: string, name: string) => Promise<{ path?: string; error?: string }>;
+      foldersList: (dir?: string | null, machine?: Machine) => Promise<FolderListing>;
+      foldersCreate: (parent: string, name: string, machine?: Machine) => Promise<{ path?: string; error?: string }>;
       projectGet: () => Promise<string | null>;
-      projectSet: (p: string) => Promise<void>;
+      projectSet: (p: string, host?: string | null) => Promise<void>;
+      projectHost: () => Promise<string | null>;
+      remoteGet: () => Promise<RemoteTarget | null>;
+      remoteSet: (host: string | null) => Promise<RemoteTarget | null>;
+      remoteTest: () => Promise<{ ok: boolean; claudePath?: string; version?: string; error?: string }>;
       // File system
       fsList: (dir?: string) => Promise<string[]>;
       fsRead: (relPath: string) => Promise<string>;
@@ -164,8 +173,8 @@ declare global {
       claudeAbort: () => void;
       claudeReset: () => void;
       claudeRewind: (anchor: string | null) => void;
-      sessionsList: () => Promise<PitWall>;
-      sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>) =>
+      sessionsList: (machine?: Machine) => Promise<PitWall>;
+      sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>, machine?: Machine) =>
         Promise<{ cwd?: string; history?: RestoredMessage[]; error?: string }>;
       claudeSetMode: (mode: DriveMode) => Promise<DriveMode>;
       claudeGetMode: () => Promise<DriveMode>;

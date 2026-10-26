@@ -3,6 +3,7 @@ import {
   ChatMessage,
   DriveMode,
   EngineSettingsPayload,
+  Machine,
   PendingQuestion,
   PendingWrite,
   Sector,
@@ -179,8 +180,8 @@ export function useClaude({ settings, onPendingWrite, onPendingQuestion, onTeach
 
   // Reopen a session from the pit wall: the engine resumes it on the next send, and its conversation
   // comes back on screen so the pilot knows where they left off.
-  const resumeSession = useCallback(async (id: string, cwd: string): Promise<string | null> => {
-    const r = await window.electronAPI.sessionsResume(id, cwd, settings as unknown as Record<string, unknown>);
+  const resumeSession = useCallback(async (id: string, cwd: string, machine: Machine = 'local'): Promise<string | null> => {
+    const r = await window.electronAPI.sessionsResume(id, cwd, settings as unknown as Record<string, unknown>, machine);
     if (r.error || !r.history) return r.error ?? 'Could not reopen that session.';
     setIsStreaming(false);
     streamingIdRef.current = null;

@@ -17,6 +17,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   projectPath: string | null;
+  projectRemote?: string | null;   // the remote computer's name when the project is on it
   files: string[];
   onOpenFolder: () => void;
   onRefreshFiles: () => void;
@@ -36,6 +37,7 @@ export default function ProjectDrawer({
   open,
   onClose,
   projectPath,
+  projectRemote,
   files,
   onOpenFolder,
   onRefreshFiles,
@@ -245,7 +247,11 @@ export default function ProjectDrawer({
                   </button>
                 </div>
                 {files.length === 0 ? (
-                  <div style={{ color: '#444', fontSize: 13, padding: '12px 16px' }}>No files found</div>
+                  <div style={{ color: '#444', fontSize: 13, padding: '12px 16px', lineHeight: 1.5 }}>
+                    {projectRemote
+                      ? `This project is on ${projectRemote}. Its files aren't listed here yet; ask Claude about them instead.`
+                      : 'No files found'}
+                  </div>
                 ) : (
                   files.map((f) => (
                     <div
