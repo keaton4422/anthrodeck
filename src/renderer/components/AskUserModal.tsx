@@ -15,9 +15,9 @@ const FACE = [
 ];
 
 const HEADER: Record<NonNullable<PendingQuestion['kind']>, { icon: string; title: string }> = {
-  question: { icon: '📻', title: 'PIT WALL · CLAUDE IS ASKING' },
-  approval: { icon: '🚦', title: 'RACE CONTROL · APPROVE?' },
-  plan: { icon: '🏁', title: 'FORMATION LAP COMPLETE' },
+  question: { icon: '💬', title: 'CLAUDE IS ASKING' },
+  approval: { icon: '🔐', title: 'PERMISSION REQUEST' },
+  plan: { icon: '📋', title: 'PLAN READY' },
 };
 
 export default function AskUserModal({ question, onSelect }: Props) {

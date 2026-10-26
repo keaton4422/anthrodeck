@@ -34,7 +34,7 @@ interface Props {
 // Claude Code model aliases: they track the current generation, so this list never goes stale.
 const MODEL_OPTS: { id: string; label: string; sub: string }[] = [
   { id: 'sonnet', label: 'Sonnet', sub: 'Balanced · default · lower cost' },
-  { id: 'opus', label: 'Opus', sub: 'Most capable · hardest laps' },
+  { id: 'opus', label: 'Opus', sub: 'Most capable · hardest jobs' },
   { id: 'haiku', label: 'Haiku', sub: 'Fastest · cheapest' },
 ];
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DriveMode, TokenUsage } from '../types';
-import { DRIVE_MODE_LABELS } from '../../main/engine/config';
+import { DRIVE_MODE_LABELS, DRIVE_MODE_SHORT } from '../../main/engine/config';
 import { Logo } from './Logo';
 import {
   budgetLevel,
@@ -117,11 +117,11 @@ const MODE_COLORS: Record<DriveMode, string> = { plan: '#6A8CC7', default: '#52A
 function ModePill({ mode, onClick }: { mode: DriveMode; onClick: () => void }) {
   const c = MODE_COLORS[mode];
   return (
-    <button onClick={onClick} title="Drive mode (R1)" style={{
+    <button onClick={onClick} title="Permission mode (R1)" style={{
       background: 'none', border: `1px solid ${c}`, borderRadius: 12, padding: '3px 10px',
       color: c, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', cursor: 'pointer', whiteSpace: 'nowrap',
     }}>
-      {DRIVE_MODE_LABELS[mode].toUpperCase()}
+      {DRIVE_MODE_SHORT[mode].toUpperCase()}
     </button>
   );
 }
@@ -184,7 +184,7 @@ export function StatusBar({
 
         <button
           onClick={onHome}
-          title="Pit wall: all programs and stints"
+          title="Home: projects and sessions"
           style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
         >
           <Logo height={18} />
@@ -239,7 +239,7 @@ export function StatusBar({
             <span className="streaming-dot-1" style={{ width: 5, height: 5, borderRadius: '50%', background: '#CC785C', display: 'inline-block' }} />
             <span className="streaming-dot-2" style={{ width: 5, height: 5, borderRadius: '50%', background: '#CC785C', display: 'inline-block' }} />
             <span className="streaming-dot-3" style={{ width: 5, height: 5, borderRadius: '50%', background: '#CC785C', display: 'inline-block' }} />
-            <span style={{ fontSize: 12, color: '#9A9A9A', marginLeft: 4, letterSpacing: '0.06em' }}>ON TRACK</span>
+            <span style={{ fontSize: 12, color: '#9A9A9A', marginLeft: 4, letterSpacing: '0.06em' }}>WORKING</span>
           </div>
         )}
         {!engineReady && !isListening && !isStreaming && (

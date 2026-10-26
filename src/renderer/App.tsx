@@ -36,12 +36,12 @@ import { EngineSettingsPayload, PendingWrite, PendingQuestion, TeachRequest } fr
 interface TeachLogEntry { tool: string; why: string; timestamp: number; }
 
 const MILESTONE_TOAST: Record<string, string> = {
-  'tests-pass': '🟢 Green flag · tests passing',
-  'tests-fail': '🔴 Red flag · tests failing',
+  'tests-pass': '🟢 Tests passing',
+  'tests-fail': '🔴 Tests failing',
   'build-pass': '✅ Build clean',
-  'build-fail': '🟡 Yellow flag · build failing',
-  commit: '📦 Parc fermé · committed',
-  push: '🏁 Pushed · on the podium',
+  'build-fail': '🟡 Build failing',
+  commit: '📦 Committed',
+  push: '🚀 Pushed',
 };
 
 const SESSION_TOKEN_BUDGET = 200_000;
@@ -57,7 +57,7 @@ export default function App() {
   const [voiceRejecting, setVoiceRejecting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cockpitOpen, setCockpitOpen] = useState(false);
-  // The pit wall is the launch screen; the chat takes over once a stint is under way.
+  // Home is the launch screen; the chat takes over once a session is under way.
   const [showHome, setShowHome] = useState(true);
   const homeNav = useRef<HomeNav>(null);
   const [engineReady, setEngineReady] = useState(true);
@@ -157,7 +157,7 @@ export default function App() {
     const ms = lapStartRef.current != null ? lastLap.at - lapStartRef.current : null;
     lapStartRef.current = null;
     setLapCard({ number: lastLap.number, xp: lastLap.xp, ms, checkpoints: lastLap.checkpoints });
-    showToast(`🏁 Lap ${lastLap.number}${ms != null ? ` · ${formatLapTime(ms)}` : ''} · +${lastLap.xp} XP`);
+    showToast(`✅ Claude finished${ms != null ? ` · ${formatLapTime(ms)}` : ''} · +${lastLap.xp} XP`);
   }, [lastLap, showToast]);
   // Without a plan from Claude, the strip shows what this lap (or the last one) actually achieved.
   const checkpoints = isStreaming ? lap.checkpoints : (lastLap?.checkpoints ?? []);
@@ -165,7 +165,7 @@ export default function App() {
   const cycleMode = useCallback(() => {
     const next = nextDriveMode(mode);
     void setMode(next);
-    showToast(`Drive mode: ${DRIVE_MODE_LABELS[next]}`);
+    showToast(`Permission mode: ${DRIVE_MODE_LABELS[next]}`);
   }, [mode, setMode, showToast]);
 
   // Engine health: checked at start and whenever settings close (an install may have happened).
@@ -233,7 +233,7 @@ export default function App() {
     const unsubEngine = window.electronAPI.onEngineEvent((ev) => {
       if (ev.type === 'sector-done') {
         fireFeedback('sector');
-        showToast(`🟣 Sector complete · ${ev.sector.title}`);
+        showToast(`☑ Task done · ${ev.sector.title}`);
       }
       if (ev.type === 'milestone') {
         const good = ev.kind !== 'tests-fail' && ev.kind !== 'build-fail';
@@ -255,7 +255,7 @@ export default function App() {
     const now = Date.now();
     if (now - lastPitCall.current < 60_000) return;
     lastPitCall.current = now;
-    showToast(`Box, box: context at ${Math.round(context.percentage)}%. Radial → Pit stop.`);
+    showToast(`Context is ${Math.round(context.percentage)}% full. Radial → Compact.`);
     fireFeedback('tool-success');
   }, [context, showToast, fireFeedback]);
 
@@ -268,14 +268,14 @@ export default function App() {
       return;
     }
     if (action === 'pit-stop') {
-      if (isStreaming) { showToast('Pit lane is closed mid-lap.'); return; }
+      if (isStreaming) { showToast('Can\'t compact while Claude is working.'); return; }
       pitStop();
-      showToast('Pit stop: compacting context…');
+      showToast('Compacting context…');
       return;
     }
     if (action === 'drive-mode') { cycleMode(); return; }
     if (action === 'new-session') {
-      // A new stint starts at the pit wall, where the project is picked.
+      // A new session starts at Home, where the project is picked.
       setShowHome(true);
       return;
     }
@@ -356,7 +356,7 @@ export default function App() {
   // play while Claude drives, answer when it radios in.
   const padBusy = modalActive || cockpitOpen;
   const gameOwnsPad = cockpitOpen && !modalActive;
-  // The pit wall takes the D-pad and A/B while it's up and nothing else is asking.
+  // Home takes the D-pad and A/B while it's up and nothing else is asking.
   const homeOwnsPad = showHome && !cockpitOpen && !modalActive && !showSettings && !drawerOpen;
 
   // L1 + face button fires a meta action instead of the button's normal job. Returns true when the
@@ -397,7 +397,7 @@ export default function App() {
     onBPress: (mod) => {
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'B')) return;
-      // On the pit wall, B goes back to the stint on track (when there is one).
+      // On Home, B goes back to the current session (when there is one).
       if (homeOwnsPad) { if (messages.length) setShowHome(false); return; }
       if (pendingTeach) { setTeachRedirectSignal((s) => s + 1); return; }
       if (pendingWrite) {
@@ -469,8 +469,8 @@ export default function App() {
     if (opt) answerQuestion(opt.value);
   }
 
-  // ─── Pit wall actions ──────────────────────────────────────────────────────
-  const currentStint = useMemo(() => {
+  // ─── Home actions ──────────────────────────────────────────────────────────
+  const currentSession = useMemo(() => {
     const first = messages.find((m) => m.role === 'user');
     if (!first) return null;
     const title = first.content.replace(/\s+/g, ' ').trim();
@@ -480,21 +480,21 @@ export default function App() {
     };
   }, [messages, projectPath]);
 
-  const resumeStint = useCallback(async (s: { id: string; cwd: string; title: string }) => {
-    if (isStreaming) { showToast('Claude is still on a lap. Abort it first, or wait for the finish line.'); return; }
+  const openSession = useCallback(async (s: { id: string; cwd: string; title: string }) => {
+    if (isStreaming) { showToast('Claude is still working. Stop it first, or wait for it to finish.'); return; }
     const err = await resumeSession(s.id, s.cwd);
     if (err) { showToast(err); return; }
     await adoptProject(s.cwd);
     setShowHome(false);
-    showToast(`Back on track · ${s.title}`);
+    showToast(`Resumed · ${s.title}`);
   }, [isStreaming, resumeSession, adoptProject, showToast]);
 
-  const newStint = useCallback(async (cwd: string) => {
-    if (isStreaming) { showToast('Claude is still on a lap. Abort it first, or wait for the finish line.'); return; }
+  const startSession = useCallback(async (cwd: string) => {
+    if (isStreaming) { showToast('Claude is still working. Stop it first, or wait for it to finish.'); return; }
     if (cwd !== projectPath) await adoptProject(cwd);
     clearMessages();
     setShowHome(false);
-    showToast('New stint. Fresh tyres.');
+    showToast('New session.');
   }, [isStreaming, projectPath, adoptProject, clearMessages, showToast]);
 
   // Inject file path into input when user taps a file in the drawer
@@ -586,11 +586,11 @@ export default function App() {
         <Home
           ref={homeNav}
           projectPath={projectPath}
-          current={currentStint}
+          current={currentSession}
           onContinue={() => setShowHome(false)}
-          onResume={(s) => void resumeStint(s)}
-          onNew={(cwd) => void newStint(cwd)}
-          onOpenFolder={() => void openFolder().then((p) => { if (p) void newStint(p); })}
+          onResume={(s) => void openSession(s)}
+          onNew={(cwd) => void startSession(cwd)}
+          onOpenFolder={() => void openFolder().then((p) => { if (p) void startSession(p); })}
         />
       ) : (
         <>

@@ -94,7 +94,7 @@ export function toRestoredMessages(msgs: SessionMessage[], now: number = Date.no
   return out;
 }
 
-// ─── Projects: the pit wall's programs ────────────────────────────────────────
+// ─── Projects: the home screen's left column ────────────────────────────────
 
 export interface GitState {
   branch: string | null;    // null = detached HEAD

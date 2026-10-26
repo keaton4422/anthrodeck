@@ -3,6 +3,9 @@ import { useGit } from '../hooks/useGit';
 import VoiceButton from './VoiceButton';
 import { useVoice } from '../hooks/useVoice';
 import { Sector } from '../types';
+
+// The 'race' tab holds the current session: tasks, context, rank and achievements.
+const TAB_LABELS = { files: 'files', git: 'git', race: 'session', learn: 'learn' } as const;
 import { useFlashcards } from '../hooks/useFlashcards';
 import { RaceTab } from './RaceTab';
 import type { SeasonView } from '../hooks/useSeason';
@@ -148,7 +151,7 @@ export default function ProjectDrawer({
             {projectPath && <span style={{ color: '#555', fontSize: 11 }}>change</span>}
           </button>
 
-          {/* Push mode toggle: edits land without a card (Claude Code's acceptEdits). Commands still ask. */}
+          {/* Auto-accept edits toggle: edits land without a card (Claude Code's acceptEdits). Commands still ask. */}
           {projectPath && (
             <div
               onClick={onToggleAutonomous}
@@ -182,7 +185,7 @@ export default function ProjectDrawer({
                 }} />
               </div>
               <span style={{ fontSize: 12, color: autonomousWrites ? '#CC785C' : '#666' }}>
-                Push mode · edits land on their own
+                Auto-accept edits · edits land on their own
               </span>
             </div>
           )}
@@ -225,7 +228,7 @@ export default function ProjectDrawer({
                     textTransform: 'uppercase',
                   }}
                 >
-                  {tab}
+                  {TAB_LABELS[tab]}
                 </button>
               ))}
             </div>

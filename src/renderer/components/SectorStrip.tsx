@@ -23,7 +23,7 @@ export function SectorStrip({ sectors, checkpoints = [] }: { sectors: Sector[]; 
       background: '#111', borderBottom: '1px solid #1E1E1E', flexShrink: 0,
     }}>
       <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: '#777', whiteSpace: 'nowrap' }}>
-        LAP {done}/{sectors.length}
+        TASKS {done}/{sectors.length}
       </span>
       <div style={{ display: 'flex', gap: 3, flex: 1, minWidth: 60 }}>
         {sectors.map((s) => (
@@ -38,7 +38,7 @@ export function SectorStrip({ sectors, checkpoints = [] }: { sectors: Sector[]; 
         fontSize: 11, color: current ? '#BBB' : '#B57CF0', maxWidth: '45%',
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
       }}>
-        {current ? current.title : 'All sectors complete'}
+        {current ? current.title : 'All tasks done'}
       </span>
     </div>
   );
@@ -51,7 +51,7 @@ function CheckpointStrip({ checkpoints }: { checkpoints: Checkpoint[] }) {
       background: '#111', borderBottom: '1px solid #1E1E1E', flexShrink: 0, overflow: 'hidden',
     }}>
       <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: '#777', whiteSpace: 'nowrap' }}>
-        CHECKPOINTS
+        PROGRESS
       </span>
       {checkpoints.map((c, i) => (
         <span key={i} style={{

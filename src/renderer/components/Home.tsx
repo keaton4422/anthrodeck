@@ -3,10 +3,10 @@ import type { PitWall, ProjectTile, SessionCard } from '../types';
 import { timeAgo } from '../lib/timeAgo';
 import { Logo } from './Logo';
 
-// The pit wall: the launch screen. Every program on this device (the folders Claude Code has
-// worked in) with its git state, the stints run in each, and the session on track right now.
-// From here the pilot sends the next stint out: carry on with the current one, pick an old one
-// back up to make more changes, or start fresh in any project.
+// Home: the launch screen. Every project on this device (the folders Claude Code has worked in)
+// with its git state, the sessions run in each, and the session open right now. From here the
+// pilot carries on with the current session, resumes an old one to make more changes, or starts a
+// new one in any project. Same schema as Claude Desktop, driven like a cockpit.
 //
 // Built for the pad first: two columns, the D-pad moves (up/down within a column, left/right
 // between them), A goes. App forwards pad input through the `HomeNav` handle; arrow keys and Enter
@@ -19,7 +19,7 @@ export interface HomeNav {
 
 interface Props {
   projectPath: string | null;
-  // The conversation the cockpit has open, if any: offered first as "on track".
+  // The conversation the cockpit has open, if any: offered first as the current session.
   current: { title: string; project: string | null } | null;
   onContinue: () => void;
   onResume: (s: SessionCard) => void;
@@ -32,7 +32,7 @@ type Item =
   | { kind: 'project'; project: ProjectTile }
   | { kind: 'open' }
   | { kind: 'new'; cwd: string; name: string }
-  | { kind: 'stint'; session: SessionCard };
+  | { kind: 'session'; session: SessionCard };
 
 const C = {
   panel: '#151515',
@@ -62,7 +62,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     return () => { live = false; };
   }, []);
 
-  // The open project leads even if it has no stints yet, so "new stint here" is always one press.
+  // The open project leads even if it has no sessions yet, so "new session here" is one press.
   const projects = useMemo<ProjectTile[]>(() => {
     const list = wall?.projects ?? [];
     if (projectPath && !list.some((p) => p.cwd === projectPath)) {
@@ -78,7 +78,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
   ], [current, projects]);
 
   // The right column shows the project under the cursor; otherwise the last one visited, then the
-  // open project (so "on track" sits beside its own stints), then the most recent.
+  // open project (so the current session sits beside its own project's list), then the most recent.
   const focusedLeft = left[Math.min(row[0], left.length - 1)];
   const shownProject = useMemo(() => {
     if (focusedLeft?.kind === 'project') return focusedLeft.project;
@@ -90,7 +90,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
 
   const right = useMemo<Item[]>(() => shownProject ? [
     { kind: 'new', cwd: shownProject.cwd, name: shownProject.name } as Item,
-    ...shownProject.sessions.map((session) => ({ kind: 'stint', session } as Item)),
+    ...shownProject.sessions.map((session) => ({ kind: 'session', session } as Item)),
   ] : [], [shownProject]);
 
   const columns = [left, right];
@@ -100,7 +100,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     if (item.kind === 'continue') onContinue();
     else if (item.kind === 'open') onOpenFolder();
     else if (item.kind === 'new') onNew(item.cwd);
-    else if (item.kind === 'stint') onResume(item.session);
+    else if (item.kind === 'session') onResume(item.session);
     else if (item.kind === 'project') { setCol(1); setRow((r) => [r[0], 0]); }
   }, [onContinue, onOpenFolder, onNew, onResume]);
 
@@ -149,9 +149,9 @@ const Home = forwardRef<HomeNav, Props>(function Home(
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
         <Logo height={30} />
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.18em', color: C.text }}>PIT WALL</div>
+          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.18em', color: C.text }}>HOME</div>
           <div style={{ fontSize: 12, color: C.faint, marginTop: 2 }}>
-            Programs on this device and their stints. D-pad to move, A to go, B back to the track.
+            Projects and sessions on this device. D-pad to move, A to open, B back to the current session.
           </div>
         </div>
       </div>
@@ -161,14 +161,14 @@ const Home = forwardRef<HomeNav, Props>(function Home(
       )}
 
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 5fr) minmax(0, 7fr)', gap: 18, minHeight: 0 }}>
-        {/* Programs */}
-        <Column title="PROGRAMS">
+        {/* Projects */}
+        <Column title="PROJECTS">
           {left.map((item, i) => {
             const focused = isFocused(0, i);
             if (item.kind === 'continue' && current) {
               return (
                 <Row key="continue" focused={focused} accent onClick={() => activate(item)}>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: C.clay }}>ON TRACK</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: C.clay }}>CURRENT SESSION</div>
                   <div style={{ fontSize: 14, color: C.text, marginTop: 3 }}>{current.title}</div>
                   <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
                     {current.project ?? 'No project'} · A to continue
@@ -197,11 +197,11 @@ const Home = forwardRef<HomeNav, Props>(function Home(
           })}
         </Column>
 
-        {/* Stints for the project under the cursor */}
-        <Column title={shownProject ? `STINTS · ${shownProject.name.toUpperCase()}` : 'STINTS'}>
+        {/* Sessions in the project under the cursor */}
+        <Column title={shownProject ? `SESSIONS · ${shownProject.name.toUpperCase()}` : 'SESSIONS'}>
           {!shownProject && (
             <div style={{ fontSize: 13, color: C.faint, padding: '10px 4px', lineHeight: 1.6 }}>
-              No programs on this device yet. Open a project folder to start the first stint.
+              No projects on this device yet. Open a project folder to start the first session.
             </div>
           )}
           {right.map((item, i) => {
@@ -209,24 +209,24 @@ const Home = forwardRef<HomeNav, Props>(function Home(
             if (item.kind === 'new') {
               return (
                 <Row key="new" focused={focused} accent onClick={() => activate(item)}>
-                  <div style={{ fontSize: 14, color: C.text }}>＋ New stint in {item.name}</div>
+                  <div style={{ fontSize: 14, color: C.text }}>＋ New session in {item.name}</div>
                   <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>A fresh Claude Code session in this folder</div>
                 </Row>
               );
             }
-            if (item.kind === 'stint') {
+            if (item.kind === 'session') {
               const s = item.session;
-              const onTrack = s.id === wall?.currentId;
+              const isCurrent = s.id === wall?.currentId;
               return (
                 <Row key={s.id} focused={focused} onClick={() => activate(item)}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                     <span style={{ fontSize: 14, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {s.title}
                     </span>
-                    {onTrack && <Tag>on track</Tag>}
+                    {isCurrent && <Tag>current</Tag>}
                   </div>
                   <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
-                    {s.branch ? `⎇ ${s.branch} · ` : ''}{timeAgo(s.lastModified)} · A to pick it back up
+                    {s.branch ? `⎇ ${s.branch} · ` : ''}{timeAgo(s.lastModified)} · A to resume
                   </div>
                 </Row>
               );
@@ -297,8 +297,8 @@ function GitLine({ project }: { project: ProjectTile }) {
     bits.push(<span key="n">not a git repo</span>);
   }
   bits.push(<span key="s">{project.sessions.length
-    ? `${project.sessions.length} stint${project.sessions.length === 1 ? '' : 's'} · ${timeAgo(project.lastModified)}`
-    : 'no stints yet'}</span>);
+    ? `${project.sessions.length} session${project.sessions.length === 1 ? '' : 's'} · ${timeAgo(project.lastModified)}`
+    : 'no sessions yet'}</span>);
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', fontSize: 12, color: C.dim, marginTop: 4 }}>
       {bits}

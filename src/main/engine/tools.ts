@@ -46,7 +46,7 @@ export function toolLabel(name: string, input: Input, root: string): string {
     case 'Task': return `agent: ${str(input.description) || str(input.subagent_type) || 'subagent'}`;
     case 'TodoWrite':
     case 'TaskCreate':
-    case 'TaskUpdate': return 'plan: sectors updated';
+    case 'TaskUpdate': return 'plan: tasks updated';
     default: return `tool: ${name.replace(/^mcp__/, '').replace(/__/g, ' · ')}`;
   }
 }

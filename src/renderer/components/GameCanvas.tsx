@@ -144,7 +144,7 @@ export default function GameCanvas({
         }}>
           {hud}
         </span>
-        <span title="Drive mode (R1) · career" style={{ fontSize: 11, color: '#9A9A9A', whiteSpace: 'nowrap' }}>
+        <span title="Permission mode (R1) · pilot rank" style={{ fontSize: 11, color: '#9A9A9A', whiteSpace: 'nowrap' }}>
           {DRIVE_MODE_LABELS[driveMode]} · <span style={{ color: '#ECECEC', fontWeight: 700 }}>{career.tier}</span>{' '}
           <span style={{ color: '#CC785C' }}>L{career.level}</span>
         </span>
@@ -184,7 +184,7 @@ export default function GameCanvas({
               display: 'flex', flexDirection: 'column', gap: 4, pointerEvents: 'none',
             }}>
               <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#CC785C' }}>
-                🏁 LAP {shownCard.number} COMPLETE
+                ✅ CLAUDE FINISHED
               </span>
               <span style={{ fontFamily: 'monospace', fontSize: 18, color: '#ECECEC' }}>
                 {shownCard.ms != null ? formatLapTime(shownCard.ms) : '—'}
@@ -203,7 +203,7 @@ export default function GameCanvas({
               justifyContent: 'center', background: 'rgba(10,11,13,0.7)', flexDirection: 'column', gap: 8,
             }}>
               <span style={{ color: '#CC785C', fontSize: 20, fontWeight: 700 }}>Paused</span>
-              <span style={{ color: '#9A9A9A', fontSize: 14 }}>Pit wall on the radio: answer with the face buttons and you&apos;re back on track.</span>
+              <span style={{ color: '#9A9A9A', fontSize: 14 }}>Claude needs an answer: use the face buttons and you&apos;re straight back in.</span>
             </div>
           )}
         </div>
