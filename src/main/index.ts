@@ -13,7 +13,8 @@ import { updaterErrorMessage } from './updaterMessages';
 import { whatsNew, type RawReleaseNotes, type UpdateAvailable } from './releaseNotes';
 import { LATEST_RELEASE_API, parseLatestRelease } from './manualUpdate';
 import { quitWatchdog } from './quitWatchdog';
-import { listFolders, folderNameProblem } from './folders';
+import { listFolders, folderNameProblem, type FolderListing } from './folders';
+import { remotePython, FOLDERS_PY } from './remote';
 import { getFlashcards, clearFlashcards, generateFlashcard } from './flashcards';
 import { undoLastWrite, recordWrite } from './writeHistory';
 import {
@@ -171,7 +172,14 @@ ipcMain.handle('project:open-dialog', async () => {
   return result.filePaths[0] ?? null;
 });
 ipcMain.handle('project:get', () => store.get('projectPath', null));
-ipcMain.handle('project:set', (_, p: string) => { store.set('projectPath', p); });
+// `host`: the remote computer the project lives on (main/remote.ts), or null for this one.
+ipcMain.handle('project:set', (_, p: string, host?: string | null) => { store.set('projectPath', p); store.set('projectHost', host ?? null); });
+ipcMain.handle('project:host', () => (store.get('projectHost', null) as string | null) || null);
+
+// Some actions only make sense on this device's disk. For a project on the remote computer they
+// explain themselves instead of quietly acting on the wrong machine.
+const remoteProject = () => !!store.get('projectHost', null);
+const LOCAL_ONLY = 'This project is on your other computer. File, git and run buttons work on this device\'s projects for now; ask Claude to do it instead.';
 
 // ─── File System IPC (scoped to project root) ─────────────────────────────────
 const IGNORE_DIRS = new Set(['node_modules', '.git', '.vite', 'out', 'dist', '__pycache__', '.DS_Store']);
@@ -195,13 +203,26 @@ const folderDeps = {
   readDir: (d: string) => fs.readdirSync(d, { withFileTypes: true }).map((e) => ({ name: e.name, isDir: e.isDirectory() })),
   exists: (p: string) => fs.existsSync(p),
 };
-ipcMain.handle('folders:list', (_, dir?: string | null) => {
+const remoteHostFor = (machine?: string) => (machine === 'remote'
+  ? ((store.get('remote', null) as { host?: string } | null)?.host ?? null)
+  : null);
+ipcMain.handle('folders:list', async (_, dir?: string | null, machine?: 'local' | 'remote') => {
+  const host = remoteHostFor(machine);
+  if (host) {
+    try { return await remotePython<FolderListing>(host, FOLDERS_PY, ['list', dir || '~']); }
+    catch (e) { return { path: dir || '~', parent: null, folders: [], error: (e as Error).message }; }
+  }
   const start = dir || (store.get('projectPath', null) as string | null) || os.homedir();
   return listFolders(start, folderDeps);
 });
-ipcMain.handle('folders:create', (_, parent: string, name: string) => {
+ipcMain.handle('folders:create', async (_, parent: string, name: string, machine?: 'local' | 'remote') => {
   const problem = folderNameProblem(name);
   if (problem) return { error: problem };
+  const host = remoteHostFor(machine);
+  if (host) {
+    try { return await remotePython<{ path?: string; error?: string }>(host, FOLDERS_PY, ['mkdir', `${parent.replace(/\/$/, '')}/${name.trim()}`]); }
+    catch (e) { return { error: (e as Error).message }; }
+  }
   const target = path.join(path.resolve(parent), name.trim());
   if (fs.existsSync(target)) return { error: 'A folder with that name is already here.' };
   try {
@@ -213,6 +234,7 @@ ipcMain.handle('folders:create', (_, parent: string, name: string) => {
 });
 
 ipcMain.handle('fs:list', (_, subDir?: string) => {
+  if (remoteProject()) return [];
   const root = store.get('projectPath', null) as string | null;
   if (!root) return [];
   const base = subDir ? path.join(root, subDir) : root;
@@ -247,12 +269,14 @@ function runGit(command: string, cwd: string): Promise<{ stdout: string; stderr:
 }
 
 ipcMain.handle('git:status', async () => {
+  if (remoteProject()) return { stdout: '', stderr: LOCAL_ONLY };
   const root = store.get('projectPath', null) as string | null;
   if (!root) return { stdout: '', stderr: 'No project open' };
   return runGit('git status --short', root);
 });
 
 ipcMain.handle('git:addAndCommit', async (_, message: string) => {
+  if (remoteProject()) return { stdout: '', stderr: LOCAL_ONLY };
   const root = store.get('projectPath', null) as string | null;
   if (!root) return { stdout: '', stderr: 'No project open' };
   const add = await runGit('git add .', root);
@@ -261,6 +285,7 @@ ipcMain.handle('git:addAndCommit', async (_, message: string) => {
 });
 
 ipcMain.handle('git:push', async () => {
+  if (remoteProject()) return { stdout: '', stderr: LOCAL_ONLY };
   const root = store.get('projectPath', null) as string | null;
   if (!root) return { stdout: '', stderr: 'No project open' };
   return runGit('git push', root);
@@ -268,6 +293,7 @@ ipcMain.handle('git:push', async () => {
 
 // ─── Shell Execution IPC ──────────────────────────────────────────────────────
 ipcMain.handle('shell:run', async (_, { code, language }: { code: string; language: string }) => {
+  if (remoteProject()) return { stdout: '', stderr: LOCAL_ONLY, error: LOCAL_ONLY };
   return new Promise<{ stdout: string; stderr: string; error: string | null }>((resolve) => {
     const projectPath = store.get('projectPath', null) as string | null;
     const cwd = projectPath ?? os.tmpdir();

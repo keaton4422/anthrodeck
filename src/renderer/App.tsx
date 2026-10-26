@@ -13,6 +13,7 @@ import WritePreview from './components/WritePreview';
 import Home, { type HomeNav } from './components/Home';
 import FolderPicker from './components/FolderPicker';
 import type { PadFocus } from './hooks/usePadFocus';
+import type { Machine, RemoteTarget } from './types';
 import { SectorStrip } from './components/SectorStrip';
 import { useFeedback } from './hooks/useFeedback';
 import {
@@ -64,7 +65,7 @@ export default function App() {
   const homeNav = useRef<HomeNav>(null);
   const settingsNav = useRef<PadFocus | null>(null);
   // The in-app folder picker (the system dialog can't open in the Deck's Game Mode).
-  const [folderPick, setFolderPick] = useState<null | { onPick: (p: string) => void }>(null);
+  const [folderPick, setFolderPick] = useState<null | { onPick: (p: string) => void; machine: Machine }>(null);
   const pickerNav = useRef<PadFocus | null>(null);
   // The cockpit's game menu (every game and mod); Start opens it while the cockpit is up.
   const [gameMenuOpen, setGameMenuOpen] = useState(false);
@@ -104,7 +105,11 @@ export default function App() {
   const [extendedThinking, setExtendedThinking] = useStore<boolean>('extendedThinking', false);
   const [effort, setEffort] = useStore<string>('effort', 'high');
 
-  const { projectPath, files, refreshFiles, adoptProject } = useProject();
+  const { projectPath, projectHost, files, refreshFiles, adoptProject } = useProject();
+  // The remote computer from Settings (null when none is set up); reloaded when Settings closes.
+  const [remoteTarget, setRemoteTarget] = useState<RemoteTarget | null>(null);
+  useEffect(() => { if (!showSettings) void window.electronAPI.remoteGet().then(setRemoteTarget); }, [showSettings]);
+  const hostFor = (machine: Machine) => (machine === 'remote' ? remoteTarget?.host ?? null : null);
 
   const engineSettings = useMemo<EngineSettingsPayload>(
     () => ({ model, effort, thinking: extendedThinking, teachMode, teachTimeout }),
@@ -436,6 +441,7 @@ export default function App() {
       }
     },
     onYPress: (mod) => {
+      if (homeOwnsPad) { homeNav.current?.switchMachine(); return; }
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'Y')) return;
       if (pendingQuestion) answerOption(3);
@@ -522,22 +528,24 @@ export default function App() {
     };
   }, [messages, projectPath]);
 
-  const openSession = useCallback(async (s: { id: string; cwd: string; title: string }) => {
+  const openSession = useCallback(async (s: { id: string; cwd: string; title: string }, machine: Machine = 'local') => {
     if (isStreaming) { showToast('Claude is still working. Stop it first, or wait for it to finish.'); return; }
-    const err = await resumeSession(s.id, s.cwd);
+    if (machine === 'remote') showToast(`Connecting to ${remoteTarget?.label ?? 'your other computer'}…`);
+    const err = await resumeSession(s.id, s.cwd, machine);
     if (err) { showToast(err); return; }
-    await adoptProject(s.cwd);
+    await adoptProject(s.cwd, hostFor(machine));
     setShowHome(false);
-    showToast(`Resumed · ${s.title}`);
-  }, [isStreaming, resumeSession, adoptProject, showToast]);
+    showToast(`Resumed · ${s.title}${machine === 'remote' ? ` · on ${remoteTarget?.label}` : ''}`);
+  }, [isStreaming, resumeSession, adoptProject, showToast, remoteTarget]);
 
-  const startSession = useCallback(async (cwd: string) => {
+  const startSession = useCallback(async (cwd: string, machine: Machine = 'local') => {
     if (isStreaming) { showToast('Claude is still working. Stop it first, or wait for it to finish.'); return; }
-    if (cwd !== projectPath) await adoptProject(cwd);
+    const host = hostFor(machine);
+    if (cwd !== projectPath || host !== projectHost) await adoptProject(cwd, host);
     clearMessages();
     setShowHome(false);
-    showToast('New session.');
-  }, [isStreaming, projectPath, adoptProject, clearMessages, showToast]);
+    showToast(machine === 'remote' ? `New session on ${remoteTarget?.label}.` : 'New session.');
+  }, [isStreaming, projectPath, projectHost, adoptProject, clearMessages, showToast, remoteTarget]);
 
   // Inject file path into input when user taps a file in the drawer
   const handleFileClick = useCallback((file: string) => {
@@ -561,6 +569,7 @@ export default function App() {
         isStreaming={isStreaming}
         engineReady={engineReady}
         projectPath={projectPath}
+        projectHostLabel={projectHost ? remoteTarget?.label ?? projectHost : null}
         usage={sessionUsage}
         budget={SESSION_TOKEN_BUDGET}
         contextPct={context?.percentage ?? null}
@@ -580,8 +589,9 @@ export default function App() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         projectPath={projectPath}
+        projectRemote={projectHost ? remoteTarget?.label ?? projectHost : null}
         files={files}
-        onOpenFolder={() => setFolderPick({ onPick: (p) => { setFolderPick(null); void adoptProject(p); } })}
+        onOpenFolder={() => setFolderPick({ machine: 'local', onPick: (p) => { setFolderPick(null); void adoptProject(p); } })}
         onRefreshFiles={refreshFiles}
         autonomousWrites={mode === 'acceptEdits'}
         onToggleAutonomous={() => void setMode(mode === 'acceptEdits' ? 'default' : 'acceptEdits')}
@@ -629,11 +639,12 @@ export default function App() {
         <Home
           ref={homeNav}
           projectPath={projectPath}
+          projectHost={projectHost}
           current={currentSession}
           onContinue={() => setShowHome(false)}
-          onResume={(s) => void openSession(s)}
-          onNew={(cwd) => void startSession(cwd)}
-          onOpenFolder={() => setFolderPick({ onPick: (p) => { setFolderPick(null); void startSession(p); } })}
+          onResume={(s, machine) => void openSession(s, machine)}
+          onNew={(cwd, machine) => void startSession(cwd, machine)}
+          onOpenFolder={(machine) => setFolderPick({ machine, onPick: (p) => { setFolderPick(null); void startSession(p, machine); } })}
         />
       ) : (
         <>
@@ -727,7 +738,13 @@ export default function App() {
       )}
 
       {folderPick && (
-        <FolderPicker padNav={pickerNav} onPick={folderPick.onPick} onCancel={() => setFolderPick(null)} />
+        <FolderPicker
+          padNav={pickerNav}
+          machine={folderPick.machine}
+          title={folderPick.machine === 'remote' ? `Open a folder on ${remoteTarget?.label ?? 'your other computer'}` : undefined}
+          onPick={folderPick.onPick}
+          onCancel={() => setFolderPick(null)}
+        />
       )}
 
       {/* An edit card raised mid-game: shown over the cockpit so the pilot can answer it with the

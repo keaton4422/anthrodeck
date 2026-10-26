@@ -81,6 +81,24 @@ export function SettingsPanel({
   }, []);
   const keyFolded = !!claude?.signedIn && !apiKey && !keyOpen;
 
+  // Remote computer: run Claude Code on another machine (your Mac) over SSH, from Home's switcher.
+  const [remoteHost, setRemoteHost] = useState('');
+  const [remoteSaved, setRemoteSaved] = useState<string | null>(null);
+  const [remoteStatus, setRemoteStatus] = useState<{ busy?: boolean; ok?: boolean; text: string } | null>(null);
+  useEffect(() => {
+    void window.electronAPI.remoteGet().then((t) => { setRemoteSaved(t?.host ?? null); setRemoteHost(t?.host ?? ''); });
+  }, []);
+  const saveRemote = async () => {
+    const t = await window.electronAPI.remoteSet(remoteHost.trim() || null);
+    setRemoteSaved(t?.host ?? null);
+    if (!t) { setRemoteStatus(null); return; }
+    setRemoteStatus({ busy: true, text: `Connecting to ${t.label}…` });
+    const r = await window.electronAPI.remoteTest();
+    setRemoteStatus(r.ok
+      ? { ok: true, text: `✓ Connected to ${t.label} · Claude Code ${r.version?.replace(/\s*\(Claude Code\)/, '') ?? ''}. Press Y on Home to see its projects.` }
+      : { ok: false, text: r.error ?? 'Could not connect.' });
+  };
+
   const { status, checkForUpdates, downloadUpdate, installUpdate } = useUpdater();
 
   const handleSave = () => {
@@ -167,6 +185,38 @@ export function SettingsPanel({
             </button>
           )}
         </section>
+
+        {/* ── Remote computer ────────────────────────────────────────── */}
+        <section>
+          <label style={labelStyle}>Remote computer</label>
+          <p style={hintStyle}>
+            Drive Claude Code on another computer, like your Mac: its projects and sessions show on Home
+            (press Y to switch), and Claude runs there, in its folders. Needs SSH: on a Mac, turn on Remote
+            Login (System Settings → General → Sharing), and add this Deck&apos;s key to it.
+          </p>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <input
+              value={remoteHost}
+              onChange={(e) => setRemoteHost(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void saveRemote(); }}
+              placeholder="you@your-mac.local"
+              style={{
+                flex: 1, background: '#242424', border: '1px solid #3A3A3A', borderRadius: 8, padding: '10px 12px',
+                color: '#ECECEC', fontSize: 14, outline: 'none', fontFamily: 'JetBrains Mono, Consolas, monospace',
+              }}
+            />
+            <button onClick={() => void saveRemote()} disabled={!!remoteStatus?.busy} style={{ ...linkBtn, color: '#CC785C', borderColor: '#CC785C' }}>
+              {remoteHost.trim() || !remoteSaved ? 'Save & test' : 'Remove'}
+            </button>
+          </div>
+          {remoteStatus && (
+            <p style={{ ...hintStyle, marginTop: 8, color: remoteStatus.busy ? '#9A9A9A' : remoteStatus.ok ? '#9AC9A8' : '#D9A35B' }}>
+              {remoteStatus.text}
+            </p>
+          )}
+        </section>
+
+        <Divider />
 
         {/* ── API Key (optional when signed in) ─────────────────────────── */}
         {!keyFolded && (

@@ -1,5 +1,5 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import type { PitWall, ProjectTile, SessionCard } from '../types';
+import type { Machine, PitWall, ProjectTile, RemoteTarget, SessionCard } from '../types';
 import { timeAgo } from '../lib/timeAgo';
 import { Logo } from './Logo';
 
@@ -11,20 +11,25 @@ import { Logo } from './Logo';
 // Built for the pad first: two columns, the D-pad moves (up/down within a column, left/right
 // between them), A goes. App forwards pad input through the `HomeNav` handle; arrow keys and Enter
 // work too.
+//
+// With a remote computer set up (Settings → Remote computer), Home switches between "This device"
+// and that computer (Y, or the tabs): its projects and sessions, run there over SSH.
 
 export interface HomeNav {
   move(dx: number, dy: number): void;
   activate(): void;
+  switchMachine(): void;
 }
 
 interface Props {
   projectPath: string | null;
+  projectHost: string | null;     // the open project's computer (null = this one)
   // The conversation the cockpit has open, if any: offered first as the current session.
   current: { title: string; project: string | null } | null;
   onContinue: () => void;
-  onResume: (s: SessionCard) => void;
-  onNew: (cwd: string) => void;
-  onOpenFolder: () => void;
+  onResume: (s: SessionCard, machine: Machine) => void;
+  onNew: (cwd: string, machine: Machine) => void;
+  onOpenFolder: (machine: Machine) => void;
 }
 
 type Item =
@@ -49,27 +54,38 @@ const C = {
 const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
 
 const Home = forwardRef<HomeNav, Props>(function Home(
-  { projectPath, current, onContinue, onResume, onNew, onOpenFolder }, ref,
+  { projectPath, projectHost, current, onContinue, onResume, onNew, onOpenFolder }, ref,
 ) {
   const [wall, setWall] = useState<PitWall | null>(null);
   const [col, setCol] = useState(0);
   const [row, setRow] = useState<[number, number]>([0, 0]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [remote, setRemote] = useState<RemoteTarget | null>(null);
+  // Start on the computer the open project is on.
+  const [machine, setMachine] = useState<Machine>(projectHost ? 'remote' : 'local');
 
+  useEffect(() => { void window.electronAPI.remoteGet().then(setRemote); }, []);
   useEffect(() => {
     let live = true;
-    void window.electronAPI.sessionsList().then((w) => { if (live) setWall(w); });
+    setWall(null);
+    setRow([0, 0]); setCol(0); setSelected(null);
+    void window.electronAPI.sessionsList(machine).then((w) => { if (live) setWall(w); });
     return () => { live = false; };
-  }, []);
+  }, [machine]);
+
+  // Is this path the open project, on the computer being shown?
+  const isOpen = useCallback((cwd: string) =>
+    cwd === projectPath && (machine === 'remote') === !!projectHost, [projectPath, projectHost, machine]);
+  const where = machine === 'remote' && remote ? remote.label : 'this device';
 
   // The open project leads even if it has no sessions yet, so "new session here" is one press.
   const projects = useMemo<ProjectTile[]>(() => {
     const list = wall?.projects ?? [];
-    if (projectPath && !list.some((p) => p.cwd === projectPath)) {
+    if (projectPath && (machine === 'remote') === !!projectHost && !list.some((p) => p.cwd === projectPath)) {
       return [{ cwd: projectPath, name: folderName(projectPath), lastModified: 0, sessions: [], git: null }, ...list];
     }
     return list;
-  }, [wall, projectPath]);
+  }, [wall, projectPath, projectHost, machine]);
 
   const left = useMemo<Item[]>(() => [
     ...(current ? [{ kind: 'continue' } as Item] : []),
@@ -83,9 +99,9 @@ const Home = forwardRef<HomeNav, Props>(function Home(
   const shownProject = useMemo(() => {
     if (focusedLeft?.kind === 'project') return focusedLeft.project;
     return projects.find((p) => p.cwd === selected)
-      ?? projects.find((p) => p.cwd === projectPath)
+      ?? projects.find((p) => isOpen(p.cwd))
       ?? projects[0] ?? null;
-  }, [focusedLeft, projects, selected, projectPath]);
+  }, [focusedLeft, projects, selected, isOpen]);
   useEffect(() => { if (focusedLeft?.kind === 'project') setSelected(focusedLeft.project.cwd); }, [focusedLeft]);
 
   const right = useMemo<Item[]>(() => shownProject ? [
@@ -98,11 +114,11 @@ const Home = forwardRef<HomeNav, Props>(function Home(
   const activate = useCallback((item: Item | undefined) => {
     if (!item) return;
     if (item.kind === 'continue') onContinue();
-    else if (item.kind === 'open') onOpenFolder();
-    else if (item.kind === 'new') onNew(item.cwd);
-    else if (item.kind === 'session') onResume(item.session);
+    else if (item.kind === 'open') onOpenFolder(machine);
+    else if (item.kind === 'new') onNew(item.cwd, machine);
+    else if (item.kind === 'session') onResume(item.session, machine);
     else if (item.kind === 'project') { setCol(1); setRow((r) => [r[0], 0]); }
-  }, [onContinue, onOpenFolder, onNew, onResume]);
+  }, [onContinue, onOpenFolder, onNew, onResume, machine]);
 
   const stateRef = useRef({ col, row, columns });
   stateRef.current = { col, row, columns };
@@ -125,7 +141,10 @@ const Home = forwardRef<HomeNav, Props>(function Home(
       const { col: c, row: r, columns: cols } = stateRef.current;
       activate(cols[c][r[c]]);
     },
-  }), [activate]);
+    switchMachine() {
+      if (remote) setMachine((m) => (m === 'local' ? 'remote' : 'local'));
+    },
+  }), [activate, remote]);
   useImperativeHandle(ref, () => nav, [nav]);
 
   // Keyboard, for the desktop and a Bluetooth keyboard.
@@ -151,10 +170,28 @@ const Home = forwardRef<HomeNav, Props>(function Home(
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.18em', color: C.text }}>HOME</div>
           <div style={{ fontSize: 12, color: C.faint, marginTop: 2 }}>
-            Projects and sessions on this device. D-pad to move, A to open, B back to the current session.
+            Projects and sessions on {where}. D-pad to move, A to open, B back to the current session.
           </div>
         </div>
+        {remote && (
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {(['local', 'remote'] as const).map((m) => (
+              <button key={m} onClick={() => setMachine(m)} style={{
+                padding: '6px 12px', borderRadius: 7, fontSize: 13, cursor: 'pointer', fontWeight: 600,
+                border: `1px solid ${machine === m ? C.clay : C.line}`,
+                background: machine === m ? C.clayBg : C.panel, color: machine === m ? C.clay : C.dim,
+              }}>
+                {m === 'local' ? 'This device' : `💻 ${remote.label}`}
+              </button>
+            ))}
+            <span style={{ fontSize: 11, color: C.faint, marginLeft: 4 }}>Y to switch</span>
+          </div>
+        )}
       </div>
+
+      {machine === 'remote' && !wall && (
+        <div style={{ fontSize: 13, color: C.dim }}>Connecting to {remote?.label ?? 'your other computer'}…</div>
+      )}
 
       {/* Sessions live on the machine they ran on, so a fresh Deck has none: say so plainly. */}
       {wall && !wall.error && !wall.projects.some((p) => p.sessions.length) && (
@@ -162,13 +199,16 @@ const Home = forwardRef<HomeNav, Props>(function Home(
           fontSize: 13, color: C.dim, lineHeight: 1.55, padding: '10px 12px', borderRadius: 8,
           border: `1px solid ${C.line}`, background: C.panel,
         }}>
-          No Claude Code sessions on this device yet. Sessions stay on the machine they ran on, so ones
-          from your other computers won&apos;t show up here. Open a project folder to start the first one.
+          {machine === 'remote'
+            ? <>No Claude Code sessions on {where} yet. Open one of its folders to start the first one.</>
+            : <>No Claude Code sessions on this device yet. Sessions stay on the machine they ran on, so ones
+              from your other computers won&apos;t show up here{remote ? <> (press Y for {remote.label})</> : null}.
+              Open a project folder to start the first one.</>}
         </div>
       )}
 
       {wall?.error && (
-        <div style={{ fontSize: 12, color: C.amber }}>Couldn&apos;t read Claude Code&apos;s sessions: {wall.error}</div>
+        <div style={{ fontSize: 12, color: C.amber }}>Couldn&apos;t read Claude Code&apos;s sessions on {where}: {wall.error}</div>
       )}
 
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 5fr) minmax(0, 7fr)', gap: 18, minHeight: 0 }}>
@@ -194,7 +234,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
                 <Row key={p.cwd} focused={focused} selected={open && col === 1} onClick={() => { setCol(0); setRow([i, row[1]]); }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                     <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{p.name}</span>
-                    {p.cwd === projectPath && <Tag>open</Tag>}
+                    {isOpen(p.cwd) && <Tag>open</Tag>}
                   </div>
                   <GitLine project={p} />
                 </Row>

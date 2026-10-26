@@ -23,6 +23,7 @@ import type {
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import { COCKPIT_PROMPT, DRIVE_MODE_LABELS, firstSentence, type DriveMode, type EngineSettings } from './config';
+import { remoteSpawner } from '../remote';
 import { displayPath, filePathOf, isQuietTool, isWriteTool, proposedContent, toolLabel, SectorBoard, type Sector } from './tools';
 import { newTranslateState, translate, type CockpitEvent, type TranslateState } from './translate';
 
@@ -54,6 +55,11 @@ export interface EngineEnv {
   projectPath: string;
   executable: string;
   apiKey: string; // '' → Claude Code uses its own configured auth
+  // A project on another computer: Claude Code runs there over SSH (see main/remote.ts), in its
+  // folders and under its own sign-in. `executable` is ignored; `claudePath` is the remote one.
+  remote?: { host: string; claudePath: string };
+  // Reads a project file for edit previews: the disk here, or the remote machine over SSH.
+  readText?: (absPath: string) => Promise<string | null>;
 }
 
 export type QueryFn = (params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => Query;
@@ -115,6 +121,7 @@ export class EngineSession {
   get isBusy() { return this.busy; }
   get currentSessionId() { return this.sessionId; }
   get projectPath() { return this.env.projectPath; }
+  get remoteHost() { return this.env.remote?.host ?? null; }
 
   send(text: string): void {
     const trimmed = text.trim();
@@ -239,7 +246,10 @@ export class EngineSession {
         TaskCreated: [{ hooks: [this.taskHook] }],
         TaskCompleted: [{ hooks: [this.taskHook] }],
       },
-      pathToClaudeCodeExecutable: this.env.executable,
+      pathToClaudeCodeExecutable: this.env.remote ? this.env.remote.claudePath : this.env.executable,
+      ...(this.env.remote
+        ? { spawnClaudeCodeProcess: remoteSpawner(this.env.remote.host, this.env.remote.claudePath, this.env.projectPath) as never }
+        : {}),
       env: {
         ...process.env,
         ...(this.env.apiKey ? { ANTHROPIC_API_KEY: this.env.apiKey } : {}),
@@ -319,6 +329,11 @@ export class EngineSession {
     for (const sector of done) this.port.emit({ type: 'sector-done', sector });
   }
 
+  private async readText(abs: string): Promise<string | null> {
+    if (this.env.readText) return this.env.readText(abs);
+    try { return fs.readFileSync(abs, 'utf-8'); } catch { return null; }
+  }
+
   private abs(p: string): string {
     return path.isAbsolute(p) ? p : path.join(this.env.projectPath, p);
   }
@@ -331,8 +346,7 @@ export class EngineSession {
 
     if (isWriteTool(toolName)) {
       const abs = this.abs(filePathOf(input));
-      let current: string | null = null;
-      try { current = fs.readFileSync(abs, 'utf-8'); } catch { current = null; }
+      const current = await this.readText(abs);
       const content = proposedContent(toolName, input, current);
       if (content !== null) {
         const d = await this.port.askWrite({ id: nextId(), path: displayPath(abs, this.env.projectPath), content }, signal);
@@ -435,8 +449,9 @@ export class EngineSession {
     const id = input.tool_use_id ?? toolUseId;
     if (isWriteTool(name) && id) {
       const abs = this.abs(filePathOf(toolInput));
+      // Undo restores files on this machine, so a remote project's writes aren't snapshotted.
       let previous: string | null = null;
-      try { previous = fs.readFileSync(abs, 'utf-8'); } catch { previous = null; }
+      if (!this.env.remote) { try { previous = fs.readFileSync(abs, 'utf-8'); } catch { previous = null; } }
       this.snapshots.set(id, { absPath: abs, relPath: displayPath(abs, this.env.projectPath), previous });
     }
     return {};
@@ -448,7 +463,7 @@ export class EngineSession {
     const snap = id ? this.snapshots.get(id) : undefined;
     if (id && snap) {
       this.snapshots.delete(id);
-      this.port.recordWrite(snap);
+      if (!this.env.remote) this.port.recordWrite(snap);
       this.port.emit({ type: 'file-written', path: snap.relPath });
     }
     return {};

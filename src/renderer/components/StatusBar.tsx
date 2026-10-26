@@ -15,6 +15,8 @@ interface Props {
   isStreaming: boolean;
   engineReady: boolean;
   projectPath: string | null;
+  // The remote computer's name when the open project is on it (Settings → Remote computer).
+  projectHostLabel?: string | null;
   usage: TokenUsage;
   budget: number;
   // Claude Code's real context fill (0-100), when it has reported one.
@@ -140,7 +142,7 @@ function CareerBadge({ level, tier, progress }: { level: number; tier: string; p
 }
 
 export function StatusBar({
-  isListening, isTranscribing, isStreaming, engineReady, projectPath, usage, budget, contextPct, costUsd,
+  isListening, isTranscribing, isStreaming, engineReady, projectPath, projectHostLabel, usage, budget, contextPct, costUsd,
   mode, onCycleMode, career, onDrawer, onSettings, onCockpit, onHome,
 }: Props) {
   const folderName = projectPath ? projectPath.split(/[\\/]/).pop() : null;
@@ -211,7 +213,7 @@ export function StatusBar({
             textOverflow: 'ellipsis',
             maxWidth: 300,
           }}>
-            📁 {folderName}
+            {projectHostLabel ? `💻 ${projectHostLabel} · ` : '📁 '}{folderName}
           </span>
         </div>
       )}

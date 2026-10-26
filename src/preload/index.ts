@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { UpdateAvailable } from '../main/releaseNotes';
 
+// Which computer an action is for: this one, or the remote computer set up in Settings.
+type Machine = 'local' | 'remote';
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // ── Store ──────────────────────────────────────────────────────────────────
   storeGet: (key: string) => ipcRenderer.invoke('store:get', key),
@@ -11,10 +14,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Project ────────────────────────────────────────────────────────────────
   projectOpenDialog: () => ipcRenderer.invoke('project:open-dialog'),
-  foldersList: (dir?: string | null) => ipcRenderer.invoke('folders:list', dir ?? null),
-  foldersCreate: (parent: string, name: string) => ipcRenderer.invoke('folders:create', parent, name),
+  foldersList: (dir?: string | null, machine?: Machine) => ipcRenderer.invoke('folders:list', dir ?? null, machine ?? 'local'),
+  foldersCreate: (parent: string, name: string, machine?: Machine) => ipcRenderer.invoke('folders:create', parent, name, machine ?? 'local'),
   projectGet: () => ipcRenderer.invoke('project:get'),
-  projectSet: (p: string) => ipcRenderer.invoke('project:set', p),
+  projectSet: (p: string, host?: string | null) => ipcRenderer.invoke('project:set', p, host ?? null),
+  projectHost: () => ipcRenderer.invoke('project:host'),
+  remoteGet: () => ipcRenderer.invoke('remote:get'),
+  remoteSet: (host: string | null) => ipcRenderer.invoke('remote:set', host),
+  remoteTest: () => ipcRenderer.invoke('remote:test'),
 
   // ── File System ────────────────────────────────────────────────────────────
   fsList: (dir?: string) => ipcRenderer.invoke('fs:list', dir),
@@ -35,9 +42,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   claudeAbort: () => ipcRenderer.send('claude:abort'),
   claudeReset: () => ipcRenderer.send('claude:reset'),
   claudeRewind: (anchor: string | null) => ipcRenderer.send('claude:rewind', anchor),
-  sessionsList: () => ipcRenderer.invoke('sessions:list'),
-  sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>) =>
-    ipcRenderer.invoke('sessions:resume', { id, cwd, settings }),
+  sessionsList: (machine?: Machine) => ipcRenderer.invoke('sessions:list', machine ?? 'local'),
+  sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>, machine?: Machine) =>
+    ipcRenderer.invoke('sessions:resume', { id, cwd, settings, machine: machine ?? 'local' }),
   claudeSetMode: (mode: string) => ipcRenderer.invoke('claude:set-mode', mode),
   claudeGetMode: () => ipcRenderer.invoke('claude:get-mode'),
 

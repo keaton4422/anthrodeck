@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { FolderListing } from '../types';
+import type { FolderListing, Machine } from '../types';
 import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
 
 // Pick (or create) a project folder inside the app. The system dialog can't open in the Deck's
@@ -8,6 +8,7 @@ import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
 
 interface Props {
   title?: string;
+  machine?: Machine;   // browse this device, or the remote computer (Settings → Remote computer)
   padNav: React.MutableRefObject<PadFocus | null>;
   onPick: (path: string) => void;
   onCancel: () => void;
@@ -15,7 +16,7 @@ interface Props {
 
 const C = { panel: '#151515', line: '#262626', text: '#ECECEC', dim: '#8A8A8A', faint: '#5E5E5E', clay: '#D97757' };
 
-export default function FolderPicker({ title = 'Open a project folder', padNav, onPick, onCancel }: Props) {
+export default function FolderPicker({ title = 'Open a project folder', machine = 'local', padNav, onPick, onCancel }: Props) {
   const [listing, setListing] = useState<FolderListing | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -31,8 +32,8 @@ export default function FolderPicker({ title = 'Open a project folder', padNav, 
   const go = useCallback(async (dir: string | null) => {
     setProblem(null);
     setCreating(false);
-    setListing(await window.electronAPI.foldersList(dir));
-  }, []);
+    setListing(await window.electronAPI.foldersList(dir, machine));
+  }, [machine]);
   useEffect(() => { void go(null); }, [go]);
 
   // Escape cancels, for a keyboard; B does it on the pad (App routes it).
@@ -44,7 +45,7 @@ export default function FolderPicker({ title = 'Open a project folder', padNav, 
 
   const create = async () => {
     if (!listing) return;
-    const r = await window.electronAPI.foldersCreate(listing.path, newName);
+    const r = await window.electronAPI.foldersCreate(listing.path, newName, machine);
     if (r.error || !r.path) { setProblem(r.error ?? 'Could not create the folder.'); return; }
     setNewName('');
     await go(r.path);
