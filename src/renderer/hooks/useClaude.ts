@@ -121,7 +121,7 @@ export function useClaude({ settings, onPendingWrite, onPendingQuestion, onTeach
           case 'mode': setModeState(ev.mode); break;
           case 'context': setContext({ percentage: ev.percentage, totalTokens: ev.totalTokens, maxTokens: ev.maxTokens }); break;
           case 'compacted':
-            setNotice(`Pit stop: context compacted from ${Math.round(ev.preTokens / 1000)}K tokens.`);
+            setNotice(`Context compacted from ${Math.round(ev.preTokens / 1000)}K tokens.`);
             break;
           case 'retry':
             setNotice(`Engine hiccup, retrying (${ev.attempt}/${ev.maxRetries})…`);

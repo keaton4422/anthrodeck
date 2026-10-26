@@ -1,4 +1,5 @@
-// The career: XP, a driver ladder and achievements earned from building real software.
+// The career: XP, pilot ranks and achievements earned from building real software. It belongs to
+// the cockpit as a whole, not to any one game, so its names are plain: what you actually did.
 //
 // The one rule: points come from outcomes, never from activity. Tokens burned, tools called and
 // minutes spent are worth nothing. A finished task, a green test run, a commit, a push — those
@@ -65,27 +66,28 @@ export const XP = {
 export interface Achievement { id: string; name: string; blurb: string }
 
 export const ACHIEVEMENTS: Achievement[] = [
-  { id: 'first-lap', name: 'Lights Out', blurb: 'Finish your first lap with Claude.' },
-  { id: 'first-sector', name: 'Purple Sector', blurb: 'Complete a task from Claude\'s plan.' },
-  { id: 'green-flag', name: 'Green Flag', blurb: 'Get a test run passing.' },
-  { id: 'recovery', name: 'Safety Car In', blurb: 'Turn a failing test run green.' },
-  { id: 'parc-ferme', name: 'Parc Fermé', blurb: 'Commit your work.' },
-  { id: 'podium', name: 'Podium', blurb: 'Push to a remote.' },
-  { id: 'hat-trick', name: 'Hat-Trick', blurb: 'Three sectors in a single lap.' },
-  { id: 'clean-five', name: 'Clean Air', blurb: 'Five laps in a row without an error.' },
-  { id: 'grand-prix', name: 'Grand Prix', blurb: 'Finish every sector of a 3+ task plan.' },
-  { id: 'pit-wall', name: 'Pit Wall', blurb: 'Answer ten of Claude\'s questions.' },
-  { id: 'ship-ten', name: 'Constructor', blurb: 'Ten commits.' },
+  // Ids are what the saved career stores, so they keep their original names; only the labels change.
+  { id: 'first-lap', name: 'First Response', blurb: 'Finish your first turn with Claude.' },
+  { id: 'first-sector', name: 'First Task', blurb: 'Complete a task from Claude\'s task list.' },
+  { id: 'green-flag', name: 'Tests Passing', blurb: 'Get a test run passing.' },
+  { id: 'recovery', name: 'Back to Green', blurb: 'Turn a failing test run green.' },
+  { id: 'parc-ferme', name: 'First Commit', blurb: 'Commit your work.' },
+  { id: 'podium', name: 'First Push', blurb: 'Push to a remote.' },
+  { id: 'hat-trick', name: 'Three Tasks', blurb: 'Three tasks done in one turn.' },
+  { id: 'clean-five', name: 'Clean Streak', blurb: 'Five turns in a row without an error.' },
+  { id: 'grand-prix', name: 'Full Task List', blurb: 'Finish every task of a 3+ task list.' },
+  { id: 'pit-wall', name: 'Ten Answers', blurb: 'Answer ten of Claude\'s questions.' },
+  { id: 'ship-ten', name: 'Ten Commits', blurb: 'Ten commits.' },
 ];
 
-// Career ladder. Thresholds grow so each step means more shipped work.
+// Pilot ranks. Thresholds grow so each step means more shipped work.
 export const TIERS = [
-  { name: 'Karting', minLevel: 1 },
-  { name: 'F4', minLevel: 3 },
-  { name: 'F3', minLevel: 5 },
-  { name: 'F2', minLevel: 7 },
-  { name: 'F1', minLevel: 10 },
-  { name: 'World Champion', minLevel: 15 },
+  { name: 'Cadet', minLevel: 1 },
+  { name: 'Pilot', minLevel: 3 },
+  { name: 'Senior Pilot', minLevel: 5 },
+  { name: 'Flight Lead', minLevel: 7 },
+  { name: 'Commander', minLevel: 10 },
+  { name: 'Ace', minLevel: 15 },
 ] as const;
 
 // XP needed to *reach* a level: 0, 100, 250, 450, … (each level costs 50 more than the last).
@@ -226,7 +228,7 @@ export const EMPTY_LAP: LapLog = { xp: 0, checkpoints: [] };
 
 const CHECKPOINT: Partial<Record<Milestone | 'edit-approved' | 'question-answered', Checkpoint>> = {
   'edit-approved': { label: 'Edit', good: true },
-  'question-answered': { label: 'Radio', good: true },
+  'question-answered': { label: 'Answered', good: true },
   'tests-pass': { label: 'Tests green', good: true },
   'tests-fail': { label: 'Tests red', good: false },
   'build-pass': { label: 'Build', good: true },

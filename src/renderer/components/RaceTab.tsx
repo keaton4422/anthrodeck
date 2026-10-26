@@ -29,9 +29,9 @@ export function RaceTab({ sectors, context, season, onPitStop, busy }: Props) {
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       {/* Lap plan */}
-      <Section title={sectors.length ? `Lap plan · ${done}/${sectors.length} sectors` : 'Lap plan'}>
+      <Section title={sectors.length ? `Tasks · ${done}/${sectors.length} done` : 'Tasks'}>
         {sectors.length === 0 ? (
-          <Empty>Give Claude a multi-step job and its task list shows up here as sectors.</Empty>
+          <Empty>Give Claude a multi-step job and its task list shows up here.</Empty>
         ) : sectors.map((s) => (
           <div key={s.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '4px 0' }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', marginTop: 5, flexShrink: 0, background: STATUS_DOT[s.status] }} />
@@ -45,7 +45,7 @@ export function RaceTab({ sectors, context, season, onPitStop, busy }: Props) {
       </Section>
 
       {/* Fuel */}
-      <Section title="Context (fuel)">
+      <Section title="Context">
         {context ? (
           <>
             <div style={{ height: 8, background: '#222', borderRadius: 4, overflow: 'hidden' }}>
@@ -56,31 +56,31 @@ export function RaceTab({ sectors, context, season, onPitStop, busy }: Props) {
               <span>{formatTokens(context.totalTokens)} / {formatTokens(context.maxTokens)}</span>
             </div>
           </>
-        ) : <Empty>Reported after the first lap.</Empty>}
+        ) : <Empty>Reported after Claude&apos;s first response.</Empty>}
         <button onClick={onPitStop} disabled={busy} style={{
           width: '100%', marginTop: 10, padding: '8px 0', borderRadius: 7, cursor: busy ? 'default' : 'pointer',
           border: '1px solid #D9A441', background: 'rgba(217,164,65,0.1)', color: '#D9A441', fontSize: 12, fontWeight: 600,
           opacity: busy ? 0.5 : 1,
         }}>
-          Pit stop · compact context
+          Compact context
         </button>
         <p style={{ fontSize: 11, color: '#555', marginTop: 6, lineHeight: 1.4 }}>
-          Claude Code also compacts on its own when the tank runs low.
+          Claude Code also compacts on its own when context runs low.
         </p>
       </Section>
 
       {/* Career */}
-      <Section title={`Career · ${tier} · level ${level}`}>
+      <Section title={`Pilot rank · ${tier} · level ${level}`}>
         <div style={{ fontSize: 11, color: '#888', fontFamily: 'monospace', marginBottom: 8 }}>
           {state.xp} XP · next level at {nextAt}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', fontSize: 11, color: '#999' }}>
-          <Stat label="Laps" v={state.stats.laps} />
-          <Stat label="Sectors" v={state.stats.sectors} />
-          <Stat label="Green runs" v={state.stats.greenRuns} />
+          <Stat label="Responses" v={state.stats.laps} />
+          <Stat label="Tasks done" v={state.stats.sectors} />
+          <Stat label="Passing test runs" v={state.stats.greenRuns} />
           <Stat label="Commits" v={state.stats.commits} />
           <Stat label="Pushes" v={state.stats.pushes} />
-          <Stat label="Grands Prix" v={state.stats.grandsPrix} />
+          <Stat label="Full task lists" v={state.stats.grandsPrix} />
           <Stat label="Best clean streak" v={state.bestStreak} />
           <Stat label="Questions answered" v={state.stats.answers} />
         </div>

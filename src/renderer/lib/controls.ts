@@ -35,8 +35,8 @@ export const RADIAL_ITEMS: { action: RadialAction; label: string }[] = [
   { action: 'run-tests', label: 'Run tests' },
   { action: 'deploy', label: 'Deploy' },
   { action: 'undo-write', label: 'Undo write' },
-  { action: 'pit-stop', label: 'Pit stop' },
-  { action: 'drive-mode', label: 'Drive mode' },
+  { action: 'pit-stop', label: 'Compact' },
+  { action: 'drive-mode', label: 'Permission mode' },
   { action: 'new-session', label: 'New session' },
 ];
 

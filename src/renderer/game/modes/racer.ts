@@ -269,7 +269,7 @@ export function createMode(): GameMode<RacerState> {
     id: 'cockpit-runner',
     name: 'Engine Runner',
     kind: 'telemetry',
-    blurb: 'RT throttle · smash red hunters for a BOOST · only civilians and the armco damage you · Claude\'s green tests and finished sectors raise your multiplier and fix dents · every finished turn is a lap',
+    blurb: 'RT throttle · smash red hunters for a BOOST · only civilians and the armco damage you · Claude\'s passing tests and finished tasks raise your multiplier and fix dents · every time Claude finishes is a lap',
 
     init(w, h): RacerState {
       return {

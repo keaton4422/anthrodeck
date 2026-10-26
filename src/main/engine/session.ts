@@ -381,17 +381,17 @@ export class EngineSession {
     return { behavior: 'allow', updatedInput: { ...input, answers } };
   }
 
-  // Leaving plan mode is "lights out": the pilot picks how hard to push the implementation.
+  // Leaving plan mode: the pilot picks how the implementation runs (ask for each edit, or auto-accept).
   private async approvePlan(input: Record<string, unknown>, signal: AbortSignal): Promise<PermissionResult> {
     const plan = String(input.plan ?? '').trim();
     const pick = await this.port.askChoice({
       id: nextId(),
       kind: 'plan',
-      question: 'Formation lap done. Lights out?',
+      question: 'Plan ready. Start building?',
       detail: plan.length > 1800 ? `${plan.slice(0, 1800)}…` : plan,
       options: [
-        { label: `Go · ${DRIVE_MODE_LABELS.acceptEdits} (edits land on their own)`, value: 'acceptEdits' },
-        { label: `Go · ${DRIVE_MODE_LABELS.default} (approve each edit)`, value: 'default' },
+        { label: `Start · ${DRIVE_MODE_LABELS.acceptEdits} (edits land on their own)`, value: 'acceptEdits' },
+        { label: `Start · ${DRIVE_MODE_LABELS.default} (approve each edit)`, value: 'default' },
         { label: 'Keep planning', value: 'no' },
       ],
     }, signal);

@@ -143,14 +143,14 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
     const projectPath = (store.get('projectPath', null) as string | null) ?? os.homedir();
     const s = sessionFor(projectPath, settings ?? {});
     if (typeof s === 'string') { send('claude:error', s); return; }
-    if (s.isBusy) { send('claude:error', 'Claude is still on a lap. Abort it first, or wait for the finish line.'); return; }
+    if (s.isBusy) { send('claude:error', 'Claude is still working. Stop it first, or wait for it to finish.'); return; }
     turnText = '';
     s.send(text);
   });
 
   // ─── home dashboard ─────────────────────────────────────────────────────────
-  // The pit wall: this device's projects (from its Claude Code sessions), each with its git state
-  // and its stints newest first, plus which session the cockpit has open right now.
+  // Home: this device's projects (from its Claude Code sessions), each with its git state and its
+  // sessions newest first, plus which session the cockpit has open right now.
   const gitState = (cwd: string) => new Promise<GitState | null>((resolve) => {
     execFile('git', ['-C', cwd, 'status', '--porcelain=v1', '-b'], { timeout: 3000 }, (err, stdout) => {
       resolve(err ? null : parseGitStatus(stdout));
@@ -171,7 +171,7 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
   // Reopen one: its folder becomes the project, the engine resumes it on the next send, and its
   // conversation comes back for the chat to show.
   ipcMain.handle('sessions:resume', async (_e, { id, cwd, settings }: { id: string; cwd: string; settings?: Record<string, unknown> }) => {
-    if (session?.isBusy) return { error: 'Claude is still on a lap. Abort it first, or wait for the finish line.' };
+    if (session?.isBusy) return { error: 'Claude is still working. Stop it first, or wait for it to finish.' };
     if (!fs.existsSync(cwd)) return { error: `That session's folder is gone: ${cwd}` };
     cancelAllPrompts();
     store.set('projectPath', cwd);

@@ -103,10 +103,10 @@ describe('levels and tiers', () => {
   });
 
   it('maps levels onto the career ladder', () => {
-    expect(tierFor(1)).toBe('Karting');
-    expect(tierFor(4)).toBe('F4');
-    expect(tierFor(10)).toBe('F1');
-    expect(tierFor(40)).toBe('World Champion');
+    expect(tierFor(1)).toBe('Cadet');
+    expect(tierFor(4)).toBe('Pilot');
+    expect(tierFor(10)).toBe('Commander');
+    expect(tierFor(40)).toBe('Ace');
   });
 
   it('loads tolerantly from storage', () => {
