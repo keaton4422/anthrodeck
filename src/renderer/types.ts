@@ -5,12 +5,13 @@ import type { DriveMode } from '../main/engine/config';
 import type { UpdateAvailable, WhatsNew } from '../main/releaseNotes';
 import type { ProjectTile, SessionCard, GitState, RestoredMessage } from '../main/sessions';
 import type { FolderListing, FolderEntry } from '../main/folders';
+import type { Commit } from '../main/gitLog';
 import type { RemoteTarget } from '../main/remote';
 import type { LiveLinkStatus, LiveSession, LiveEntry, LiveTail, LiveSent } from '../main/live';
 
 // Which computer something is on: this one, or the remote computer set up in Settings.
 export type Machine = 'local' | 'remote';
-export type { RemoteTarget, LiveSession, LiveEntry, LiveTail, LiveSent, PlanUsage };
+export type { RemoteTarget, LiveSession, LiveEntry, LiveTail, LiveSent, PlanUsage, Commit };
 
 // The remote computer's live sessions, as the Deck sees them (null: no remote computer set up).
 export type LiveStatus = (LiveLinkStatus & { label: string }) | null;
@@ -176,6 +177,7 @@ declare global {
       writeUndo: () => Promise<{ ok: boolean; message: string; relPath?: string }>;
       // Git
       gitStatus: () => Promise<GitOpResult>;
+      gitLog: () => Promise<{ commits: Commit[]; error: string | null }>;
       gitAddAndCommit: (message: string) => Promise<GitOpResult>;
       gitPush: () => Promise<GitOpResult>;
       // Shell

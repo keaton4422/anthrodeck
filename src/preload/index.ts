@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   gitStatus: () => ipcRenderer.invoke('git:status'),
   gitAddAndCommit: (message: string) => ipcRenderer.invoke('git:addAndCommit', message),
   gitPush: () => ipcRenderer.invoke('git:push'),
+  gitLog: () => ipcRenderer.invoke('git:log'),
 
   // ── Shell ──────────────────────────────────────────────────────────────────
   runShell: (code: string, language: string) => ipcRenderer.invoke('shell:run', { code, language }),

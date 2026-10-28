@@ -44,7 +44,6 @@ import { useProject } from './hooks/useProject';
 import { useTelemetry } from './hooks/useTelemetry';
 import { EngineSettingsPayload, PendingWrite, PendingQuestion, TeachRequest } from './types';
 
-interface TeachLogEntry { tool: string; why: string; timestamp: number; }
 
 const MILESTONE_TOAST: Record<string, string> = {
   'tests-pass': '🟢 Tests passing',
@@ -66,7 +65,6 @@ export default function App() {
   const pendingQuestion = questions[0] ?? null;
   const [pendingTeach, setPendingTeach] = useState<TeachRequest | null>(null);
   const [teachRedirectSignal, setTeachRedirectSignal] = useState(0);
-  const [teachLog, setTeachLog] = useState<TeachLogEntry[]>([]);
   const [voiceRejecting, setVoiceRejecting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cockpitOpen, setCockpitOpen] = useState(false);
@@ -161,7 +159,6 @@ export default function App() {
     onTeach: (req) => {
       setPendingTeach(req);
       setTeachRedirectSignal(0);
-      setTeachLog((prev) => [...prev, { tool: req.tool, why: req.why, timestamp: Date.now() }]);
     },
     // The engine withdrew a card (interrupt / rewind): close it wherever it is showing.
     onPromptCancel: (id) => {
@@ -861,7 +858,11 @@ export default function App() {
         onPitStop={() => { setDrawerOpen(false); pitStop(); }}
         isStreaming={isStreaming}
         onShare={() => { setDrawerOpen(false); setShareOpen(true); }}
-        teachLog={teachLog}
+        otherComputer={remoteTarget?.label ?? null}
+        session={(() => {
+          const deck = jobs.find((j) => j.id === 'deck');
+          return deck ? { title: deck.label, said: deck.said ?? null, working: deck.working } : null;
+        })()}
       />
 
       {showSettings ? (
