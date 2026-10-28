@@ -15,6 +15,7 @@ export interface Job {
   needs?: number;         // its approvals and questions waiting on the pilot
   said?: string | null;   // the last thing Claude said in it
   tool?: string | null;   // what it's running right now, when that's the latest thing it did
+  updatedAt?: number;     // when it last did anything (epoch ms), for the remote ones
 }
 
 // ─── The comms rail: every session beside the game ───────────────────────────
@@ -34,11 +35,19 @@ export function lastWords(text: string, max = 300): string {
   return plain.length <= max ? plain : `…${plain.slice(-max).replace(/^\S*\s/, '')}`;
 }
 
+// A finished session stays on the rail this long, waiting for the pilot's next orders; older idle
+// ones are history (Home still lists them). The Deck's own session and anything working or
+// asking always shows.
+export const YOUR_TURN_FOR_MS = 2 * 3600_000;
+export function onRail(j: Job, now = Date.now()): boolean {
+  return !j.remote || j.working || !!j.needs || now - (j.updatedAt ?? 0) < YOUR_TURN_FOR_MS;
+}
+
 // The rail's order: what needs the pilot first, then finished sessions waiting for orders, then the
 // ones still working; most recent first within each (the order the jobs came in).
 const RANK: Record<Turn, number> = { 'needs-you': 0, 'your-turn': 1, working: 2 };
-export function railOrder(jobs: Job[]): Job[] {
-  return jobs.map((j, i) => ({ j, i })).sort((a, b) => RANK[turnOf(a.j)] - RANK[turnOf(b.j)] || a.i - b.i).map((x) => x.j);
+export function railOrder(jobs: Job[], now = Date.now()): Job[] {
+  return jobs.filter((j) => onRail(j, now)).map((j, i) => ({ j, i })).sort((a, b) => RANK[turnOf(a.j)] - RANK[turnOf(b.j)] || a.i - b.i).map((x) => x.j);
 }
 
 // Y moves the selection down the rail, wrapping; a selection that left the rail falls to the top.

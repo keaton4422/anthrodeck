@@ -445,7 +445,7 @@ export default function App() {
       out.push({
         id: s.sessionId, label: s.name || folderName(s.cwd), remote: true, working: s.status === 'busy',
         needs: live?.state?.requests.filter((r) => r.sessionId === s.sessionId).length ?? 0,
-        said: s.said ?? null, tool: s.tool ?? null,
+        said: s.said ?? null, tool: s.tool ?? null, updatedAt: s.updatedAt,
       });
     }
     return out;

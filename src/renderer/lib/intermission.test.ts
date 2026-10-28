@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { finished, lastWords, nextSelection, railOrder, shouldStart, stillDismissed, tidyHit, turnOf, START_AFTER_MS, TIDY_HITS, type Job } from './intermission';
+import { finished, lastWords, nextSelection, YOUR_TURN_FOR_MS, railOrder, shouldStart, stillDismissed, tidyHit, turnOf, START_AFTER_MS, TIDY_HITS, type Job } from './intermission';
 
 const deck = (working: boolean): Job => ({ id: 'deck', label: 'Fix login', remote: false, working });
 const mac = (working: boolean): Job => ({ id: 'm1', label: 'API work', remote: true, working });
@@ -48,7 +48,7 @@ describe('intermission', () => {
     const asking = { ...mac(true), id: 'm2', needs: 1 };
     const finishedOne = { ...mac(false), id: 'm3' };
     expect([turnOf(asking), turnOf(finishedOne), turnOf(deck(true))]).toEqual(['needs-you', 'your-turn', 'working']);
-    const rail = railOrder([deck(true), finishedOne, asking]);
+    const rail = railOrder([deck(true), finishedOne, asking], 0);
     expect(rail.map((j) => j.id)).toEqual(['m2', 'm3', 'deck']);
     expect(nextSelection(rail, null)).toBe('m2');
     expect(nextSelection(rail, 'm2')).toBe('m3');
@@ -62,5 +62,13 @@ describe('intermission', () => {
     const long = lastWords(`${'word '.repeat(200)}Want me to commit?`, 40);
     expect(long.startsWith('…')).toBe(true);
     expect(long.endsWith('Want me to commit?')).toBe(true);
+  });
+
+  it('keeps a finished session on the rail for a while, then leaves it to Home', () => {
+    const now = 10 * YOUR_TURN_FOR_MS;
+    const recent = { ...mac(false), id: 'r', updatedAt: now - 60_000 };
+    const old = { ...mac(false), id: 'o', updatedAt: now - YOUR_TURN_FOR_MS - 1 };
+    const oldAsking = { ...old, id: 'oa', needs: 1 };
+    expect(railOrder([deck(false), recent, old, oldAsking], now).map((j) => j.id)).toEqual(['oa', 'deck', 'r']);
   });
 });
