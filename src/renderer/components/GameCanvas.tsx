@@ -12,6 +12,8 @@ import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
 import { DRIVE_MODE_LABELS } from '../../main/engine/config';
 import type { DriveMode, Sector } from '../types';
 import type { Checkpoint } from '../lib/season';
+import type { Job } from '../lib/intermission';
+import { Glyph } from './Glyph';
 
 // The result of the lap just finished: real XP and real outcomes, shown over the track.
 export interface LapCard {
@@ -48,14 +50,21 @@ interface Props {
   lapCard: LapCard | null;
   career: { level: number; tier: string; progress: number };
   driveMode: DriveMode;
+  // Intermission (lib/intermission.ts): the sessions in flight, the pilot's tidy-up, and the card
+  // a finished session stops the game on (A goes there, B keeps playing; App routes the buttons).
+  jobs: Job[];
+  tidy: { hits: number; needed: number; queued: boolean; contextPct: number | null } | null;
+  doneCard: Job | null;
+  onDoneGo: () => void;
+  onDoneKeep: () => void;
 }
 
 export default function GameCanvas({
   onClose, selectedId, onSelect, telemetry, paused: approvalPaused, onIntents, sectors, checkpoints, lapCard, career, driveMode,
-  menuOpen, onMenu, menuNav,
+  menuOpen, onMenu, menuNav, jobs, tidy, doneCard, onDoneGo, onDoneKeep,
 }: Props) {
-  // The sim stops for an approval card and while the game menu is up.
-  const paused = approvalPaused || menuOpen;
+  // The sim stops for an approval card, a finished session's card, and while the game menu is up.
+  const paused = approvalPaused || menuOpen || !!doneCard;
   // The lap card shows for a few seconds after each chequered flag, then gets out of the way.
   const [shownCard, setShownCard] = useState<LapCard | null>(null);
   useEffect(() => {
@@ -184,6 +193,7 @@ export default function GameCanvas({
           nav={menuNav}
           onPick={(id) => { onSelect(id); onMenu(false); }}
           onClose={() => onMenu(false)}
+          onLeave={() => { onMenu(false); onClose(); }}
         />
       )}
 
@@ -195,10 +205,26 @@ export default function GameCanvas({
 
       {/* Blurb */}
       <div style={{
-        padding: '6px 16px', fontSize: 12, color: '#6A6A6A', borderBottom: '1px solid #141414', flexShrink: 0,
-        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-      }} title={mode.blurb}>
-        {mode.blurb}
+        display: 'flex', alignItems: 'center', gap: 10, padding: '6px 16px', fontSize: 12, color: '#6A6A6A',
+        borderBottom: '1px solid #141414', flexShrink: 0,
+      }}>
+        <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={mode.blurb}>
+          {mode.blurb}
+        </span>
+        {/* The sessions working right now: the game is part of them, not a break from them. */}
+        {jobs.filter((j) => j.working).slice(0, 3).map((j) => (
+          <span key={j.id} title={j.label} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: 200, flexShrink: 0,
+            padding: '2px 8px', borderRadius: 10, border: '1px solid #262626', color: j.working ? '#ECECEC' : '#8A8A8A',
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: j.working ? '#52A77C' : '#5E5E5E' }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.label}</span>
+          </span>
+        ))}
+        {jobs.filter((j) => j.working).length > 3 && (
+          <span style={{ flexShrink: 0 }}>+{jobs.filter((j) => j.working).length - 3} more</span>
+        )}
+        {tidy && <TidyMeter {...tidy} />}
       </div>
 
       {/* Playfield + instruments. The panel gets its OWN strip rather than floating over the
@@ -233,6 +259,29 @@ export default function GameCanvas({
               )}
             </div>
           )}
+          {doneCard && !approvalPaused && (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(10,11,13,0.72)',
+            }}>
+              <div style={{
+                minWidth: 360, maxWidth: '70%', padding: '20px 24px', borderRadius: 12,
+                background: '#151515', border: '1px solid #52A77C', display: 'flex', flexDirection: 'column', gap: 10,
+              }}>
+                <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.16em', color: '#52A77C' }}>CLAUDE IS DONE</span>
+                <span style={{ fontSize: 20, color: '#ECECEC', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {doneCard.label}
+                </span>
+                <span style={{ fontSize: 14, color: '#9A9A9A' }}>
+                  {doneCard.remote ? 'Finished on your other computer.' : 'Finished here.'} Read what it did, or keep playing.
+                </span>
+                <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+                  <button onClick={onDoneGo} style={doneBtn(true)}><Glyph b="A" /> Go to the session</button>
+                  <button onClick={onDoneKeep} style={doneBtn(false)}><Glyph b="B" /> Keep playing</button>
+                </div>
+              </div>
+            </div>
+          )}
           {approvalPaused && (
             <div style={{
               position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
@@ -259,14 +308,44 @@ export default function GameCanvas({
   );
 }
 
+const doneBtn = (primary: boolean): React.CSSProperties => ({
+  padding: '10px 16px', borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: 'pointer',
+  border: `1px solid ${primary ? '#52A77C' : '#2A2A2A'}`, background: primary ? 'rgba(82,167,124,0.12)' : 'transparent',
+  color: primary ? '#ECECEC' : '#9A9A9A',
+});
+
+// The pilot's tidy-up of the Deck's own session: each stale-context target cleared in a game counts,
+// once the context is worth tidying (lib/intermission.ts).
+function TidyMeter({ hits, needed, queued, contextPct }: { hits: number; needed: number; queued: boolean; contextPct: number | null }) {
+  const pct = contextPct === null ? null : Math.round(contextPct);
+  const text = queued ? 'Tidy-up ready: compacts when Claude finishes'
+    : pct === null ? 'Context: —'
+      : pct < 50 ? `Context ${pct}% · nothing to tidy`
+        : `Context ${pct}% · tidy-up ${hits}/${needed}`;
+  return (
+    <span title="Clear stale-context targets in the game to compact Claude's context when this turn ends" style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, whiteSpace: 'nowrap',
+      color: queued ? '#52A77C' : pct !== null && pct >= 50 ? '#D9A35B' : '#6A6A6A',
+    }}>
+      {!queued && pct !== null && pct >= 50 && (
+        <span style={{ width: 60, height: 4, borderRadius: 2, background: '#262626', overflow: 'hidden' }}>
+          <span style={{ display: 'block', width: `${(hits / needed) * 100}%`, height: '100%', background: '#D9A35B' }} />
+        </span>
+      )}
+      {text}
+    </span>
+  );
+}
+
 // Every game as a card, in two groups. A modal over the cockpit (the game pauses underneath), so it
 // fits any number of games and mods, and it's driven by the pad: D-pad to move, A to pick,
 // B or Start to close.
 function GameMenu({
-  telemetry, freeplay, modIds, selectedId, nav, onPick, onClose,
+  telemetry, freeplay, modIds, selectedId, nav, onPick, onClose, onLeave,
 }: {
   telemetry: GameMode[]; freeplay: GameMode[]; modIds: Set<string>; selectedId: string;
   nav: React.MutableRefObject<PadFocus | null>; onPick: (id: string) => void; onClose: () => void;
+  onLeave: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   // The ring starts on the game being played.
@@ -329,6 +408,11 @@ function GameMenu({
           </div>
           <button onClick={onClose} style={hdrBtn} title="Close (B)">✕</button>
         </div>
+        {/* The way out with the pad alone: the game may have come up by itself. */}
+        <button onClick={onLeave} style={{
+          alignSelf: 'flex-start', padding: '10px 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          border: '1px solid #2A2A2A', background: '#151515', color: '#ECECEC',
+        }}>← Leave the game · back to your sessions</button>
         {section('REACTS TO CLAUDE', 'what Claude does shows up in the game', telemetry)}
         {section('FREE PLAY', 'something to do while you wait', freeplay)}
       </div>

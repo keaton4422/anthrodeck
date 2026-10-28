@@ -15,6 +15,10 @@ export interface TelemetryController {
   emit(ev: TelemetryEvent): void;
   setSessionTokens(n: number): void;
   setBudget(n: number): void;
+  // Sessions on the remote computer drive the games too: whether one is working, and the tool
+  // calls of the one the Deck has open.
+  setRemoteWorking(working: boolean): void;
+  remoteTool(label: string): void;
 }
 
 // Nothing drains the queue while the cockpit is closed, and thinking streams an event per chunk.
@@ -35,6 +39,7 @@ export function useTelemetry(): TelemetryController {
   const thinkingUntil = useRef(0);
   const lastTool = useRef<string | null>(null);
   const budget = useRef(200_000);
+  const remoteWorking = useRef(false);
 
   useEffect(() => {
     const unsubDelta = window.electronAPI.onClaudeDelta((delta) => {
@@ -81,7 +86,7 @@ export function useTelemetry(): TelemetryController {
     if (drop > 0) arr.splice(0, drop);
 
     return {
-      streaming: streaming.current,
+      streaming: streaming.current || remoteWorking.current,
       tokensPerSec: arr.length, // tokens streamed in the last second
       sessionTokens: sessionTokens.current,
       toolActive: now < toolUntil.current,
@@ -102,6 +107,12 @@ export function useTelemetry(): TelemetryController {
     emit(ev) { queue(ev); },
     setSessionTokens(n) { sessionTokens.current = n; },
     setBudget(n) { budget.current = n; },
+    setRemoteWorking(w) { remoteWorking.current = w; },
+    remoteTool(label) {
+      queue({ type: 'tool' });
+      toolUntil.current = performance.now() + 800;
+      lastTool.current = label.slice(0, 42);
+    },
   });
 
   return controller.current;

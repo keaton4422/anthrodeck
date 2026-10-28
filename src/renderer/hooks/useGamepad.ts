@@ -25,6 +25,8 @@ interface GamepadActions {
   onRadialAim?: (x: number, y: number) => void;
   onRadialClose?: () => void;
   onScrollY?: (delta: number) => void;
+  // Any button or stick, each frame it's touched: tells App the pilot has the controls.
+  onActivity?: () => void;
 }
 
 // Standard gamepad button indices.
@@ -83,6 +85,7 @@ export function useGamepad(actions: GamepadActions) {
         const acts = actionsRef.current;
 
         const pressed = (idx: number) => gp.buttons[idx]?.pressed ?? false;
+        if (gp.buttons.some((b) => b.pressed) || gp.axes.some((a) => Math.abs(a) > STICK_DEADZONE * 2)) acts.onActivity?.();
         // L1 acts as a held modifier rather than its own action.
         const modifier = pressed(BTN.LB);
 
