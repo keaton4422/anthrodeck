@@ -12,12 +12,17 @@ import type { LiveEntry } from '../types';
 export interface OutgoingMessage {
   id: number;
   text: string;
-  state: 'sending' | 'sent' | 'queued' | 'failed';
+  state: 'sending' | 'sent' | 'queued' | 'unsure' | 'failed';
   error?: string;
   sentAt: number;
 }
 
 const MAX_ENTRIES = 400;
+
+// The watcher clips long messages (main/live.ts), ending them with an ellipsis.
+export function sameMessage(sent: string, seen: string): boolean {
+  return seen === sent || (seen.endsWith('…') && seen.length > 1 && sent.startsWith(seen.slice(0, -1)));
+}
 
 export function useLiveSession(sessionId: string | null) {
   const [entries, setEntries] = useState<LiveEntry[] | null>(null);
@@ -41,10 +46,10 @@ export function useLiveSession(sessionId: string | null) {
         let next = out;
         for (const e of t.entries) {
           if (e.role === 'queued') {
-            const i = next.findIndex((m) => m.text === e.text && m.state === 'sent');
+            const i = next.findIndex((m) => (m.state === 'sent' || m.state === 'unsure') && sameMessage(m.text, e.text));
             if (i >= 0) next = next.map((m, j) => (j === i ? { ...m, state: 'queued' } : m));
           } else if (e.role === 'user' && e.deck) {
-            const i = next.findIndex((m) => m.text === e.text && (m.state === 'sent' || m.state === 'queued'));
+            const i = next.findIndex((m) => m.state !== 'sending' && m.state !== 'failed' && sameMessage(m.text, e.text));
             if (i >= 0) next = next.filter((_, j) => j !== i);
           }
         }
@@ -62,7 +67,7 @@ export function useLiveSession(sessionId: string | null) {
     const r = await window.electronAPI.liveSend(sessionId, body);
     setOutgoing((out) => out.map((m) => (m.id !== id ? m
       : r.ok ? { ...m, state: 'sent', sentAt: Date.now() }
-        : { ...m, state: 'failed', error: r.error ?? 'Not sent.' })));
+        : { ...m, state: r.unsure ? 'unsure' : 'failed', error: r.error ?? 'Not sent.' })));
   }, [sessionId]);
 
   const dismiss = useCallback((id: number) => setOutgoing((out) => out.filter((m) => m.id !== id)), []);

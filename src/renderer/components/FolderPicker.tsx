@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { FolderListing, Machine } from '../types';
 import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
+import { C } from '../lib/ui';
 
 // Pick (or create) a project folder inside the app. The system dialog can't open in the Deck's
 // Game Mode (see main/folders.ts), and this one is driven like the rest of the cockpit: D-pad to
@@ -13,8 +14,6 @@ interface Props {
   onPick: (path: string) => void;
   onCancel: () => void;
 }
-
-const C = { panel: '#151515', line: '#262626', text: '#ECECEC', dim: '#8A8A8A', faint: '#5E5E5E', clay: '#D97757' };
 
 export default function FolderPicker({ title = 'Open a project folder', machine = 'local', padNav, onPick, onCancel }: Props) {
   const [listing, setListing] = useState<FolderListing | null>(null);

@@ -270,6 +270,44 @@ describe.skipIf(!hasPython)('live scripts', () => {
       server.close();
     }
   }, 20_000);
+
+  it('picks up a session that writes its transcript later, and gets past a line too long to read', async () => {
+    setup();
+    const sid = 'feed0000-1111-2222-3333-444455556666';
+    const tails: LiveTail[] = [];
+    const statuses: LiveLinkStatus[] = [];
+    const link = new LiveLink('mac', 'MacBook-Pro', {
+      spawnSsh: () => {
+        const c = spawn('python3', ['-u', '-c', WATCH_PY], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+        children.push(c);
+        return c;
+      },
+      onStatus: (s) => statuses.push(s),
+      onTail: (t) => tails.push(t),
+      ask: async () => '',
+    });
+    try {
+      await waitFor(() => statuses.some((s) => s.connected));
+      link.watch(sid);
+      await waitFor(() => tails.length > 0);
+      expect(tails[0]).toMatchObject({ reset: true, entries: [] });
+
+      // Its first turn writes the transcript.
+      const proj = path.join(dir, 'claude', 'projects', '-Users-me-new');
+      fs.mkdirSync(proj, { recursive: true });
+      const transcript = path.join(proj, `${sid}.jsonl`);
+      const line = (o: object) => `${JSON.stringify(o)}\n`;
+      fs.writeFileSync(transcript, line({ type: 'user', uuid: 'u1', permissionMode: 'default', message: { content: 'Start here' } }));
+      await waitFor(() => tails.some((t) => t.entries.some((e) => e.text === 'Start here')));
+
+      // A tool result bigger than one read, then the conversation carries on.
+      fs.appendFileSync(transcript, line({ type: 'user', uuid: 'big', message: { content: [{ type: 'tool_result', content: 'x'.repeat(5 * 1024 * 1024) }] } }));
+      fs.appendFileSync(transcript, line({ type: 'assistant', uuid: 'a1', message: { content: [{ type: 'text', text: 'Still here.' }] } }));
+      await waitFor(() => tails.some((t) => t.entries.some((e) => e.text === 'Still here.')));
+    } finally {
+      link.stop();
+    }
+  }, 20_000);
 });
 
 async function waitFor(ok: () => boolean, ms = 10_000): Promise<void> {

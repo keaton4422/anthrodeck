@@ -75,7 +75,8 @@ export interface LiveEntry {
 // `mode`: the session's permission mode as of its latest turn ('plan', 'default', 'acceptEdits',
 // 'bypassPermissions', 'auto'…), null until it has one.
 export interface LiveTail { sessionId: string; reset: boolean; entries: LiveEntry[]; mode: string | null }
-export interface LiveSent { id: string; ok: boolean; error: string | null }
+// `unsure`: no answer in time. The session may still have it, so the Deck shouldn't call it lost.
+export interface LiveSent { id: string; ok: boolean; error: string | null; unsure?: boolean }
 
 interface RawEntry { id?: unknown; role?: unknown; text?: unknown; deck?: unknown; name?: unknown; input?: unknown }
 
@@ -354,7 +355,8 @@ def entries(e):
         return out
     return []
 
-watching = None     # the session the Deck has open: {'sid', 'path', 'offset', 'mode'}
+watching = None     # the session the Deck has open: {'sid', 'path', 'offset', 'mode', 'skip'}
+READ = 4 * 1024 * 1024
 
 def parse(chunk, w):
     # Also notes the session's permission mode, which Claude Code stamps on each of the user's turns.
@@ -373,14 +375,16 @@ def watch(sid):
     if not sid or not re.fullmatch(r'[0-9A-Za-z_-]{1,100}', sid): return
     hits = glob.glob(os.path.join(CONFIG, 'projects', '*', sid + '.jsonl'))
     if not hits:
-        emit({'tail': {'sessionId': sid, 'reset': True, 'entries': []}}); return
+        # A new session writes its transcript with its first turn: look again each tick.
+        watching = {'sid': sid, 'path': None, 'offset': 0, 'mode': None, 'skip': False}
+        emit({'tail': {'sessionId': sid, 'reset': True, 'entries': [], 'mode': None}}); return
     path = hits[0]
     with open(path, 'rb') as fh:
         fh.seek(0, 2); size = fh.tell(); fh.seek(max(0, size - 1024 * 1024))
         data = fh.read()
     if size > len(data): data = data.split(b'\n', 1)[-1]    # drop the partial first line
     end = data.rfind(b'\n') + 1
-    w = {'sid': sid, 'path': path, 'offset': size - len(data) + end, 'mode': None}
+    w = {'sid': sid, 'path': path, 'offset': size - len(data) + end, 'mode': None, 'skip': False}
     got = parse(data[:end].decode('utf-8', 'replace'), w)[-80:]
     watching = w
     emit({'tail': {'sessionId': sid, 'reset': True, 'entries': got, 'mode': w['mode']}})
@@ -388,13 +392,24 @@ def watch(sid):
 def follow():
     w = watching
     if not w: return
+    if not w['path']:
+        if glob.glob(os.path.join(CONFIG, 'projects', '*', w['sid'] + '.jsonl')): watch(w['sid'])
+        return
     try:
         with open(w['path'], 'rb') as fh:
-            fh.seek(w['offset']); data = fh.read(4 * 1024 * 1024)
+            fh.seek(w['offset']); data = fh.read(READ)
     except OSError:
         return
+    if w['skip']:
+        # Partway through a line too long to show (a huge tool result): drop the rest of it.
+        nl = data.find(b'\n')
+        if nl < 0:
+            w['offset'] += len(data); return
+        w['offset'] += nl + 1; data = data[nl + 1:]; w['skip'] = False
     end = data.rfind(b'\n') + 1
-    if not end: return
+    if not end:
+        if len(data) >= READ: w['offset'] += len(data); w['skip'] = True
+        return
     w['offset'] += end
     mode = w['mode']
     new = parse(data[:end].decode('utf-8', 'replace'), w)
@@ -568,7 +583,10 @@ export class LiveLink {
       return Promise.resolve({ id, ok: false, error: `Not connected to ${this.label}.` });
     }
     return new Promise((resolve) => {
-      const timer = setTimeout(() => { this.sends.delete(id); resolve({ id, ok: false, error: `${this.label} didn't answer.` }); }, timeoutMs);
+      const timer = setTimeout(() => {
+        this.sends.delete(id);
+        resolve({ id, ok: false, unsure: true, error: `${this.label} didn't confirm it in time. It may still arrive.` });
+      }, timeoutMs);
       this.sends.set(id, (r) => { clearTimeout(timer); resolve(r); });
       this.write({ op: 'send', id, sessionId, text });
     });

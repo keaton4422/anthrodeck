@@ -39,8 +39,14 @@ describe('dashboard', () => {
     expect(resetsIn(now + 40 * 60_000, now)).toBe('resets in 40m');
     expect(resetsIn(now + 130 * 60_000, now)).toBe('resets in 2h 10m');
     expect(resetsIn(null, now)).toBe('');
-    expect(planHeadline({ fiveHour: { used: 0.13, resetsAt: 1 }, week: { used: 0.29, resetsAt: 2 }, limited: false, at: 0 }))
-      .toEqual({ label: 'Weekly limit', used: 0.29, resetsAt: 2 });
-    expect(planHeadline({ fiveHour: { used: 0.8, resetsAt: 1 }, week: null, limited: false, at: 0 })?.label).toBe('5-hour limit');
+    expect(planHeadline({ fiveHour: { used: 0.13, resetsAt: 1 }, week: { used: 0.29, resetsAt: 2 }, limited: false, at: 0 }, 0))
+      .toEqual({ label: 'Weekly limit', used: 0.29, resetsAt: 2, limited: false });
+    expect(planHeadline({ fiveHour: { used: 0.8, resetsAt: 1 }, week: null, limited: false, at: 0 }, 0)?.label).toBe('5-hour limit');
+  });
+
+  it('counts a window past its reset as empty again, and its limit as lifted', () => {
+    const u = { fiveHour: { used: 1, resetsAt: now - 1 }, week: { used: 0.4, resetsAt: now + 3600_000 }, limited: true, at: now - 7200_000 };
+    expect(planHeadline(u, now)).toEqual({ label: 'Weekly limit', used: 0.4, resetsAt: now + 3600_000, limited: false });
+    expect(planHeadline({ ...u, fiveHour: { used: 1, resetsAt: now + 60_000 } }, now)).toMatchObject({ label: '5-hour limit', limited: true });
   });
 });
