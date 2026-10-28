@@ -18,6 +18,7 @@ interface Props {
   waiting: number;                // its prompts waiting on the pilot
   connected: boolean;
   entries: LiveEntry[] | null;    // null until the first read
+  mode: string | null;            // its permission mode (the status bar shows it too)
   outgoing: OutgoingMessage[];
   onDismiss: (id: number) => void;
   scrollRef: React.RefObject<HTMLDivElement>;
@@ -67,7 +68,7 @@ function toBlocks(entries: LiveEntry[]): Block[] {
   return out;
 }
 
-export function LiveSessionView({ session, label, waiting, connected, entries, outgoing, onDismiss, scrollRef, composer, onBack }: Props) {
+export function LiveSessionView({ session, label, waiting, connected, entries, mode, outgoing, onDismiss, scrollRef, composer, onBack }: Props) {
   const busy = session.status === 'busy';
   const blocks = useMemo(() => toBlocks(entries ?? []), [entries]);
   const [now, setNow] = useState(Date.now());
@@ -148,6 +149,14 @@ export function LiveSessionView({ session, label, waiting, connected, entries, o
         ))}
       </div>
 
+      {/* Claude Code holds messages from outside for review in a session that never asks for
+          permission, so say so before the pilot types, not after. */}
+      {mode === 'bypassPermissions' && (
+        <div style={{ ...column, margin: '0 auto', padding: '8px 18px', fontSize: 13, color: C.amber }}>
+          This session runs with Bypass permissions, so the Claude app on {label} holds messages from the Deck
+          until you allow them there.
+        </div>
+      )}
       <div className="live-composer">{composer}</div>
     </div>
   );

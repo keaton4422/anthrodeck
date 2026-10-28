@@ -27,6 +27,15 @@ export const DRIVE_MODE_LABELS: Record<DriveMode, string> = {
   acceptEdits: 'Auto-accept edits',
 };
 
+// Every permission mode a Claude Code session can be in, for showing sessions the Deck didn't start
+// (a live session on the other computer may run in a mode the Deck never offers).
+export const SESSION_MODE_SHORT: Record<string, string> = {
+  ...{ plan: 'Plan', default: 'Ask', acceptEdits: 'Auto-accept' },
+  bypassPermissions: 'Bypass permissions',
+  auto: 'Auto',
+  dontAsk: "Don't ask",
+};
+
 // The same, short enough for the header pill.
 export const DRIVE_MODE_SHORT: Record<DriveMode, string> = {
   plan: 'Plan',

@@ -13,7 +13,10 @@ export function useVoice(onResult: (transcript: string) => void) {
 
   useEffect(() => {
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    if (!SR) return;
+    // Electron exposes the API, but Chromium's speech service needs Google keys that Electron
+    // doesn't ship, so every attempt fails with a 'network' error a moment after it starts. Treat it
+    // as missing there; on-device whisper (useLocalVoice) is the voice backend inside the app.
+    if (!SR || /Electron\//.test(navigator.userAgent)) return;
 
     setIsSupported(true);
     const rec = new SR();

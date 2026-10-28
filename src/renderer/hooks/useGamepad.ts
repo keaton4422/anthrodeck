@@ -37,6 +37,26 @@ const L2_THRESHOLD = 0.5;
 const STICK_DEADZONE = 0.15;
 const RIGHT_STICK_X = 2; // axis index
 const RIGHT_STICK_Y = 3; // axis index
+const LEFT_STICK_X = 0;
+const LEFT_STICK_Y = 1;
+// The left stick moves focus like the D-pad (Steam's Deck templates send the left stick, and often
+// the trackpads, as stick movement). Pushed past PUSH it counts as held; it lets go below RELEASE,
+// so a stick resting near the edge doesn't flicker.
+const STICK_PUSH = 0.6;
+const STICK_RELEASE = 0.35;
+
+// Which D-pad directions the left stick is holding, with hysteresis against the previous frame.
+export function stickDirections(x: number, y: number, prev: Record<number, boolean>): Record<number, boolean> {
+  const held = (dir: number, v: number) => (prev[dir] ? v > STICK_RELEASE : v > STICK_PUSH);
+  // Only the dominant axis counts, so a diagonal push moves one way instead of two.
+  const horizontal = Math.abs(x) >= Math.abs(y);
+  return {
+    [BTN.DPAD_UP]: !horizontal && held(BTN.DPAD_UP, -y),
+    [BTN.DPAD_DOWN]: !horizontal && held(BTN.DPAD_DOWN, y),
+    [BTN.DPAD_LEFT]: horizontal && held(BTN.DPAD_LEFT, -x),
+    [BTN.DPAD_RIGHT]: horizontal && held(BTN.DPAD_RIGHT, x),
+  };
+}
 
 export function useGamepad(actions: GamepadActions) {
   const actionsRef = useRef(actions);
@@ -51,6 +71,7 @@ export function useGamepad(actions: GamepadActions) {
 
   // D-pad hold state per direction, for hold-to-repeat.
   const holdRef = useRef<Record<number, HoldState | null>>({});
+  const stickRef = useRef<Record<number, boolean>>({});
 
   useEffect(() => {
     let rafId: number;
@@ -77,15 +98,17 @@ export function useGamepad(actions: GamepadActions) {
         if (pressed(BTN.L3) && !prevButtons[BTN.L3]) acts.onL3Press?.();
         if (pressed(BTN.R3) && !prevButtons[BTN.R3]) acts.onR3Press?.();
 
-        // D-pad: one step on press, then hold-to-repeat (lib/padRepeat), so long lists and the
-        // Settings page don't take one press per row.
+        // D-pad (or the left stick): one step on press, then hold-to-repeat (lib/padRepeat), so long
+        // lists and the Settings page don't take one press per row.
         const now = performance.now();
+        const stick = stickDirections(gp.axes[LEFT_STICK_X] ?? 0, gp.axes[LEFT_STICK_Y] ?? 0, stickRef.current);
+        stickRef.current = stick;
         const dpad: [number, (() => void) | undefined][] = [
           [BTN.DPAD_UP, acts.onDpadUp], [BTN.DPAD_DOWN, acts.onDpadDown],
           [BTN.DPAD_LEFT, acts.onDpadLeft], [BTN.DPAD_RIGHT, acts.onDpadRight],
         ];
         for (const [btn, fn] of dpad) {
-          const r = holdFires(pressed(btn), now, holdRef.current[btn] ?? null);
+          const r = holdFires(pressed(btn) || stick[btn], now, holdRef.current[btn] ?? null);
           holdRef.current[btn] = r.st;
           if (r.fire) fn?.();
         }

@@ -192,7 +192,7 @@ describe.skipIf(!hasPython)('live scripts', () => {
     const transcript = path.join(proj, `${sid}.jsonl`);
     const line = (o: object) => `${JSON.stringify(o)}\n`;
     fs.writeFileSync(transcript, [
-      line({ type: 'user', uuid: 'u1', message: { content: 'Fix the login bug' } }),
+      line({ type: 'user', uuid: 'u1', permissionMode: 'bypassPermissions', message: { content: 'Fix the login bug' } }),
       line({ type: 'user', uuid: 'u0', message: { content: '<command-name>/clear</command-name>' } }),
       line({ type: 'assistant', uuid: 'a1', message: { content: [
         { type: 'text', text: 'Looking at it.' },
@@ -228,6 +228,7 @@ describe.skipIf(!hasPython)('live scripts', () => {
       link.watch(sid);
       await waitFor(() => tails.length > 0);
       expect(tails[0].reset).toBe(true);
+      expect(tails[0].mode).toBe('bypassPermissions');   // the session's mode, not the Deck's
       expect(tails[0].entries.map((e) => [e.role, e.text])).toEqual([
         ['user', 'Fix the login bug'],
         ['assistant', 'Looking at it.'],
