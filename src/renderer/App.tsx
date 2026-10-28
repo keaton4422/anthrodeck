@@ -238,6 +238,8 @@ export default function App() {
       .catch(() => setLocalReady(false));
   }, [localVoice]);
   const useLocal = localVoice && localReady;
+  // Some way to talk exists here: on-device whisper, or the system's speech recognition.
+  const voiceReady = useLocal || isSupported;
   const startDictation = useLocal ? localDict.startListening : startListening;
   const stopDictation = useLocal ? localDict.stopListening : stopListening;
   const dictationListening = useLocal ? localDict.isListening : isListening;
@@ -414,11 +416,18 @@ export default function App() {
     // L2 push-to-talk only drives chat when nothing else owns the pad.
     onL2Press: () => {
       if (padBusy) return;
+      if (!voiceReady) {
+        showToast('Voice isn\'t set up on this device yet (Settings → Voice). STEAM + X opens the keyboard.');
+        return;
+      }
+      // Off the message box first: SteamOS raises its keyboard whenever a focused text box changes
+      // state, and the box goes read-only while listening.
+      if (document.activeElement instanceof HTMLTextAreaElement) document.activeElement.blur();
       startDictation();
       fireFeedback('voice-start');
     },
     onL2Release: () => {
-      if (padBusy) return;
+      if (padBusy || !voiceReady) return;
       stopDictation();
       fireFeedback('voice-stop');
     },
@@ -476,7 +485,8 @@ export default function App() {
       else setShowSettings((s) => !s);
     },
     // R1 paddle: drive mode, even mid-game (the games don't use it). L1+R2: the brake.
-    onR1Press: () => { if (!modalActive) cycleMode(); },
+    // (Not on the live session screen: that session's mode is set where it runs.)
+    onR1Press: () => { if (!modalActive && !liveOpen) cycleMode(); },
     onR2Press: (mod) => {
       if (!mod || cockpitOpen || !isStreaming) return;
       abort();
@@ -601,6 +611,7 @@ export default function App() {
         contextPct={context?.percentage ?? null}
         costUsd={costUsd}
         mode={mode}
+        liveMode={liveShown ? liveChat.mode : undefined}
         onCycleMode={cycleMode}
         career={{ level: season.level, tier: season.tier, progress: season.progress }}
         onDrawer={() => setDrawerOpen((s) => !s)}
@@ -668,6 +679,7 @@ export default function App() {
           waiting={live?.state?.requests.filter((r) => r.sessionId === liveShown.sessionId).length ?? 0}
           connected={!!live?.connected}
           entries={liveChat.entries}
+          mode={liveChat.mode}
           outgoing={liveChat.outgoing}
           onDismiss={liveChat.dismiss}
           scrollRef={liveScrollRef}

@@ -138,7 +138,7 @@ export function InputBar({
         </div>
 
         <div style={{ display: 'flex', gap: 18, marginTop: 8, fontSize: 12, color: '#6A6A6A' }}>
-          <span><Key>L2</Key> {isListening ? 'Release to send' : 'Hold to talk'}</span>
+          {isVoiceSupported && <span><Key>L2</Key> {isListening ? 'Release to send' : 'Hold to talk'}</span>}
           <span><Key>STEAM</Key>+<Key>X</Key> Keyboard</span>
         </div>
       </div>

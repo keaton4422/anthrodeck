@@ -358,7 +358,6 @@ const Home = forwardRef<HomeNav, Props>(function Home(
         <span><Glyph b="A" /> Open</span>
         {current && <span><Glyph b="B" /> Back to session</span>}
         {remote && <span><Glyph b="Y" /> {machine === 'local' ? remote.label : 'This Deck'}</span>}
-        <span><Glyph b="L2" /> Talk</span>
         <span style={{ marginLeft: 'auto' }}><Glyph b="☰" /> Settings</span>
       </div>
     </div>

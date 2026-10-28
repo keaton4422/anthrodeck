@@ -72,7 +72,9 @@ export interface LiveEntry {
   text: string;
   deck?: boolean;             // a user message sent from the Deck
 }
-export interface LiveTail { sessionId: string; reset: boolean; entries: LiveEntry[] }
+// `mode`: the session's permission mode as of its latest turn ('plan', 'default', 'acceptEdits',
+// 'bypassPermissions', 'auto'…), null until it has one.
+export interface LiveTail { sessionId: string; reset: boolean; entries: LiveEntry[]; mode: string | null }
 export interface LiveSent { id: string; ok: boolean; error: string | null }
 
 interface RawEntry { id?: unknown; role?: unknown; text?: unknown; deck?: unknown; name?: unknown; input?: unknown }
@@ -80,7 +82,7 @@ interface RawEntry { id?: unknown; role?: unknown; text?: unknown; deck?: unknow
 // The watcher's other lines: a piece of the open session's conversation, or a send's outcome.
 // Tool calls arrive as name + input and become the same one-line labels the cockpit uses.
 export function parseLiveEvent(line: string, cwd: string): { tail: LiveTail } | { sent: LiveSent } | null {
-  let d: { tail?: { sessionId?: unknown; reset?: unknown; entries?: unknown }; sent?: { id?: unknown; ok?: unknown; error?: unknown } };
+  let d: { tail?: { sessionId?: unknown; reset?: unknown; entries?: unknown; mode?: unknown }; sent?: { id?: unknown; ok?: unknown; error?: unknown } };
   try { d = JSON.parse(line); } catch { return null; }
   if (d?.tail && typeof d.tail.sessionId === 'string' && Array.isArray(d.tail.entries)) {
     const entries: LiveEntry[] = [];
@@ -93,7 +95,8 @@ export function parseLiveEvent(line: string, cwd: string): { tail: LiveTail } | 
         entries.push({ id: String(e.id ?? ''), role, text: e.text, ...(e.deck === true && { deck: true }) });
       }
     }
-    return { tail: { sessionId: d.tail.sessionId, reset: d.tail.reset === true, entries } };
+    const mode = typeof d.tail.mode === 'string' ? d.tail.mode : null;
+    return { tail: { sessionId: d.tail.sessionId, reset: d.tail.reset === true, entries, mode } };
   }
   if (d?.sent && typeof d.sent.id === 'string') {
     return { sent: { id: d.sent.id, ok: d.sent.ok === true, error: typeof d.sent.error === 'string' ? d.sent.error : null } };
@@ -351,14 +354,18 @@ def entries(e):
         return out
     return []
 
-def parse(chunk):
+watching = None     # the session the Deck has open: {'sid', 'path', 'offset', 'mode'}
+
+def parse(chunk, w):
+    # Also notes the session's permission mode, which Claude Code stamps on each of the user's turns.
     out = []
     for raw in chunk.splitlines():
-        try: out += entries(json.loads(raw))
+        try:
+            e = json.loads(raw)
+            if isinstance(e.get('permissionMode'), str): w['mode'] = e['permissionMode']
+            out += entries(e)
         except Exception: pass
     return out
-
-watching = None     # the session the Deck has open: {'sid', 'path', 'offset'}
 
 def watch(sid):
     global watching
@@ -373,8 +380,10 @@ def watch(sid):
         data = fh.read()
     if size > len(data): data = data.split(b'\n', 1)[-1]    # drop the partial first line
     end = data.rfind(b'\n') + 1
-    watching = {'sid': sid, 'path': path, 'offset': size - len(data) + end}
-    emit({'tail': {'sessionId': sid, 'reset': True, 'entries': parse(data[:end].decode('utf-8', 'replace'))[-80:]}})
+    w = {'sid': sid, 'path': path, 'offset': size - len(data) + end, 'mode': None}
+    got = parse(data[:end].decode('utf-8', 'replace'), w)[-80:]
+    watching = w
+    emit({'tail': {'sessionId': sid, 'reset': True, 'entries': got, 'mode': w['mode']}})
 
 def follow():
     w = watching
@@ -387,8 +396,9 @@ def follow():
     end = data.rfind(b'\n') + 1
     if not end: return
     w['offset'] += end
-    new = parse(data[:end].decode('utf-8', 'replace'))
-    if new: emit({'tail': {'sessionId': w['sid'], 'reset': False, 'entries': new}})
+    mode = w['mode']
+    new = parse(data[:end].decode('utf-8', 'replace'), w)
+    if new or w['mode'] != mode: emit({'tail': {'sessionId': w['sid'], 'reset': False, 'entries': new, 'mode': w['mode']}})
 
 def deliver(sid, text):
     # Into a running session through Claude Code's own session inbox: the socket it lists in the

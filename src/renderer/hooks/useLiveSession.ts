@@ -22,15 +22,19 @@ const MAX_ENTRIES = 400;
 export function useLiveSession(sessionId: string | null) {
   const [entries, setEntries] = useState<LiveEntry[] | null>(null);
   const [outgoing, setOutgoing] = useState<OutgoingMessage[]>([]);
+  // Its permission mode, as of its latest turn: the session's own, not the Deck's.
+  const [mode, setMode] = useState<string | null>(null);
   const seq = useRef(0);
 
   useEffect(() => {
     setEntries(null);
     setOutgoing([]);
+    setMode(null);
     if (!sessionId) return;
     window.electronAPI.liveWatch(sessionId);
     const off = window.electronAPI.onLiveTail((t) => {
       if (t.sessionId !== sessionId) return;
+      if (t.reset || t.mode) setMode(t.mode);
       setEntries((prev) => (t.reset ? t.entries : [...(prev ?? []), ...t.entries]).slice(-MAX_ENTRIES));
       // Match the pilot's messages against what the session reports: queued, then in the conversation.
       setOutgoing((out) => {
@@ -63,5 +67,5 @@ export function useLiveSession(sessionId: string | null) {
 
   const dismiss = useCallback((id: number) => setOutgoing((out) => out.filter((m) => m.id !== id)), []);
 
-  return { entries, outgoing, send, dismiss };
+  return { entries, outgoing, mode, send, dismiss };
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DriveMode, TokenUsage } from '../types';
-import { DRIVE_MODE_LABELS, DRIVE_MODE_SHORT } from '../../main/engine/config';
+import { DRIVE_MODE_LABELS, DRIVE_MODE_SHORT, SESSION_MODE_SHORT } from '../../main/engine/config';
 import { Logo } from './Logo';
 import {
   budgetLevel,
@@ -24,6 +24,9 @@ interface Props {
   costUsd: number;
   mode: DriveMode;
   onCycleMode: () => void;
+  // On the live session screen: that session's own permission mode, shown instead of the Deck's
+  // (undefined: not on that screen; null: not known yet).
+  liveMode?: string | null;
   career: { level: number; tier: string; progress: number };
   onDrawer: () => void;
   onSettings: () => void;
@@ -128,6 +131,20 @@ function ModePill({ mode, onClick }: { mode: DriveMode; onClick: () => void }) {
   );
 }
 
+// A live session's mode: read-only (it's set where that session runs), and it can be one the Deck
+// never offers, such as Bypass permissions.
+function LiveModePill({ mode }: { mode: string | null }) {
+  const c = mode && mode in MODE_COLORS ? MODE_COLORS[mode as DriveMode] : mode === 'bypassPermissions' ? '#E05252' : '#8A8A8A';
+  return (
+    <span title="This session's permission mode, set where it runs" style={{
+      border: `1px solid ${c}`, borderRadius: 12, padding: '3px 10px',
+      color: c, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', whiteSpace: 'nowrap',
+    }}>
+      {(mode ? SESSION_MODE_SHORT[mode] ?? mode : 'Mode unknown').toUpperCase()}
+    </span>
+  );
+}
+
 function CareerBadge({ level, tier, progress }: { level: number; tier: string; progress: number }) {
   return (
     <div title={`${tier} · level ${level}`} style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 64 }}>
@@ -143,7 +160,7 @@ function CareerBadge({ level, tier, progress }: { level: number; tier: string; p
 
 export function StatusBar({
   isListening, isTranscribing, isStreaming, engineReady, projectPath, projectHostLabel, usage, budget, contextPct, costUsd,
-  mode, onCycleMode, career, onDrawer, onSettings, onCockpit, onHome,
+  mode, onCycleMode, liveMode, career, onDrawer, onSettings, onCockpit, onHome,
 }: Props) {
   const folderName = projectPath ? projectPath.split(/[\\/]/).pop() : null;
 
@@ -247,7 +264,7 @@ export function StatusBar({
         {!engineReady && !isListening && !isStreaming && (
           <span style={{ fontSize: 12, color: '#E05252' }}>⚠ Engine not installed</span>
         )}
-        <ModePill mode={mode} onClick={onCycleMode} />
+        {liveMode !== undefined ? <LiveModePill mode={liveMode} /> : <ModePill mode={mode} onClick={onCycleMode} />}
         {engineReady && <TokenHUD usage={usage} budget={budget} contextPct={contextPct} costUsd={costUsd} />}
         <CareerBadge {...career} />
         <button
