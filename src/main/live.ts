@@ -297,7 +297,7 @@ while True:
 // Installs or removes the relay: the script, plus one PermissionRequest hook in Claude Code's user
 // settings (marked, so removal touches nothing else; the original file is backed up once).
 export const SETUP_PY = String.raw`
-import json, os, sys
+import json, os, shutil, sys
 op = sys.argv[1]
 ROOT = os.environ.get('ANTHRODECK_RELAY_ROOT') or os.path.expanduser('~/.anthrodeck/relay')
 RELAY = os.path.join(ROOT, 'relay.py')
@@ -315,7 +315,10 @@ for ev in list(hooks):
 if op == 'install':
     os.makedirs(ROOT, exist_ok=True)
     with open(RELAY, 'w') as fh: fh.write(sys.argv[2])
-    cmd = "'%s' '%s' permission  %s" % (sys.executable, RELAY, MARK)
+    # The python3 on PATH (on a Mac, /usr/bin/python3) rather than sys.executable, which there is
+    # a path inside Xcode or the Command Line Tools that moves when they're updated or switched.
+    py = shutil.which('python3') or sys.executable
+    cmd = "'%s' '%s' permission  %s" % (py, RELAY, MARK)
     hooks.setdefault('PermissionRequest', []).append({'hooks': [{'type': 'command', 'command': cmd, 'timeout': 600}]})
 elif op == 'remove':
     try: os.remove(RELAY)
