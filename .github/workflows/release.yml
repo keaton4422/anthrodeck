@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+  # Builds a branch's artifacts without publishing, to prove a build change before tagging.
+  workflow_dispatch:
 
 # Least privilege by default; only the release job can write (it creates the GitHub Release).
 permissions:
@@ -33,7 +35,12 @@ jobs:
 
       - name: Install Linux deps
         if: matrix.platform == 'linux'
-        run: sudo apt-get install -y rpm fakeroot
+        run: sudo apt-get install -y rpm fakeroot cmake
+
+      # The Deck's speech engine and model ship inside the Linux app (resources/whisper).
+      - name: Build the speech engine
+        if: matrix.platform == 'linux'
+        run: tools/linux/build-whisper.sh
 
       - run: npm ci
 
@@ -54,6 +61,7 @@ jobs:
 
   release:
     needs: build
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write

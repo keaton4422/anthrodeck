@@ -26,3 +26,6 @@ npm-debug.log*
 
 # Claude Code local settings
 .claude/
+
+# Speech engine built for the Linux app (tools/linux/build-whisper.sh)
+build/
