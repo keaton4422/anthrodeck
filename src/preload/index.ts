@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('live:state', handler);
     return () => ipcRenderer.removeListener('live:state', handler);
   },
+  planUsage: () => ipcRenderer.invoke('usage:plan'),
   liveWatch: (sessionId: string | null) => ipcRenderer.send('live:watch', sessionId),
   liveSend: (sessionId: string, text: string) => ipcRenderer.invoke('live:send', sessionId, text),
   onLiveTail: (cb: (t: unknown) => void) => {

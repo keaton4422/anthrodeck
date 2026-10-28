@@ -1,13 +1,15 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import type { LiveSession, Machine, PitWall, ProjectTile, RemoteTarget, SessionCard } from '../types';
+import type { LiveSession, Machine, PitWall, PlanUsage, ProjectTile, RemoteTarget, SessionCard } from '../types';
 import { timeAgo } from '../lib/timeAgo';
+import { dashboardStats, planHeadline, resetsIn, type DashboardStats } from '../lib/dashboard';
 import { useLive } from '../hooks/useLive';
 import { Logo } from './Logo';
 
-// Home: the launch screen. Every project on this device (the folders Claude Code has worked in)
-// with its git state, the sessions run in each, and the session open right now. From here the
-// pilot carries on with the current session, resumes an old one to make more changes, or starts a
-// new one in any project. Same schema as Claude Desktop, driven like a cockpit.
+// Home: the cockpit's landing screen. Across the top, the readout: what needs the pilot (Claude's
+// waiting questions), what's running, work not shipped yet, and how much of the plan's limits is
+// left. Below it, every way in: the session open right now, sessions running on the other
+// computer, and every project (the folders Claude Code has worked in) with its git state and its
+// sessions, to resume one or start a new one. Same schema as Claude Desktop, driven like a console.
 //
 // Built for the pad first: two columns, the D-pad moves (up/down within a column, left/right
 // between them), A goes. App forwards pad input through the `HomeNav` handle; arrow keys and Enter
@@ -55,6 +57,7 @@ const C = {
   clayBg: 'rgba(217,119,87,0.10)',
   green: '#52A77C',
   amber: '#D9A35B',
+  red: '#E05252',
 };
 
 const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
@@ -64,7 +67,8 @@ export const liveSource = (entrypoint: string | null) =>
 const Home = forwardRef<HomeNav, Props>(function Home(
   { projectPath, projectHost, current, onContinue, onResume, onNew, onOpenFolder, onOpenLive }, ref,
 ) {
-  const [wall, setWall] = useState<PitWall | null>(null);
+  // Both computers' projects: the shown one drives the columns, both feed the readout.
+  const [walls, setWalls] = useState<Record<Machine, PitWall | null>>({ local: null, remote: null });
   const [col, setCol] = useState(0);
   const [row, setRow] = useState<[number, number]>([0, 0]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -72,15 +76,27 @@ const Home = forwardRef<HomeNav, Props>(function Home(
   // Start on the computer the open project is on.
   const [machine, setMachine] = useState<Machine>(projectHost ? 'remote' : 'local');
   const live = useLive();
+  const [plan, setPlan] = useState<PlanUsage | null>(null);
+  const wall = walls[machine];
 
-  useEffect(() => { void window.electronAPI.remoteGet().then(setRemote); }, []);
   useEffect(() => {
-    let live = true;
-    setWall(null);
+    void window.electronAPI.remoteGet().then(setRemote);
+    void window.electronAPI.planUsage().then(setPlan);
+  }, []);
+  const load = useCallback((m: Machine) => window.electronAPI.sessionsList(m).then((w) => {
+    setWalls((ws) => ({ ...ws, [m]: w }));
+  }), []);
+  useEffect(() => {
     setRow([0, 0]); setCol(0); setSelected(null);
-    void window.electronAPI.sessionsList(machine).then((w) => { if (live) setWall(w); });
-    return () => { live = false; };
-  }, [machine]);
+    void load(machine);
+  }, [machine, load]);
+  // The other computer too, once it's known, for the readout's totals.
+  useEffect(() => {
+    if (remote) void load(machine === 'local' ? 'remote' : 'local');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remote]);
+  const stats = useMemo(() => dashboardStats([walls.local, remote ? walls.remote : null], live?.state ?? null),
+    [walls, remote, live]);
 
   // Is this path the open project, on the computer being shown?
   const isOpen = useCallback((cwd: string) =>
@@ -184,33 +200,37 @@ const Home = forwardRef<HomeNav, Props>(function Home(
   const isFocused = (c: number, i: number) => col === c && row[c] === i;
 
   return (
-    <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '22px 28px 16px', gap: 16 }}>
+    <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '18px 28px 0', gap: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        <Logo height={30} />
+        <Logo height={32} />
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.18em', color: C.text }}>HOME</div>
-          <div style={{ fontSize: 12, color: C.faint, marginTop: 2 }}>
-            Projects and sessions on {where}. D-pad to move, A to open, B back to the current session.
+          <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '0.18em', color: C.text }}>HOME</div>
+          <div style={{ fontSize: 13, color: C.dim, marginTop: 3 }}>
+            {stats.today.sessions
+              ? `Today: ${stats.today.sessions} session${stats.today.sessions === 1 ? '' : 's'} in ${stats.today.projects} project${stats.today.projects === 1 ? '' : 's'}`
+              : 'No sessions yet today'}
           </div>
         </div>
         {remote && (
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Glyph b="Y" />
             {(['local', 'remote'] as const).map((m) => (
               <button key={m} onClick={() => setMachine(m)} style={{
-                padding: '6px 12px', borderRadius: 7, fontSize: 13, cursor: 'pointer', fontWeight: 600,
+                padding: '8px 16px', borderRadius: 8, fontSize: 14, cursor: 'pointer', fontWeight: 600,
                 border: `1px solid ${machine === m ? C.clay : C.line}`,
                 background: machine === m ? C.clayBg : C.panel, color: machine === m ? C.clay : C.dim,
               }}>
-                {m === 'local' ? 'This device' : `💻 ${remote.label}`}
+                {m === 'local' ? 'This Deck' : remote.label}
               </button>
             ))}
-            <span style={{ fontSize: 11, color: C.faint, marginLeft: 4 }}>Y to switch</span>
           </div>
         )}
       </div>
 
+      <Readout stats={stats} plan={plan} remoteLabel={remote?.label ?? null} />
+
       {machine === 'remote' && !wall && (
-        <div style={{ fontSize: 13, color: C.dim }}>Connecting to {remote?.label ?? 'your other computer'}…</div>
+        <div style={{ fontSize: 14, color: C.dim }}>Connecting to {remote?.label ?? 'your other computer'}…</div>
       )}
 
       {/* Sessions live on the machine they ran on, so a fresh Deck has none: say so plainly. */}
@@ -240,9 +260,9 @@ const Home = forwardRef<HomeNav, Props>(function Home(
               return (
                 <Row key="continue" focused={focused} accent onClick={() => activate(item)}>
                   <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: C.clay }}>CURRENT SESSION</div>
-                  <div style={{ fontSize: 14, color: C.text, marginTop: 3 }}>{current.title}</div>
-                  <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
-                    {current.project ?? 'No project'} · A to continue
+                  <div style={{ fontSize: 16, color: C.text, marginTop: 3 }}>{current.title}</div>
+                  <div style={{ fontSize: 13, color: C.dim, marginTop: 3 }}>
+                    {current.project ?? 'No project'}
                   </div>
                 </Row>
               );
@@ -261,11 +281,11 @@ const Home = forwardRef<HomeNav, Props>(function Home(
                       {item.waiting ? 'NEEDS YOU' : busy ? 'LIVE · WORKING' : 'LIVE · IDLE'}
                     </span>
                   </div>
-                  <div style={{ fontSize: 14, color: C.text, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 16, color: C.text, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.name || folderName(s.cwd)}
                   </div>
-                  <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
-                    {folderName(s.cwd)} · {liveSource(s.entrypoint)} · A to open
+                  <div style={{ fontSize: 13, color: C.dim, marginTop: 3 }}>
+                    {folderName(s.cwd)} · {liveSource(s.entrypoint)}
                   </div>
                 </Row>
               );
@@ -276,7 +296,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
               return (
                 <Row key={p.cwd} focused={focused} selected={open && col === 1} onClick={() => { setCol(0); setRow([i, row[1]]); }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{p.name}</span>
+                    <span style={{ fontSize: 17, fontWeight: 600, color: C.text }}>{p.name}</span>
                     {isOpen(p.cwd) && <Tag>open</Tag>}
                   </div>
                   <GitLine project={p} />
@@ -303,8 +323,8 @@ const Home = forwardRef<HomeNav, Props>(function Home(
             if (item.kind === 'new') {
               return (
                 <Row key="new" focused={focused} accent onClick={() => activate(item)}>
-                  <div style={{ fontSize: 14, color: C.text }}>＋ New session in {item.name}</div>
-                  <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>A fresh Claude Code session in this folder</div>
+                  <div style={{ fontSize: 16, color: C.text }}>＋ New session in {item.name}</div>
+                  <div style={{ fontSize: 13, color: C.dim, marginTop: 3 }}>A fresh Claude Code session in this folder</div>
                 </Row>
               );
             }
@@ -314,13 +334,13 @@ const Home = forwardRef<HomeNav, Props>(function Home(
               return (
                 <Row key={s.id} focused={focused} onClick={() => activate(item)}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                    <span style={{ fontSize: 14, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: 16, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {s.title}
                     </span>
                     {isCurrent && <Tag>current</Tag>}
                   </div>
-                  <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
-                    {s.branch ? `⎇ ${s.branch} · ` : ''}{timeAgo(s.lastModified)} · A to resume
+                  <div style={{ fontSize: 13, color: C.dim, marginTop: 3 }}>
+                    {s.branch ? `⎇ ${s.branch} · ` : ''}{timeAgo(s.lastModified)}
                   </div>
                 </Row>
               );
@@ -329,17 +349,100 @@ const Home = forwardRef<HomeNav, Props>(function Home(
           })}
         </Column>
       </div>
+
+      {/* The console's button legend. */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 22, padding: '10px 2px 12px', borderTop: `1px solid ${C.line}`,
+        fontSize: 13, color: C.dim,
+      }}>
+        <span><Glyph b="A" /> Open</span>
+        {current && <span><Glyph b="B" /> Back to session</span>}
+        {remote && <span><Glyph b="Y" /> {machine === 'local' ? remote.label : 'This Deck'}</span>}
+        <span><Glyph b="L2" /> Talk</span>
+        <span style={{ marginLeft: 'auto' }}><Glyph b="☰" /> Settings</span>
+      </div>
     </div>
   );
 });
 
 export default Home;
 
+// Face buttons in the Deck's colours, as on the cards.
+const GLYPH: Record<string, string> = { A: '#52A77C', B: '#E05252', X: '#6B8CCE', Y: '#D9A35B' };
+export function Glyph({ b }: { b: string }) {
+  const round = b.length === 1 && GLYPH[b];
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle',
+      minWidth: 22, height: 22, padding: round ? 0 : '0 6px', borderRadius: round ? '50%' : 6,
+      background: round ? GLYPH[b] : '#2A2A2A', color: round ? '#101010' : C.text,
+      fontSize: 12, fontWeight: 800, marginRight: 4,
+    }}>{b}</span>
+  );
+}
+
+// The readout across the top of Home: four numbers, each pointing at something to do.
+function Readout({ stats, plan, remoteLabel }: { stats: DashboardStats; plan: PlanUsage | null; remoteLabel: string | null }) {
+  const head = plan && planHeadline(plan);
+  const stale = plan && Date.now() - plan.at > 6 * 3600_000 ? ` · as of ${timeAgo(plan.at)}` : '';
+  const { files, projects, toPush } = stats.unshipped;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
+      <Tile
+        label="NEEDS YOU"
+        value={String(stats.needsYou)}
+        tone={stats.needsYou ? C.amber : C.green}
+        sub={stats.needsYou ? `Claude is waiting${remoteLabel ? ` on ${remoteLabel}` : ''}` : 'Nothing waiting on you'}
+      />
+      <Tile
+        label="WORKING NOW"
+        value={stats.running ? String(stats.running.working) : '—'}
+        tone={stats.running?.working ? C.green : C.text}
+        sub={stats.running
+          ? `${stats.running.idle} idle · on ${remoteLabel}`
+          : 'Add your other computer in Settings'}
+      />
+      <Tile
+        label="UNSHIPPED"
+        value={String(files)}
+        tone={files || toPush ? C.amber : C.green}
+        sub={files || toPush
+          ? `${files ? `file${files === 1 ? '' : 's'} uncommitted` : 'all committed'}${toPush ? ` · ${toPush} to push` : ''} · ${projects} project${projects === 1 ? '' : 's'}`
+          : 'Everything committed and pushed'}
+      />
+      <Tile
+        label="PLAN USAGE"
+        value={head ? `${Math.round(head.used * 100)}%` : '—'}
+        tone={plan?.limited || (head && head.used >= 0.9) ? C.red : head && head.used >= 0.7 ? C.amber : C.text}
+        meter={head ? head.used : null}
+        sub={head
+          ? `${plan?.limited ? 'Limit reached' : head.label} · ${resetsIn(head.resetsAt)}${stale}`
+          : 'Shows after your next session'}
+      />
+    </div>
+  );
+}
+
+function Tile({ label, value, sub, tone, meter = null }: { label: string; value: string; sub: string; tone: string; meter?: number | null }) {
+  return (
+    <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: '12px 16px', minWidth: 0 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.16em', color: C.faint }}>{label}</div>
+      <div style={{ fontSize: 30, fontWeight: 700, color: tone, marginTop: 4, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{value}</div>
+      {meter !== null && (
+        <div style={{ height: 4, borderRadius: 2, background: C.line, marginTop: 6, overflow: 'hidden' }}>
+          <div style={{ width: `${Math.min(100, meter * 100)}%`, height: '100%', background: tone === C.text ? C.clay : tone }} />
+        </div>
+      )}
+      <div style={{ fontSize: 13, color: C.dim, marginTop: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>
+    </div>
+  );
+}
+
 function Column({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', color: C.faint, margin: '0 4px 8px' }}>{title}</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', paddingRight: 4 }}>{children}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.16em', color: C.faint, margin: '0 2px 8px' }}>{title}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', padding: '2px 6px 12px 2px' }}>{children}</div>
     </div>
   );
 }
@@ -354,10 +457,12 @@ function Row({ focused, selected, accent, onClick, children }: {
       ref={el}
       onClick={onClick}
       style={{
-        textAlign: 'left', width: '100%', cursor: 'pointer', borderRadius: 8, padding: '10px 12px',
+        textAlign: 'left', width: '100%', cursor: 'pointer', borderRadius: 10, padding: '12px 16px',
         background: focused ? C.clayBg : accent ? '#181512' : C.panel,
         border: `1px solid ${focused ? C.clay : selected ? '#4A3A33' : C.line}`,
-        boxShadow: focused ? `inset 3px 0 0 ${C.clay}` : 'none',
+        // The console's focus ring: unmistakable at arm's length.
+        boxShadow: focused ? `0 0 0 2px ${C.clay}, 0 0 18px rgba(217,119,87,0.25)` : 'none',
+        transition: 'box-shadow 120ms, background 120ms',
         color: C.text, font: 'inherit', flexShrink: 0,
       }}
     >
@@ -394,7 +499,7 @@ function GitLine({ project }: { project: ProjectTile }) {
     ? `${project.sessions.length} session${project.sessions.length === 1 ? '' : 's'} · ${timeAgo(project.lastModified)}`
     : 'no sessions yet'}</span>);
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', fontSize: 12, color: C.dim, marginTop: 4 }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', fontSize: 13, color: C.dim, marginTop: 5 }}>
       {bits}
     </div>
   );

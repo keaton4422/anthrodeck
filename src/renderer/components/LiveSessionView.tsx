@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { ChatMessage, LiveEntry, LiveSession } from '../types';
 import type { OutgoingMessage } from '../hooks/useLiveSession';
 import { MessageBubble } from './MessageBubble';
-import { liveSource } from './Home';
+import { Glyph, liveSource } from './Home';
 
 // The live session screen: a Claude Code session running on the remote computer right now (in the
 // Claude app, a terminal…), followed from the Deck. The conversation streams in as that session
@@ -34,6 +34,11 @@ const C = {
   green: '#52A77C',
   amber: '#D9A35B',
   red: '#E05252',
+};
+
+// The conversation's column, as MessageBubble lays it out.
+const column: React.CSSProperties = {
+  width: 'calc(100% - 48px)', maxWidth: 920, margin: '6px auto', padding: '12px 18px', boxSizing: 'border-box',
 };
 
 const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
@@ -83,7 +88,8 @@ export function LiveSessionView({ session, label, waiting, connected, entries, o
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '14px 24px', borderBottom: `1px solid ${C.line}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+      <div style={{ // On the conversation's column, so titles and messages share one left edge.
+        padding: '14px max(24px, calc((100% - 920px) / 2 + 18px))', borderBottom: `1px solid ${C.line}`, display: 'flex', alignItems: 'center', gap: 14 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: badge.color, flexShrink: 0 }} />
@@ -99,32 +105,33 @@ export function LiveSessionView({ session, label, waiting, connected, entries, o
             {connected ? '' : ' · reconnecting…'}
           </div>
         </div>
-        <div style={{ fontSize: 11, color: C.faint, textAlign: 'right', lineHeight: 1.6 }}>A to write · L2 to talk</div>
+        <div style={{ fontSize: 13, color: C.dim }}><Glyph b="A" /> Write</div>
         <button onClick={onBack} style={{
-          padding: '6px 12px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+          padding: '8px 14px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
           border: `1px solid ${C.line}`, background: 'transparent', color: C.dim,
-        }}>B · Home</button>
+        }}><Glyph b="B" /> Home</button>
       </div>
 
       <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {entries === null && (
-          <div style={{ padding: '18px 24px', fontSize: 13, color: C.dim }}>Reading the conversation on {label}…</div>
+          <div style={{ ...column, fontSize: 15, color: C.dim }}>Reading the conversation on {label}…</div>
         )}
         {entries !== null && !blocks.length && (
-          <div style={{ padding: '18px 24px', fontSize: 13, color: C.dim }}>Nothing said in this session yet.</div>
+          <div style={{ ...column, fontSize: 15, color: C.dim }}>Nothing said in this session yet.</div>
         )}
         {blocks.map((b) => b.kind === 'message'
           ? <MessageBubble key={b.message.id} message={b.message} collapseTools={false} />
           : (
-            <div key={b.id} style={{ padding: '10px 24px 10px 72px', fontSize: 13, color: C.dim, borderBottom: '1px solid #1E1E1E', whiteSpace: 'pre-wrap' }}>
+            <div key={b.id} style={{ ...column, fontSize: 14, color: C.dim, whiteSpace: 'pre-wrap' }}>
               <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', color: C.faint }}>FROM ANOTHER SESSION · </span>
               {b.text}
             </div>
           ))}
         {outgoing.map((m) => (
-          <div key={m.id} style={{ padding: '10px 24px 10px 72px', borderBottom: '1px solid #1E1E1E' }}>
-            <div style={{ fontSize: 14, color: m.state === 'failed' ? C.dim : C.text, whiteSpace: 'pre-wrap' }}>{m.text}</div>
-            <div style={{ fontSize: 12, marginTop: 4, color: m.state === 'failed' ? C.red : C.faint }}>
+          <div key={m.id} style={{ ...column, background: '#1A1714', border: '1px solid #2E2620', borderRadius: 12, marginTop: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.14em', color: C.clay, marginBottom: 8 }}>YOU</div>
+            <div style={{ fontSize: 16, color: m.state === 'failed' ? C.dim : C.text, whiteSpace: 'pre-wrap' }}>{m.text}</div>
+            <div style={{ fontSize: 13, marginTop: 6, color: m.state === 'failed' ? C.red : C.faint }}>
               {m.state === 'sending' && `Sending to ${label}…`}
               {m.state === 'queued' && 'Queued: Claude reads it when it finishes what it\'s doing.'}
               {m.state === 'sent' && (now - m.sentAt < HELD_AFTER_MS

@@ -92,55 +92,42 @@ export function MessageBubble({ message, onRewind, collapseTools }: Props) {
   const conf = message.confidence ? CONFIDENCE_STYLE[message.confidence] : null;
   const lowConfidence = message.confidence === 'low';
 
+  // One column for every turn, centred and capped to a comfortable line length at arm's length:
+  // the role, its badges and rewind on one row, the words underneath on the same left edge. Your
+  // turns sit on a tinted card so the conversation scans at a glance.
   return (
-    <div
-      className="msg-enter"
-      style={{
-        padding: '14px 24px',
-        borderBottom: '1px solid #1E1E1E',
-        borderLeft: lowConfidence ? '3px solid rgba(224,82,82,0.6)' : '3px solid transparent',
-        display: 'flex',
-        gap: 14,
-        alignItems: 'flex-start',
-      }}
-    >
-      {/* Avatar / Role indicator */}
+    <div className="msg-enter" style={{ padding: isUser ? '14px 24px 6px' : '6px 24px', display: 'flex', justifyContent: 'center' }}>
       <div
         style={{
-          width: 34,
-          height: 34,
-          borderRadius: 6,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 15,
-          flexShrink: 0,
-          marginTop: 2,
-          background: isUser ? 'rgba(204,120,92,0.15)' : 'rgba(82,167,124,0.12)',
-          border: `1px solid ${isUser ? 'rgba(204,120,92,0.3)' : 'rgba(82,167,124,0.25)'}`,
-          color: isUser ? '#CC785C' : '#52A77C',
-          fontWeight: 700,
-          letterSpacing: '0.03em',
+          width: '100%',
+          maxWidth: 920,
+          minWidth: 0,
+          padding: isUser ? '14px 18px' : '12px 18px',
+          borderRadius: 12,
+          background: isUser ? '#1A1714' : 'transparent',
+          border: `1px solid ${isUser ? '#2E2620' : 'transparent'}`,
+          boxShadow: lowConfidence ? 'inset 3px 0 0 rgba(224,82,82,0.6)' : 'none',
         }}
       >
-        {isUser ? 'YOU' : '◆'}
-      </div>
-
-      {/* Content */}
-      <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
-            fontSize: 12,
-            color: '#6A6A6A',
-            marginBottom: 6,
-            letterSpacing: '0.05em',
-            fontWeight: 500,
             display: 'flex',
             alignItems: 'center',
             gap: 8,
+            marginBottom: 8,
+            minHeight: 20,
           }}
         >
-          {isUser ? 'YOU' : 'CLAUDE'}
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 800,
+              letterSpacing: '0.14em',
+              color: isUser ? '#D97757' : '#52A77C',
+            }}
+          >
+            {isUser ? 'YOU' : 'CLAUDE'}
+          </span>
           {conf && (
             <span
               title="Claude's self-assessed confidence"
@@ -164,10 +151,8 @@ export function MessageBubble({ message, onRewind, collapseTools }: Props) {
               title="Rewind to here — drops everything after this message"
               style={{
                 marginLeft: 'auto', background: 'none', border: 'none',
-                color: '#5A5A5A', cursor: 'pointer', fontSize: 12, padding: 0,
+                color: '#5A5A5A', cursor: 'pointer', fontSize: 13, padding: 0,
               }}
-              onMouseEnter={(e) => { (e.currentTarget).style.color = '#CC785C'; }}
-              onMouseLeave={(e) => { (e.currentTarget).style.color = '#5A5A5A'; }}
             >
               ↶ rewind
             </button>
@@ -182,9 +167,9 @@ export function MessageBubble({ message, onRewind, collapseTools }: Props) {
             <p
               key={i}
               style={{
-                color: isUser ? '#D0D0D0' : '#ECECEC',
-                fontSize: 15,
-                lineHeight: 1.65,
+                color: isUser ? '#E4E0DC' : '#ECECEC',
+                fontSize: 16,
+                lineHeight: 1.6,
                 marginBottom: parts.length > 1 && i < parts.length - 1 ? 10 : 0,
               }}
             >
@@ -194,7 +179,7 @@ export function MessageBubble({ message, onRewind, collapseTools }: Props) {
         })}
 
         {hiddenTools > 0 && (
-          <div style={{ fontSize: 11, color: '#5A5A5A', marginTop: 6, fontStyle: 'italic' }}>
+          <div style={{ fontSize: 13, color: '#6A6A6A', marginTop: 8 }}>
             {hiddenTools} tool {hiddenTools === 1 ? 'step' : 'steps'} hidden — D-pad right to expand
           </div>
         )}
