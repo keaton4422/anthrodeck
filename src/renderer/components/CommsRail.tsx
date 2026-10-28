@@ -6,7 +6,7 @@ import { Glyph } from './Glyph';
 // The comms rail beside the game: every session the Deck flies, each with what it needs from the
 // pilot and the last thing Claude said, so the game is where the work is watched and driven, not a
 // break from it. App routes the pad (lib/intermission.ts): Y moves down the rail (or sends the
-// orders waiting), hold X to talk to the selected session, Select drops the orders, R3 types them.
+// orders waiting), hold X to talk to the selected session, View drops the orders, R3 types them.
 // Answering a card or sending orders earns a power-up in the game.
 
 export interface CommsDraft { jobId: string; text: string }
