@@ -91,19 +91,20 @@ export function SettingsPanel({
 
   // Remote computer: run Claude Code on another machine (your Mac) over SSH, from Home's switcher.
   const [remoteHost, setRemoteHost] = useState('');
+  const [remoteAway, setRemoteAway] = useState('');
   const [remoteSaved, setRemoteSaved] = useState<string | null>(null);
   const [remoteStatus, setRemoteStatus] = useState<{ busy?: boolean; ok?: boolean; text: string } | null>(null);
   useEffect(() => {
-    void window.electronAPI.remoteGet().then((t) => { setRemoteSaved(t?.host ?? null); setRemoteHost(t?.host ?? ''); });
+    void window.electronAPI.remoteGet().then((t) => { setRemoteSaved(t?.host ?? null); setRemoteHost(t?.host ?? ''); setRemoteAway(t?.away ?? ''); });
   }, []);
   const saveRemote = async () => {
-    const t = await window.electronAPI.remoteSet(remoteHost.trim() || null);
+    const t = await window.electronAPI.remoteSet(remoteHost.trim() || null, remoteAway.trim() || null);
     setRemoteSaved(t?.host ?? null);
     if (!t) { setRemoteStatus(null); return; }
     setRemoteStatus({ busy: true, text: `Connecting to ${t.label}…` });
     const r = await window.electronAPI.remoteTest();
     setRemoteStatus(r.ok
-      ? { ok: true, text: `✓ Connected to ${t.label} · Claude Code ${r.version?.replace(/\s*\(Claude Code\)/, '') ?? ''}. Press Y on Home to see its projects.` }
+      ? { ok: true, text: `✓ Connected to ${t.label}${r.via && r.via !== t.host ? ` (away address ${r.via})` : ''} · Claude Code ${r.version?.replace(/\s*\(Claude Code\)/, '') ?? ''}. Press Y on Home to see its projects.` }
       : { ok: false, text: r.error ?? 'Could not connect.' });
   };
 
@@ -228,6 +229,23 @@ export function SettingsPanel({
               {remoteHost.trim() || !remoteSaved ? 'Save & test' : 'Remove'}
             </button>
           </div>
+          <label style={{ ...labelStyle, marginTop: 14 }}>Away address</label>
+          <p style={hintStyle}>
+            For when the Deck isn&apos;t on the same network, like on a phone&apos;s hotspot. A name like
+            your-mac.local only works at home; put Tailscale (or another private network) on both and enter
+            the Mac&apos;s name there, e.g. your-mac.tail1234.ts.net. The Deck tries home first, then this.
+            Leave the Mac awake: System Settings → Energy → Prevent automatic sleeping.
+          </p>
+          <input
+            value={remoteAway}
+            onChange={(e) => setRemoteAway(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void saveRemote(); }}
+            placeholder="your-mac.tail1234.ts.net (optional)"
+            style={{
+              width: '100%', boxSizing: 'border-box', marginTop: 10, background: '#242424', border: '1px solid #3A3A3A', borderRadius: 8,
+              padding: '10px 12px', color: '#ECECEC', fontSize: 14, outline: 'none', fontFamily: 'JetBrains Mono, Consolas, monospace',
+            }}
+          />
           {remoteStatus && (
             <p style={{ ...hintStyle, marginTop: 8, color: remoteStatus.busy ? '#9A9A9A' : remoteStatus.ok ? '#9AC9A8' : '#D9A35B' }}>
               {remoteStatus.text}

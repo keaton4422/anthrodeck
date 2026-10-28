@@ -125,6 +125,8 @@ export default function App() {
   const { projectPath, projectHost, files, refreshFiles, adoptProject } = useProject();
   // The remote computer from Settings (null when none is set up); reloaded when Settings closes.
   const [remoteTarget, setRemoteTarget] = useState<RemoteTarget | null>(null);
+  const remoteLabelRef = useRef<string | null>(null);
+  remoteLabelRef.current = remoteTarget?.label ?? null;
   useEffect(() => { if (!showSettings) void window.electronAPI.remoteGet().then(setRemoteTarget); }, [showSettings]);
   const hostFor = (machine: Machine) => (machine === 'remote' ? remoteTarget?.host ?? null : null);
 
@@ -291,6 +293,13 @@ export default function App() {
         const good = ev.kind !== 'tests-fail' && ev.kind !== 'build-fail';
         fireFeedback(good ? 'write-applied' : 'tool-error');
         showToast(MILESTONE_TOAST[ev.kind]);
+      }
+      // A session on the other computer lost its connection: Claude carries on there.
+      if (ev.type === 'link') {
+        const where = remoteLabelRef.current ?? 'the other computer';
+        showToast(ev.state === 'reconnecting'
+          ? `Lost ${where} · Claude keeps working there, reconnecting…`
+          : `Back in touch with ${where}`);
       }
     });
     return () => { unsubTool(); unsubErr(); unsubDone(); unsubWritten(); unsubEngine(); };

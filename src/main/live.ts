@@ -24,7 +24,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import type { ChoiceKind, ChoiceOption } from './engine/session';
 import { toolLabel } from './engine/tools';
-import { remotePython, shq, sshArgs, sshProblem } from './remote';
+import { addressFailed, addressWorked, remotePython, shq, sshArgs, sshProblem, unreachable } from './remote';
 
 export const RELAY_VERSION = 1;
 
@@ -592,6 +592,7 @@ export class LiveLink {
   private stopped = false;
   private retry: ReturnType<typeof setTimeout> | null = null;
   private backoff = 2000;
+  private quick = false;
   private status: LiveLinkStatus = { connected: false, error: null, state: null };
   private seen = new Set<string>();
   private queue: LiveRequest[] = [];
@@ -607,6 +608,15 @@ export class LiveLink {
   }
 
   get current(): LiveLinkStatus { return this.status; }
+
+  // The Deck just woke, or the network changed: reconnect now rather than waiting out the backoff
+  // (or a connection that went stale while it slept).
+  reconnectNow(): void {
+    if (this.stopped) return;
+    this.backoff = 2000;
+    if (this.retry) { clearTimeout(this.retry); this.retry = null; this.connect(); }
+    else if (this.child) { this.quick = true; this.child.kill(); }
+  }
 
   stop(): void {
     this.stopped = true;
@@ -692,11 +702,15 @@ export class LiveLink {
       this.setStatus({
         connected: false,
         state: null,
-        error: this.stopped ? null : (sshProblem(this.stderr) ?? (this.stderr.trim().split('\n').pop() || 'Lost the connection.')),
+        error: this.stopped || this.quick ? null : (sshProblem(this.stderr) ?? (this.stderr.trim().split('\n').pop() || 'Lost the connection.')),
       });
       if (this.stopped) return;
-      this.retry = setTimeout(() => this.connect(), this.backoff);
-      this.backoff = Math.min(this.backoff * 2, 30_000);
+      // Not reachable at this address (away from home, say): try the other one straight away.
+      const another = unreachable(this.stderr) && addressFailed(this.host);
+      const wait = this.quick || another ? 0 : this.backoff;
+      this.quick = false;
+      this.retry = setTimeout(() => { this.retry = null; this.connect(); }, wait);
+      if (!another) this.backoff = Math.min(this.backoff * 2, 30_000);
     });
   }
 
@@ -707,6 +721,7 @@ export class LiveLink {
 
   private onState(state: LiveState): void {
     this.backoff = 2000;
+    addressWorked(this.host);
     // First report on a fresh connection: pick the open session back up.
     if (!this.status.connected && this.watching) this.write({ op: 'watch', sessionId: this.watching.sessionId });
     if (this.watching && !this.watching.cwd) {

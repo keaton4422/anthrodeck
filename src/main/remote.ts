@@ -7,11 +7,62 @@
 //
 // The builders here are pure so they unit-test; remoteExec/remoteSpawn do the I/O.
 
-import { spawn, execFile, type ChildProcess } from 'child_process';
+import { execFile } from 'child_process';
 
 export interface RemoteTarget {
   host: string;     // what ssh connects to: "user@host", "host", or a ~/.ssh/config alias
   label: string;    // shown in the UI, e.g. "MacBook-Pro"
+  away?: string | null;   // a second address that works from anywhere (a Tailscale name, say)
+}
+
+// ─── Addresses ────────────────────────────────────────────────────────────────────────────────
+// A remote computer can have two addresses: its name at home ("Admin@MacBook-Pro.local", which
+// only resolves on the same network) and an away address that works from anywhere, like a
+// Tailscale name. The computer is always known by its home address (`host` everywhere); SSH goes
+// to whichever address last worked, and when that one can't be reached, the next is tried.
+
+interface Addresses { list: string[]; at: number; misses: number }
+const addresses = new Map<string, Addresses>();
+
+// An away address without a user ("mac.tail1234.ts.net") logs in as the same user as at home.
+export function withUser(home: string, away: string): string {
+  const user = home.includes('@') ? home.split('@')[0] : null;
+  return user && !away.includes('@') ? `${user}@${away}` : away;
+}
+
+export function setAddresses(host: string, away?: string | null): void {
+  const alt = away?.trim() ? withUser(host, away.trim()) : null;
+  if (!alt || alt === host) { addresses.delete(host); return; }
+  const prev = addresses.get(host);
+  const list = [host, alt];
+  addresses.set(host, { list, at: prev ? Math.max(0, list.indexOf(prev.list[prev.at])) : 0, misses: 0 });
+}
+
+// Where SSH should go for this computer right now.
+export function addressOf(host: string): string {
+  const a = addresses.get(host);
+  return a ? a.list[a.at] : host;
+}
+
+// The current address worked.
+export function addressWorked(host: string): void {
+  const a = addresses.get(host);
+  if (a) a.misses = 0;
+}
+
+// The current address couldn't be reached: move to the next one. True if there's one this round
+// hasn't tried yet (worth trying straight away), false once every address has failed.
+export function addressFailed(host: string): boolean {
+  const a = addresses.get(host);
+  if (!a) return false;
+  a.at = (a.at + 1) % a.list.length;
+  a.misses += 1;
+  return a.misses < a.list.length;
+}
+
+// SSH's own words for "that address isn't there", as opposed to a refused key or a failed command.
+export function unreachable(stderr: string): boolean {
+  return /Could not resolve hostname|Name or service not known|timed out|No route to host|Network is unreachable|Connection refused/i.test(stderr);
 }
 
 // "Admin@MacBook-Pro.local" -> "MacBook-Pro"
@@ -32,7 +83,7 @@ export function sshArgs(host: string, remoteCommand: string): string[] {
     '-o', 'ConnectTimeout=8',
     '-o', 'ServerAliveInterval=15',
     '-o', 'ServerAliveCountMax=3',
-    host,
+    addressOf(host),
     remoteCommand,
   ];
 }
@@ -66,7 +117,15 @@ export function remoteClaudeCommand(claudePath: string, cwd: string, args: strin
 
 export interface ExecResult { code: number; stdout: string; stderr: string }
 
-export function remoteExec(host: string, command: string, input?: string, timeoutMs = 20_000): Promise<ExecResult> {
+export async function remoteExec(host: string, command: string, input?: string, timeoutMs = 20_000): Promise<ExecResult> {
+  const r = await execOnce(host, command, input, timeoutMs);
+  if (r.code === 0) addressWorked(host);
+  // That address isn't reachable from here (away from home, say): try the other one.
+  else if (unreachable(r.stderr) && addressFailed(host)) return remoteExec(host, command, input, timeoutMs);
+  return r;
+}
+
+function execOnce(host: string, command: string, input: string | undefined, timeoutMs: number): Promise<ExecResult> {
   return new Promise((resolve) => {
     const child = execFile('ssh', sshArgs(host, command), { timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 },
       (err, stdout, stderr) => {
@@ -84,23 +143,13 @@ export async function remotePython<T>(host: string, script: string, args: string
   return JSON.parse(r.stdout) as T;
 }
 
-// The SDK's spawnClaudeCodeProcess hook, pointed at the remote machine. The SDK's own command and
-// cwd are local notions; the remote side gets its Claude path and the project folder instead.
-export function remoteSpawner(host: string, claudePath: string, cwd: string) {
-  return (opts: { args: string[]; env: Record<string, string | undefined>; signal?: AbortSignal }): ChildProcess => {
-    // ANTHRODECK_SESSION: this session's prompts already come to the Deck, so the live relay
-    // (main/live.ts) leaves them alone.
-    const cmd = remoteClaudeCommand(claudePath, cwd, opts.args, { ...forwardedEnv(opts.env), ANTHRODECK_SESSION: '1' });
-    return spawn('ssh', sshArgs(host, cmd), { stdio: ['pipe', 'pipe', 'pipe'], signal: opts.signal });
-  };
-}
 
 // A plain-language reason for a failed SSH connection, or null if it wasn't SSH's fault.
 export function sshProblem(stderr: string): string | null {
   if (/Connection refused/i.test(stderr)) return 'The computer refused SSH. Turn on Remote Login (System Settings → General → Sharing).';
   if (/Permission denied/i.test(stderr)) return 'SSH needs this Deck\'s key on that computer (key login isn\'t set up yet).';
-  if (/Could not resolve hostname|Name or service not known/i.test(stderr)) return 'Can\'t find that computer on the network. Check the name, or use its IP address.';
-  if (/timed out|No route to host|Network is unreachable/i.test(stderr)) return 'Can\'t reach that computer. Is it awake and on the same network?';
+  if (/Could not resolve hostname|Name or service not known/i.test(stderr)) return 'Can\'t find that computer from this network. Away from home it needs an away address (Settings → Remote computer).';
+  if (/timed out|No route to host|Network is unreachable/i.test(stderr)) return 'Can\'t reach that computer. Is it awake? Away from home it needs an away address (Settings → Remote computer).';
   if (/Host key verification failed/i.test(stderr)) return 'That computer\'s identity changed or isn\'t known yet. Connect once from a terminal to confirm it.';
   return null;
 }

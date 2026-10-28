@@ -266,6 +266,19 @@ Home then switches between this device and the Mac (**Y**). On the Mac side you 
   closes. While the Deck isn't connected, the hook returns at once and changes nothing.
   **Remove** takes it out again.
 
+### Taking the Deck out
+
+- **Away address.** `your-mac.local` only works on the same network. For a phone's hotspot or
+  another Wi-Fi, put [Tailscale](https://tailscale.com) (or another private network) on the Mac and
+  the Deck, and enter the Mac's name there (e.g. `your-mac.tail1234.ts.net`) under **Away address**
+  in **Settings → Remote computer**. The Deck tries the home address first, then the away one, and
+  stays on whichever works. Leave the Mac awake (**System Settings → Energy → Prevent automatic
+  sleeping**).
+- **Dropped connections and sleep.** A session started from the Deck runs on the Mac under a small
+  holder that doesn't depend on the connection (`~/.anthrodeck/held/`), so a hotspot dropping out
+  or putting the Deck to sleep doesn't stop Claude. The Deck reattaches as soon as it can, right
+  away on waking, and picks up where it left off; nothing sent either way is lost.
+
 ## Controls
 
 - **L2** — hold to talk (push-to-talk); release to send.
