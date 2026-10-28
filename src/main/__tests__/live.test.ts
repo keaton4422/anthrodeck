@@ -98,6 +98,9 @@ describe.skipIf(!hasPython)('live scripts', () => {
     expect(s.hooks.Stop).toEqual(theirs.hooks.Stop);
     expect(s.hooks.PermissionRequest).toHaveLength(1);
     expect(s.hooks.PermissionRequest[0].hooks[0].command).toMatch(/relay\.py' permission {2}# added by AnthroDeck$/);
+    // The python3 on PATH, not the interpreter's real location (inside Xcode on a Mac).
+    const onPath = execFileSync('sh', ['-c', 'command -v python3'], { env, encoding: 'utf8' }).trim();
+    expect(s.hooks.PermissionRequest[0].hooks[0].command.startsWith(`'${onPath}' `)).toBe(true);
     expect(fs.readFileSync(path.join(dir, 'relay', 'relay.py'), 'utf8')).toBe(RELAY_PY);
     expect(JSON.parse(fs.readFileSync(`${settings}.anthrodeck-backup`, 'utf8'))).toEqual(theirs);
 
