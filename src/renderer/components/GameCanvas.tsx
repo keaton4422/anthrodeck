@@ -13,8 +13,9 @@ import { DRIVE_MODE_LABELS } from '../../main/engine/config';
 import type { DriveMode, Sector } from '../types';
 import type { Checkpoint } from '../lib/season';
 import type { Job } from '../lib/intermission';
-import { Glyph } from './Glyph';
+import { Glyph, withGlyphs } from './Glyph';
 import { CommsRail } from './CommsRail';
+import { ShootChoice, type ShotChoice } from './ShootChoice';
 
 // The result of the lap just finished: real XP and real outcomes, shown over the track.
 export interface LapCard {
@@ -51,23 +52,23 @@ interface Props {
   lapCard: LapCard | null;
   career: { level: number; tier: string; progress: number };
   driveMode: DriveMode;
-  // Intermission (lib/intermission.ts): the sessions in flight, the pilot's tidy-up, and the card
-  // a finished session stops the game on (A goes there, B keeps playing; App routes the buttons).
+  // Intermission (lib/intermission.ts): the sessions in flight, the pilot's tidy-up, and a
+  // session's news as targets the pilot shoots to answer (components/ShootChoice.tsx). The game
+  // keeps running through it.
   jobs: Job[];
   // The comms rail: every session beside the game (components/CommsRail.tsx).
   comms: React.ComponentProps<typeof CommsRail>;
   tidy: { hits: number; needed: number; queued: boolean; contextPct: number | null } | null;
-  doneCard: Job | null;
-  onDoneGo: () => void;
-  onDoneKeep: () => void;
+  choice: ShotChoice | null;
+  onChoose: (id: string) => void;
 }
 
 export default function GameCanvas({
   onClose, selectedId, onSelect, telemetry, paused: approvalPaused, onIntents, sectors, checkpoints, lapCard, career, driveMode,
-  menuOpen, onMenu, menuNav, jobs, comms, tidy, doneCard, onDoneGo, onDoneKeep,
+  menuOpen, onMenu, menuNav, jobs, comms, tidy, choice, onChoose,
 }: Props) {
-  // The sim stops for an approval card, a finished session's card, and while the game menu is up.
-  const paused = approvalPaused || menuOpen || !!doneCard;
+  // The sim stops for an approval card and while the game menu is up; never for news.
+  const paused = approvalPaused || menuOpen;
   // The lap card shows for a few seconds after each chequered flag, then gets out of the way.
   const [shownCard, setShownCard] = useState<LapCard | null>(null);
   useEffect(() => {
@@ -250,29 +251,7 @@ export default function GameCanvas({
               )}
             </div>
           )}
-          {doneCard && !approvalPaused && (
-            <div style={{
-              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'rgba(10,11,13,0.72)',
-            }}>
-              <div style={{
-                minWidth: 360, maxWidth: '70%', padding: '20px 24px', borderRadius: 12,
-                background: '#151515', border: '1px solid #52A77C', display: 'flex', flexDirection: 'column', gap: 10,
-              }}>
-                <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.16em', color: '#52A77C' }}>CLAUDE IS DONE</span>
-                <span style={{ fontSize: 20, color: '#ECECEC', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {doneCard.label}
-                </span>
-                <span style={{ fontSize: 14, color: '#9A9A9A' }}>
-                  {doneCard.remote ? 'Finished on your other computer.' : 'Finished here.'} Read what it did, or keep playing.
-                </span>
-                <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-                  <button onClick={onDoneGo} style={doneBtn(true)}><Glyph b="A" /> Go to the session</button>
-                  <button onClick={onDoneKeep} style={doneBtn(false)}><Glyph b="B" /> Keep playing</button>
-                </div>
-              </div>
-            </div>
-          )}
+          {choice && !approvalPaused && <ShootChoice choice={choice} onPick={onChoose} />}
           {approvalPaused && (
             <div style={{
               position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
@@ -296,17 +275,17 @@ export default function GameCanvas({
 
       {/* Controls hint */}
       <div style={{ padding: '8px 16px', fontSize: 11, color: '#5A5A5A', borderTop: '1px solid #141414', flexShrink: 0 }}>
-        Stick / gyro = steer · RT = throttle · A or RT = fire · B/LB = boost · D-pad = move · Keyboard: arrows/WASD, Space fire, Shift boost
+        <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 14px' }}>
+          <span>Left stick or gyro: fly</span>
+          <span><Glyph b="R2" />or <Glyph b="A" />fire</span>
+          <span><Glyph b="B" />or <Glyph b="L1" />boost</span>
+          <span><Glyph b="D-pad" />move</span>
+          <span><Glyph b="Menu" />games</span>
+        </span>
       </div>
     </div>
   );
 }
-
-const doneBtn = (primary: boolean): React.CSSProperties => ({
-  padding: '10px 16px', borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: 'pointer',
-  border: `1px solid ${primary ? '#52A77C' : '#2A2A2A'}`, background: primary ? 'rgba(82,167,124,0.12)' : 'transparent',
-  color: primary ? '#ECECEC' : '#9A9A9A',
-});
 
 // The pilot's tidy-up of the Deck's own session: each stale-context target cleared in a game counts,
 // once the context is worth tidying (lib/intermission.ts).
@@ -398,7 +377,7 @@ function GameMenu({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.16em', color: '#ECECEC' }}>GAMES</div>
-            <div style={{ fontSize: 12, color: '#6A6A6A', marginTop: 3 }}>D-pad to move · A to play · B or Start to close</div>
+            <div style={{ fontSize: 12, color: '#6A6A6A', marginTop: 3 }}>{withGlyphs('[D-pad] move · [A] play · [B] or [Menu] close')}</div>
           </div>
           <button onClick={onClose} style={hdrBtn} title="Close (B)">✕</button>
         </div>

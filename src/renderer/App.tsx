@@ -9,7 +9,9 @@ import ShareModal from './components/ShareModal';
 import GameCanvas, { formatLapTime, type LapCard } from './components/GameCanvas';
 import { finished, lastWords, nextSelection, railOrder, shouldStart, stillDismissed, tidyHit, TIDY_COMPACT, TIDY_HITS, type Job, type Tidy } from './lib/intermission';
 import type { CommsDraft } from './components/CommsRail';
-import { folderName } from './lib/ui';
+import type { ShotChoice } from './components/ShootChoice';
+import { withGlyphs } from './components/Glyph';
+import { C, folderName } from './lib/ui';
 import TeachModal from './components/TeachModal';
 import RadialMenu from './components/RadialMenu';
 import WritePreview from './components/WritePreview';
@@ -511,7 +513,29 @@ export default function App() {
     if (s) setLiveOpen(s);
     else { setLiveOpen(null); setShowHome(false); }
   }, [doneCard, live]);
-  const doneOwnsPad = cockpitOpen && !!doneCard && !modalActive;
+  // The news as targets in the game: shoot one to answer it.
+  const doneChoice = useMemo<ShotChoice | null>(() => doneCard && {
+    key: `${doneCard.id}-${Date.now()}`,
+    title: 'CLAUDE IS DONE',
+    subject: doneCard.label,
+    detail: doneCard.said ?? null,
+    options: [
+      { id: 'open', label: 'Open it', tone: C.green },
+      { id: 'reply', label: 'Reply here', tone: C.clay },
+      { id: 'later', label: 'Later', tone: C.dim },
+    ],
+    timeoutMs: 30_000,
+    expire: 'later',
+  }, [doneCard]);
+  const onDoneChoice = useCallback((id: string) => {
+    const job = doneCard;
+    if (id === 'open') { goToDone(); return; }
+    setDoneCard(null);
+    if (id === 'reply' && job) {
+      setCommsSel(job.id);
+      showToast(`Hold [X] and talk to ${job.label}, or click [R3] to type.`);
+    }
+  }, [doneCard, goToDone, showToast]);
 
   // ─── The comms rail (components/CommsRail.tsx) ───────────────────────────────
   const rail = useMemo(() => railOrder(jobs), [jobs]);
@@ -554,7 +578,7 @@ export default function App() {
   const menuOwnsPad = cockpitOpen && gameMenuOpen && !modalActive;
   const gameOwnsPad = cockpitOpen && !modalActive && !gameMenuOpen;
   // In the game, Y / hold X / R3 / View drive the comms rail (the games don't use them).
-  const commsOwnsPad = gameOwnsPad && !doneOwnsPad;
+  const commsOwnsPad = gameOwnsPad;
   // Home takes the D-pad and A/B while it's up and nothing else is asking.
   // The folder picker sits over everything else, so it comes first.
   const pickerOwnsPad = !!folderPick && !modalActive;
@@ -587,7 +611,7 @@ export default function App() {
     onL2Press: () => {
       if (padBusy) return;
       if (!voiceReady) {
-        showToast('Voice isn\'t set up on this device yet (Settings → Voice). STEAM + X opens the keyboard.');
+        showToast('Voice isn\'t set up on this device yet (Settings → Voice). [STEAM] + [X] opens the keyboard.');
         return;
       }
       // Off the message box first: SteamOS raises its keyboard whenever a focused text box changes
@@ -603,7 +627,6 @@ export default function App() {
     },
     onActivity: () => { lastInput.current = Date.now(); },
     onAPress: (mod) => {
-      if (doneOwnsPad) { goToDone(); return; }
       if (menuOwnsPad) { gameMenuNav.current?.activate(); return; }
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'A')) return;
@@ -619,7 +642,7 @@ export default function App() {
     onXPress: (mod) => {
       if (commsOwnsPad) {
         // Hold X: talk to the session picked in the comms rail.
-        if (!voiceReady) { showToast('Voice isn\'t set up on this device. Press R3 to type instead.'); return; }
+        if (!voiceReady) { showToast('Voice isn\'t set up on this device. Click [R3] to type instead.'); return; }
         if (!commsSel) return;
         setCommsTalking(true);
         startDictation();
@@ -638,7 +661,6 @@ export default function App() {
       fireFeedback('voice-stop');
     },
     onBPress: (mod) => {
-      if (doneOwnsPad) { setDoneCard(null); return; }
       if (menuOwnsPad) { setGameMenuOpen(false); return; }
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'B')) return;
@@ -972,7 +994,7 @@ export default function App() {
           boxShadow: '0 8px 24px rgba(0,0,0,0.5)', pointerEvents: 'none',
           whiteSpace: 'pre-wrap', fontFamily: 'monospace',
         }}>
-          {toast}
+          {withGlyphs(toast)}
         </div>
       )}
 
@@ -1002,9 +1024,8 @@ export default function App() {
             onDiscard: () => setCommsDraft(null),
           }}
           tidy={tidyUp ? { hits: tidy.hits, needed: TIDY_HITS, queued: tidy.queued, contextPct: context?.percentage ?? null } : null}
-          doneCard={doneCard}
-          onDoneGo={goToDone}
-          onDoneKeep={() => setDoneCard(null)}
+          choice={doneChoice}
+          onChoose={onDoneChoice}
         />
       )}
 

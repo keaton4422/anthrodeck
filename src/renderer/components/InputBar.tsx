@@ -1,5 +1,6 @@
 import React, { forwardRef, KeyboardEvent, useImperativeHandle, useRef, useState } from 'react';
 import VoiceButton from './VoiceButton';
+import { Glyph } from './Glyph';
 
 // What App drives from the pad and dictation. Dictation is written into the box, not sent, so the
 // pilot can read and fix it first; A sends it (or puts the cursor in an empty box).
@@ -168,20 +169,11 @@ export const InputBar = forwardRef<ComposerHandle, Props>(function InputBar({
         </div>
 
         <div style={{ display: 'flex', gap: 18, marginTop: 8, fontSize: 12, color: '#6A6A6A' }}>
-          {text.trim() && !isListening && <span><Key>A</Key> Send</span>}
-          {isVoiceSupported && <span><Key>L2</Key> {isListening ? 'Let go to write it in' : 'Hold to talk'}</span>}
-          <span><Key>STEAM</Key>+<Key>X</Key> Keyboard</span>
+          {text.trim() && !isListening && <span><Glyph b="A" />Send</span>}
+          {isVoiceSupported && <span><Glyph b="L2" />{isListening ? 'Let go to write it in' : 'Hold to talk'}</span>}
+          <span><Glyph b="STEAM" />+ <Glyph b="X" />Keyboard</span>
         </div>
       </div>
     </div>
   );
 });
-
-function Key({ children }: { children: React.ReactNode }) {
-  return (
-    <span style={{
-      display: 'inline-block', padding: '1px 6px', borderRadius: 5, background: '#262626', color: '#BDBDBD',
-      fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', margin: '0 2px',
-    }}>{children}</span>
-  );
-}

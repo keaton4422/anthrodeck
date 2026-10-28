@@ -1,3 +1,4 @@
+import { Glyph } from './Glyph';
 import React, { RefObject } from 'react';
 import { ChatMessage, PendingWrite } from '../types';
 import { MessageBubble } from './MessageBubble';
@@ -38,7 +39,7 @@ function EmptyState() {
           What can I help you build?
         </p>
         <p style={{ fontSize: 15, color: '#6A6A6A', lineHeight: 1.6, maxWidth: 480 }}>
-          Hold <kbd style={kbdStyle}>L2</kbd> to speak, or type below.
+          Hold <Glyph b="L2" /> to speak, or type below.
           <br />
           Try <em style={{ color: '#CC785C' }}>"write a Python script that..."</em>
         </p>
@@ -53,16 +54,6 @@ function EmptyState() {
     </div>
   );
 }
-
-const kbdStyle: React.CSSProperties = {
-  background: '#242424',
-  border: '1px solid #3A3A3A',
-  borderRadius: 4,
-  padding: '1px 7px',
-  fontSize: 13,
-  fontFamily: 'monospace',
-  color: '#CC785C',
-};
 
 const QUICK_PROMPTS = [
   'Write a Python hello world',

@@ -3,6 +3,7 @@ import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
 import { useUpdater } from '../hooks/useUpdater';
 import { useLive } from '../hooks/useLive';
 import { LocalVoiceStatus } from '../types';
+import { withGlyphs } from './Glyph';
 import { PairKeyPanel } from './PairKeyPanel';
 import { EnginePanel } from './EnginePanel';
 
@@ -432,8 +433,8 @@ export function SettingsPanel({
 
         {/* ── App Info ─────────────────────────────────────────────────── */}
         <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <Row label="Voice" value="Hold L2 trigger or mic button — release to send" />
-          <Row label="Controller" value="L2=speak · B/Start=settings · R-stick=scroll" />
+          <Row label="Voice" value="Hold [L2] or the mic button and talk; let go and the words land in the message box" />
+          <Row label="Controller" value="[A] send · [B] back · [Menu] settings · right stick scrolls · in a game: [Y] next session, hold [X] talk, [R3] type, [View] drop" />
           <Row label="Dev reload" value="npm start → React changes live-reload. Type 'rs' to restart main." />
         </section>
 
@@ -747,7 +748,7 @@ function Row({ label, value }: { label: string; value: string }) {
       <span style={{ fontSize: 12, color: '#6A6A6A', minWidth: 90, flexShrink: 0, paddingTop: 1 }}>
         {label}
       </span>
-      <span style={{ fontSize: 13, color: '#ECECEC', lineHeight: 1.5 }}>{value}</span>
+      <span style={{ fontSize: 13, color: '#ECECEC', lineHeight: 1.5 }}>{withGlyphs(value)}</span>
     </div>
   );
 }
