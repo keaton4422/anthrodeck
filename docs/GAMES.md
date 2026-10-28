@@ -131,7 +131,7 @@ game comes up by itself, like the Claude Code mods that open a game while Claude
   ones whose turn is over and wait for your orders (with the end of what Claude said, usually its
   question), then the ones working (with the tool they're running). In the game the pad drives it
   with buttons the games don't use: **Y** moves down the rail, **hold X** to talk to the selected
-  session (the words wait in the rail), **Y** sends them, **View** drops them, **R3** types instead.
+  session (the words wait in the rail), **Y** sends them, **View** drops them; tap the box at the bottom of the rail to type instead.
 - Answering a card or sending orders mid-game fires a `powerup` event in the game.
 - The header shows the tidy-up meter for the Deck's own context.
 - Leaving the game (Start → Leave the game) means "not now" until another session starts working

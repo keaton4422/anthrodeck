@@ -434,7 +434,7 @@ export function SettingsPanel({
         {/* ── App Info ─────────────────────────────────────────────────── */}
         <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <Row label="Voice" value="Hold [L2] or the mic button and talk; let go and the words land in the message box" />
-          <Row label="Controller" value="[A] send · [B] back · [Menu] settings · right stick scrolls · in a game: [Y] next session, hold [X] talk, [R3] type, [View] drop" />
+          <Row label="Controller" value="[A] send · [B] back · [Menu] settings · right stick scrolls · [X] type · in a game: [Y] next session, hold [X] talk, [View] drop" />
           <Row label="Dev reload" value="npm start → React changes live-reload. Type 'rs' to restart main." />
         </section>
 

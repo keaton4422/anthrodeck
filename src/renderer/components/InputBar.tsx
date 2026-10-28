@@ -169,9 +169,9 @@ export const InputBar = forwardRef<ComposerHandle, Props>(function InputBar({
         </div>
 
         <div style={{ display: 'flex', gap: 18, marginTop: 8, fontSize: 12, color: '#6A6A6A' }}>
-          {text.trim() && !isListening && <span><Glyph b="A" />Send</span>}
+          {text.trim() && !isListening ? <span><Glyph b="A" />Send</span> : <span><Glyph b="X" />Type</span>}
           {isVoiceSupported && <span><Glyph b="L2" />{isListening ? 'Let go to write it in' : 'Hold to talk'}</span>}
-          <span><Glyph b="STEAM" />+ <Glyph b="X" />Keyboard</span>
+
         </div>
       </div>
     </div>

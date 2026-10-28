@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { turnOf, type Job, type Turn } from '../lib/intermission';
 import { C } from '../lib/ui';
 import { Glyph } from './Glyph';
@@ -6,7 +6,8 @@ import { Glyph } from './Glyph';
 // The comms rail beside the game: every session the Deck flies, each with what it needs from the
 // pilot and the last thing Claude said, so the game is where the work is watched and driven, not a
 // break from it. App routes the pad (lib/intermission.ts): Y moves down the rail (or sends the
-// orders waiting), hold X to talk to the selected session, View drops the orders, R3 types them.
+// orders waiting), hold X to talk to the selected session, View drops the orders; tap the box at
+// the bottom to type them (nothing on the pad focuses it: that would raise SteamOS's keyboard).
 // Answering a card or sending orders earns a power-up in the game.
 
 export interface CommsDraft { jobId: string; text: string }
@@ -17,7 +18,6 @@ interface Props {
   draft: CommsDraft | null;
   listening: boolean;
   remoteLabel: string | null;
-  typeSignal: number;             // bumps when the pilot presses R3: put the cursor in the message box
   onSelect: (id: string) => void;
   onSend: (jobId: string, text: string) => void;
   onDiscard: () => void;
@@ -31,11 +31,10 @@ const TURN: Record<Turn, { label: string; color: string }> = {
 
 export const RAIL_W = 320;
 
-export function CommsRail({ rail, selected, draft, listening, remoteLabel, typeSignal, onSelect, onSend, onDiscard }: Props) {
+export function CommsRail({ rail, selected, draft, listening, remoteLabel, onSelect, onSend, onDiscard }: Props) {
   const [typed, setTyped] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const sel = rail.find((j) => j.id === selected) ?? null;
-  useEffect(() => { if (typeSignal) inputRef.current?.focus(); }, [typeSignal]);
 
   return (
     <div style={{
@@ -47,7 +46,7 @@ export function CommsRail({ rail, selected, draft, listening, remoteLabel, typeS
         <div style={{ fontSize: 12, color: C.dim, marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
           <span><Glyph b="Y" />{draft ? 'Send' : 'Next'}</span>
           <span><Glyph b="X" />Hold to talk</span>
-          <span><Glyph b="R3" />Type</span>
+
         </div>
       </div>
 
@@ -116,7 +115,7 @@ export function CommsRail({ rail, selected, draft, listening, remoteLabel, typeS
         })}
       </div>
 
-      {/* Typed orders: R3 puts the cursor here (STEAM + X brings up the keyboard on the Deck). */}
+      {/* Typed orders: tap here (the Deck raises its keyboard for it). */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
