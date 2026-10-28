@@ -234,6 +234,9 @@ describe.skipIf(!hasPython)('live scripts', () => {
         ['assistant', 'Looking at it.'],
         ['tool', '$ npm test'],
       ]);
+      // Every live session reports what Claude last said and the tool it's running, for the comms rail.
+      await waitFor(() => statuses.at(-1)?.state?.live[0]?.tool === '$ npm test');
+      expect(statuses.at(-1)?.state?.live[0]).toMatchObject({ said: 'Looking at it.', tool: '$ npm test' });
 
       // The pilot sends a message: it reaches the inbox, authenticated, marked as from the Deck.
       const sent = await link.send(sid, 'Also add a test');

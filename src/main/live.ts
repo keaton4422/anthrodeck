@@ -37,6 +37,10 @@ export interface LiveSession {
   status: 'busy' | 'idle' | string;
   entrypoint: string | null;  // 'claude-desktop', 'cli', 'sdk-ts', …
   updatedAt: number;
+  // From its conversation: the last thing Claude said, and the tool it's running if that's the
+  // latest thing it did (a label, as the cockpit shows tool calls). Null until it has said anything.
+  said?: string | null;
+  tool?: string | null;
 }
 
 export interface LiveRequest {
@@ -61,7 +65,16 @@ export function parseLiveLine(line: string): LiveState | null {
   if (!d || typeof d !== 'object') return null;
   const o = d as Partial<LiveState>;
   if (!Array.isArray(o.live) || !Array.isArray(o.requests)) return null;
-  return { live: o.live, requests: o.requests, relay: typeof o.relay === 'number' ? o.relay : null };
+  const live = (o.live as (LiveSession & { tool?: unknown })[]).map((l) => {
+    const t = l.tool as { name?: unknown; input?: unknown } | null | undefined;
+    const input = (t?.input && typeof t.input === 'object' ? t.input : {}) as Record<string, unknown>;
+    return {
+      ...l,
+      said: typeof l.said === 'string' ? l.said : null,
+      tool: t && typeof t.name === 'string' ? toolLabel(t.name, input, l.cwd ?? '') : null,
+    };
+  });
+  return { live, requests: o.requests, relay: typeof o.relay === 'number' ? o.relay : null };
 }
 
 // The conversation of the session the Deck has open, as the watcher reads it from its transcript.
@@ -439,6 +452,40 @@ def deliver(sid, text):
         return None
     return 'That session isn\'t running any more.'
 
+heads = {}     # sessionId -> (transcript, mtime, said, tool): what each live session last did
+
+def head(sid):
+    # The last thing Claude said in a session, and its tool call if that came after: read from the
+    # end of its transcript, again only when the file has changed.
+    h = heads.get(sid)
+    path = h[0] if h and os.path.exists(h[0]) else None
+    if not path:
+        if not re.fullmatch(r'[0-9A-Za-z_-]{1,100}', sid): return None, None
+        hits = glob.glob(os.path.join(CONFIG, 'projects', '*', sid + '.jsonl'))
+        if not hits: return None, None
+        path = hits[0]
+    try: m = os.path.getmtime(path)
+    except OSError: return None, None
+    if h and h[0] == path and h[1] == m: return h[2], h[3]
+    said, tool = None, None
+    try:
+        with open(path, 'rb') as fh:
+            fh.seek(0, 2); size = fh.tell(); fh.seek(max(0, size - 256 * 1024)); data = fh.read()
+        for raw in reversed(data.splitlines()):
+            try: got = entries(json.loads(raw))
+            except Exception: continue
+            for x in reversed(got):
+                if x['role'] == 'tool' and said is None and tool is None: tool = {'name': x['name'], 'input': x['input']}
+                elif x['role'] == 'assistant':   # its end, where a question or summary sits
+                    t = x['text']; said = t if len(t) <= 400 else '…' + t[-400:]
+                elif x['role'] in ('user', 'peer') and tool is None: tool = False   # a new turn: no tool yet
+                if said is not None: break
+            if said is not None: break
+    except OSError:
+        pass
+    heads[sid] = (path, m, said, tool or None)
+    return said, tool or None
+
 last, last_at = None, 0
 while True:
     with open(ONLINE, 'a'): pass
@@ -447,9 +494,11 @@ while True:
     for f in glob.glob(os.path.join(REG, '*.json')):
         e = load(f)
         if not e or not e.get('sessionId') or not alive(e.get('pid', 0)): continue
+        try: said, tool = head(e['sessionId'])
+        except Exception: said, tool = None, None
         live.append({'sessionId': e['sessionId'], 'name': e.get('name'), 'cwd': e.get('cwd') or '',
                      'status': e.get('status') or 'idle', 'entrypoint': e.get('entrypoint'),
-                     'updatedAt': e.get('updatedAt') or e.get('startedAt') or 0})
+                     'updatedAt': e.get('updatedAt') or e.get('startedAt') or 0, 'said': said, 'tool': tool})
     live.sort(key=lambda s: -s['updatedAt'])
     reqs = []
     for f in glob.glob(os.path.join(ROOT, 'req', '*.json')):

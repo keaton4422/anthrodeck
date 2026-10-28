@@ -37,6 +37,7 @@ export interface FormationState extends IntentCarrier {
   score: number;
   cleared: number;
   invuln: number;
+  powerT: number;   // power-up left: shield and rapid fire, earned by answering Claude mid-game
   swayT: number;
   diveTimer: number;
   gameOver: boolean;
@@ -101,7 +102,7 @@ export function createMode(): GameMode<FormationState> {
         attackers: makeWave(w, 1),
         shots: [],
         cooldown: 0, lives: 3, wave: 1, score: 0, cleared: 0,
-        invuln: INVULN, swayT: 0, diveTimer: 2.5,
+        invuln: INVULN, swayT: 0, diveTimer: 2.5, powerT: 0,
         gameOver: false, tick: 0, intents: [],
       };
     },
@@ -119,7 +120,10 @@ export function createMode(): GameMode<FormationState> {
       const shipY = s.h - SHIP_Y_FROM_BOTTOM;
 
       // A busy engine reinforces the grid.
+      // The pilot answered Claude or sent it orders: shield and rapid fire, and it stacks.
+      s.powerT = Math.max(0, (s.powerT ?? 0) - dt);
       for (const ev of tel.events) {
+        if (ev.type === 'powerup') { s.powerT = Math.min(30, s.powerT + 10); s.invuln = Math.max(s.invuln, s.powerT); }
         if ((ev.type === 'tool' || ev.type === 'error') && s.attackers.length < COLS * ROWS) {
           const gx = s.tick % COLS;
           const gy = Math.min(ROWS - 1, Math.floor(s.attackers.length / COLS));
@@ -138,7 +142,7 @@ export function createMode(): GameMode<FormationState> {
       s.cooldown = Math.max(0, s.cooldown - dt);
       if (input.fire && s.cooldown === 0) {
         s.shots.push({ x: s.shipX, y: shipY - 14, vy: -SHOT_V, hostile: false });
-        s.cooldown = FIRE_CD;
+        s.cooldown = s.powerT > 0 ? FIRE_CD * 0.35 : FIRE_CD;
       }
 
       // Formation sway.
@@ -344,7 +348,7 @@ export function createMode(): GameMode<FormationState> {
 
     hud(s) {
       if (s.gameOver) return `SWARM WINS · ${s.score}`;
-      return `♥ ${s.lives} · wave ${s.wave} · ${s.score} pts · ${s.cleared} cleared`;
+      return `${s.powerT > 0 ? `⚡ ${Math.ceil(s.powerT)}s · ` : ''}♥ ${s.lives} · wave ${s.wave} · ${s.score} pts · ${s.cleared} cleared`;
     },
   };
 }

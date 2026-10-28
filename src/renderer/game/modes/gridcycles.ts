@@ -137,6 +137,7 @@ export function createMode(): GameMode<GridState> {
 
       for (const ev of tel.events) {
         if (ev.type === 'boost') s.boostT = BOOST_TIME;
+        if (ev.type === 'powerup') s.boostT = BOOST_TIME * 5;   // the pilot answered or gave orders
         // Every tool call leaves a data node to sweep up.
         if (ev.type === 'tool' || ev.type === 'error') {
           const nx = 2 + ((s.tick * 37) % (s.cols - 4));

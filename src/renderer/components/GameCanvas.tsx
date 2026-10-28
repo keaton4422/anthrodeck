@@ -14,6 +14,7 @@ import type { DriveMode, Sector } from '../types';
 import type { Checkpoint } from '../lib/season';
 import type { Job } from '../lib/intermission';
 import { Glyph } from './Glyph';
+import { CommsRail } from './CommsRail';
 
 // The result of the lap just finished: real XP and real outcomes, shown over the track.
 export interface LapCard {
@@ -53,6 +54,8 @@ interface Props {
   // Intermission (lib/intermission.ts): the sessions in flight, the pilot's tidy-up, and the card
   // a finished session stops the game on (A goes there, B keeps playing; App routes the buttons).
   jobs: Job[];
+  // The comms rail: every session beside the game (components/CommsRail.tsx).
+  comms: React.ComponentProps<typeof CommsRail>;
   tidy: { hits: number; needed: number; queued: boolean; contextPct: number | null } | null;
   doneCard: Job | null;
   onDoneGo: () => void;
@@ -61,7 +64,7 @@ interface Props {
 
 export default function GameCanvas({
   onClose, selectedId, onSelect, telemetry, paused: approvalPaused, onIntents, sectors, checkpoints, lapCard, career, driveMode,
-  menuOpen, onMenu, menuNav, jobs, tidy, doneCard, onDoneGo, onDoneKeep,
+  menuOpen, onMenu, menuNav, jobs, comms, tidy, doneCard, onDoneGo, onDoneKeep,
 }: Props) {
   // The sim stops for an approval card, a finished session's card, and while the game menu is up.
   const paused = approvalPaused || menuOpen || !!doneCard;
@@ -211,26 +214,14 @@ export default function GameCanvas({
         <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={mode.blurb}>
           {mode.blurb}
         </span>
-        {/* The sessions working right now: the game is part of them, not a break from them. */}
-        {jobs.filter((j) => j.working).slice(0, 3).map((j) => (
-          <span key={j.id} title={j.label} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: 200, flexShrink: 0,
-            padding: '2px 8px', borderRadius: 10, border: '1px solid #262626', color: j.working ? '#ECECEC' : '#8A8A8A',
-          }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: j.working ? '#52A77C' : '#5E5E5E' }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.label}</span>
-          </span>
-        ))}
-        {jobs.filter((j) => j.working).length > 3 && (
-          <span style={{ flexShrink: 0 }}>+{jobs.filter((j) => j.working).length - 3} more</span>
-        )}
         {tidy && <TidyMeter {...tidy} />}
       </div>
 
       {/* Playfield + instruments. The panel gets its OWN strip rather than floating over the
           canvas: an overlay was covering the bottom of the play area (in the car mode, the player's
           own car sat underneath it). Chrome shouldn't sit on top of the thing it describes. */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
         <div ref={containerRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <canvas
             ref={canvasRef}
@@ -298,6 +289,9 @@ export default function GameCanvas({
             <CockpitHud telemetry={telemetry} />
           </div>
         )}
+      </div>
+      {/* Always there, so the playfield never changes size mid-race (that re-inits the sim). */}
+      <CommsRail {...comms} />
       </div>
 
       {/* Controls hint */}
