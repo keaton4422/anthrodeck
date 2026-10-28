@@ -25,7 +25,10 @@ export type TelemetryEvent =
   | { type: 'boost' }     // pilot approved a write → speed burst
   | { type: 'crash' }     // pilot aborted the run  → crash
   | { type: 'sector' }    // a task in Claude's plan completed → checkpoint
-  | { type: 'milestone'; good: boolean }; // tests/build/commit/push → green (or red) flag
+  | { type: 'milestone'; good: boolean } // tests/build/commit/push → green (or red) flag
+  // The pilot did real work mid-game: answered a session's card, or sent a session a prompt
+  // (spoken or typed). Every mode should reward it: a shield, rapid fire, a multiplier.
+  | { type: 'powerup'; source: 'answer' | 'prompt' };
 
 export interface TelemetryFrame {
   snapshot: TelemetrySnapshot;

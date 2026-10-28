@@ -47,7 +47,9 @@ export function useGameLoop(
   // Track keyboard state for a controller-less fallback.
   useEffect(() => {
     if (!active) return;
-    const down = (e: KeyboardEvent) => { keys.current[e.key.toLowerCase()] = true; };
+    // Not while the pilot types (the comms rail's message box): those keys are words, not steering.
+    const typing = (e: KeyboardEvent) => (e.target as HTMLElement | null)?.closest?.('input, textarea');
+    const down = (e: KeyboardEvent) => { if (!typing(e)) keys.current[e.key.toLowerCase()] = true; };
     const up = (e: KeyboardEvent) => { keys.current[e.key.toLowerCase()] = false; };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);

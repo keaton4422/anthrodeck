@@ -308,6 +308,14 @@ export function createMode(): GameMode<RacerState> {
           s.boostT = BOOST_TIME;
         }
         if (ev.type === 'boost') s.boostT = BOOST_TIME;
+        // The pilot answered Claude or sent it orders mid-race: a long boost, points, multiplier and
+        // a dent fixed.
+        if (ev.type === 'powerup') {
+          s.boostT = BOOST_TIME * 4;
+          s.score += 400 * s.mult;
+          s.mult = Math.min(MULT_MAX, s.mult + MULT_GREEN);
+          s.damage = Math.max(0, s.damage - 1);
+        }
         // Tool calls and errors send hunters after you; an error also costs multiplier.
         if (ev.type === 'tool' || ev.type === 'error') {
           addCar('hunter', (s.tick * 7 + s.cars.length * 3) % LANES, ev.type === 'error' ? 110 : 70);

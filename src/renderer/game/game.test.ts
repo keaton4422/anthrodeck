@@ -116,48 +116,122 @@ describe('lib3d projection', () => {
 describe('flight cockpit', () => {
   const mode = createFlight();
 
-  it('starts on autopilot with gates ahead', () => {
+  // Fire at whatever is dead ahead for n frames; collect every intent the run emits.
+  function fireAt(s: FlightState, n: number): { s: FlightState; intents: GameIntent[] } {
+    const all: GameIntent[] = [];
+    for (let i = 0; i < n; i++) {
+      s = mode.step(s, input({ fire: true }), EMPTY_TELEMETRY, 0.016);
+      all.push(...s.intents);
+    }
+    return { s, intents: all };
+  }
+  // A clear trench: nothing ahead but what the test puts there.
+  function clear(): FlightState {
+    const s = mode.init(W, H);
+    return { ...s, obstacles: [], turrets: [], fighters: [], nextFeatureZ: 1e9 };
+  }
+
+  it('keeps its stored id and starts in the cockpit, on autopilot, with a trench ahead', () => {
+    expect(mode.id).toBe('cockpit-flight');
     const s = mode.init(W, H);
     expect(s.manual).toBe(0);
-    expect(s.rings.length).toBeGreaterThan(0);
+    expect(s.view).toBe('cockpit');
+    expect(s.obstacles.length + s.turrets.length).toBeGreaterThan(0);
+    expect(s.target.z).toBe(s.sectionEnd);
   });
 
   it('hands control to the pilot when the stick moves, and returns it when released', () => {
     let s = stepN(mode, tel({ streaming: true }), 40, input({ steer: 1 }));
     expect(s.manual).toBeGreaterThan(0.5);
+    expect(s.roll).toBeGreaterThan(0);   // steering banks the ship, so the horizon rolls
     for (let i = 0; i < 200; i++) s = mode.step(s, NEUTRAL_INPUT, tel({ streaming: true }), 0.016);
     expect(s.manual).toBeLessThan(0.5);
   });
 
-  it('the autopilot alone flies gates — it completes the course unaided', () => {
+  it('the autopilot alone threads the trench and survives', () => {
     const s = stepN(mode, tel({ streaming: true, tokensPerSec: 40 }), 900);
-    expect(s.passed).toBeGreaterThan(0);
+    expect(s.threaded).toBeGreaterThan(0);
     expect(s.destroyed).toBe(false);
   });
 
-  it('firing spawns a bolt', () => {
+  it('is deterministic', () => {
+    const a = stepN(mode, tel({ streaming: true, tokensPerSec: 30 }, [{ type: 'tool' }]), 300, input({ fire: true }));
+    const b = stepN(mode, tel({ streaming: true, tokensPerSec: 30 }, [{ type: 'tool' }]), 300, input({ fire: true }));
+    expect(b).toEqual(a);
+  });
+
+  it('firing spawns twin bolts that converge on the reticle', () => {
     const s = mode.step(mode.init(W, H), input({ fire: true }), EMPTY_TELEMETRY, 0.016);
-    expect(s.bolts.length).toBe(1);
+    expect(s.bolts.length).toBe(2);
+    const [l, r] = s.bolts;
+    expect(l.x).toBeLessThan(r.x);
+    expect(l.vx).toBeGreaterThan(r.vx);   // left bolt angles right, right bolt angles left
   });
 
-  it('a tool event adds a gate and an escort drone', () => {
-    const s = mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'tool' }]), 0.016);
-    expect(s.drones.length).toBe(1);
+  it('a tool event puts a threat in the trench', () => {
+    const s0 = mode.init(W, H);
+    const s = mode.step(s0, NEUTRAL_INPUT, tel({}, [{ type: 'tool' }]), 0.016);
+    expect(s.turrets.length + s.fighters.length).toBeGreaterThan(s0.turrets.length + s0.fighters.length);
   });
 
-  it('an error throws debris to dodge', () => {
-    const s = mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'error' }]), 0.016);
-    expect(s.debris.length).toBe(1);
+  it('destroying an enemy prunes a stale context item', () => {
+    let s = clear();
+    s = { ...s, turrets: [{ z: s.z + 900, x: 0, y: s.shipY, side: 0, mount: 'catwalk', hp: 1, cd: 99 }] };
+    const run = fireAt(s, 60);
+    expect(run.s.kills).toBe(1);
+    expect(run.intents).toContainEqual({ type: 'prune-stale' });
   });
 
-  it('an abort destroys the ship; a completed turn arrives', () => {
+  it('hitting the core at the end of the section scores big and opens the next section', () => {
+    let s = clear();
+    s = { ...s, sectionEnd: s.z + 1500, target: { z: s.z + 1500, x: 0, y: s.shipY, hit: false } };
+    const before = s.points;
+    const run = fireAt(s, 60);
+    expect(run.s.targetsHit).toBe(1);
+    expect(run.s.section).toBe(2);
+    expect(run.s.points - before).toBeGreaterThan(2000);
+  });
+
+  it('a power-up raises the shield and rapid twin-linked fire, and stacks', () => {
+    let s = mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'powerup', source: 'answer' }]), 0.016);
+    expect(s.powerT).toBeGreaterThan(10);
+    expect(s.powerSource).toBe('answer');
+    const once = s.powerT;
+    s = mode.step(s, NEUTRAL_INPUT, tel({}, [{ type: 'powerup', source: 'prompt' }]), 0.016);
+    expect(s.powerT).toBeGreaterThan(once + 10);
+    expect(s.powerSource).toBe('prompt');
+    // The shield soaks an error that would otherwise cost hull…
+    s = mode.step(s, NEUTRAL_INPUT, tel({}, [{ type: 'error' }]), 0.016);
+    expect(s.hull).toBe(1);
+    // …and the guns cycle faster.
+    const count = (st: FlightState) => {
+      let n = 0;
+      for (let i = 0; i < 30; i++) { st = mode.step(st, input({ fire: true }), EMPTY_TELEMETRY, 0.016); n = Math.max(n, st.bolts.length); }
+      return n;
+    };
+    expect(count({ ...clear(), powerT: 12 })).toBeGreaterThan(count(clear()));
+  });
+
+  it('an error damages; an abort destroys the ship; a completed turn starts the target run', () => {
+    const hurt = mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'error' }]), 0.016);
+    expect(hurt.hull).toBeLessThan(1);
     expect(mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'crash' }]), 0.016).destroyed).toBe(true);
-    expect(mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'done' }]), 0.016).finished).toBe(true);
+    const done = mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'done' }]), 0.016);
+    expect(done.target.z - done.z).toBeLessThan(3600);
+    expect(mode.isOver?.(done)).toBe(false);
+  });
+
+  it('a green flag raises the multiplier; a red flag puts a hazard ahead', () => {
+    const good = mode.step(mode.init(W, H), NEUTRAL_INPUT, tel({}, [{ type: 'milestone', good: true }]), 0.016);
+    expect(good.mult).toBeGreaterThan(1);
+    const s0 = clear();
+    const bad = mode.step(s0, NEUTRAL_INPUT, tel({}, [{ type: 'milestone', good: false }]), 0.016);
+    expect(bad.obstacles.length).toBeGreaterThan(0);
   });
 
   it('starts in first person and toggles to chase on a D-pad up edge', () => {
     let s: FlightState = mode.init(W, H);
-    expect(s.view).toBe('cockpit');   // it's the cockpit mode — you start inside it
+    expect(s.view).toBe('cockpit');
     s = mode.step(s, input({ up: true }), EMPTY_TELEMETRY, 0.016);
     expect(s.view).toBe('chase');
     s = mode.step(s, input({ up: true }), EMPTY_TELEMETRY, 0.016); // held — must not flip back
@@ -167,10 +241,12 @@ describe('flight cockpit', () => {
     expect(s.view).toBe('cockpit');
   });
 
-  it('higher throughput flies faster', () => {
+  it('higher throughput flies faster, and a boost event bursts', () => {
     const slow = stepN(mode, tel({ tokensPerSec: 0, streaming: true }), 30);
     const fast = stepN(mode, tel({ tokensPerSec: 55, streaming: true }), 30);
     expect(fast.speed).toBeGreaterThan(slow.speed);
+    const burst = mode.step(slow, NEUTRAL_INPUT, tel({}, [{ type: 'boost' }]), 0.016);
+    expect(burst.eff).toBeGreaterThan(slow.eff * 1.4);
   });
 });
 
@@ -630,5 +706,20 @@ describe('parked race', () => {
     expect(s.mult).toBeCloseTo(1.5);
     expect(s.damage).toBe(0);
     expect(s.cars.some((c) => c.kind === 'hunter')).toBe(false);
+  });
+});
+
+describe('power-ups', () => {
+  it('every game takes a power-up, and the shooters get shield and rapid fire', () => {
+    const up = tel({}, [{ type: 'powerup', source: 'answer' }]);
+    for (const m of GAME_MODES) {
+      const s = m.step(m.init(W, H), NEUTRAL_INPUT, up, 0.016);
+      expect(s).toBeTruthy();
+    }
+    const belt = createBelt();
+    const s = belt.step(belt.init(W, H), NEUTRAL_INPUT, up, 0.016) as ShooterState;
+    expect(s.powerT).toBeGreaterThan(9);
+    expect(s.invuln).toBeGreaterThan(9);
+    expect(belt.hud(s)).toMatch(/^⚡/);
   });
 });

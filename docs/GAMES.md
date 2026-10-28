@@ -90,6 +90,7 @@ your game's steering with no extra work.
 | `crash` | The pilot aborted the run | Destroy the player |
 | `sector` | A task in Claude's plan completed | Checkpoint, boost, points |
 | `milestone` | Tests / build / commit / push ran (`good: false` for a red flag) | Green flag reward, or a hazard |
+| `powerup` | The pilot did real work mid-game: answered a card (`source: 'answer'`) or sent a session orders (`'prompt'`) | Shield, rapid fire, a multiplier: make it feel great |
 
 `sector` and `milestone` are the outcome events: they only fire when something real happened in the
 project, so they are the right things to reward. `tool` is activity and makes a better obstacle.
@@ -126,7 +127,13 @@ game comes up by itself, like the Claude Code mods that open a game while Claude
 - A card from any session (an approval, a question) pauses the game; answer it and play resumes.
 - When a session finishes, the game stops on a "Claude is done" card: **A** goes to that session,
   **B** keeps playing.
-- The header shows every session in flight, and the tidy-up meter for the Deck's own context.
+- The **comms rail** beside the playfield lists every session: what needs you first, then the
+  ones whose turn is over and wait for your orders (with the end of what Claude said, usually its
+  question), then the ones working (with the tool they're running). In the game the pad drives it
+  with buttons the games don't use: **Y** moves down the rail, **hold X** to talk to the selected
+  session (the words wait in the rail), **Y** sends them, **View** drops them, **R3** types instead.
+- Answering a card or sending orders mid-game fires a `powerup` event in the game.
+- The header shows the tidy-up meter for the Deck's own context.
 - Leaving the game (Start → Leave the game) means "not now" until another session starts working
   or this one starts its next turn.
 

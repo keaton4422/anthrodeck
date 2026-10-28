@@ -12,6 +12,49 @@ export interface Job {
   label: string;          // the session's title, as Home shows it
   remote: boolean;
   working: boolean;
+  needs?: number;         // its approvals and questions waiting on the pilot
+  said?: string | null;   // the last thing Claude said in it
+  tool?: string | null;   // what it's running right now, when that's the latest thing it did
+  updatedAt?: number;     // when it last did anything (epoch ms), for the remote ones
+}
+
+// ─── The comms rail: every session beside the game ───────────────────────────
+// Each session's state in the pilot's terms: it needs an answer, it's working, or it finished and
+// it's the pilot's turn to tell it what's next.
+export type Turn = 'needs-you' | 'working' | 'your-turn';
+
+export function turnOf(j: Job): Turn {
+  if (j.needs) return 'needs-you';
+  return j.working ? 'working' : 'your-turn';
+}
+
+// The end of what Claude said, as plain text: that's where its question or its summary sits.
+export function lastWords(text: string, max = 300): string {
+  const plain = text.replace(/```[\s\S]*?```/g, ' ').replace(/`([^`]*)`/g, '$1').replace(/[*_#>]/g, '')
+    .replace(/\s+/g, ' ').trim();
+  return plain.length <= max ? plain : `…${plain.slice(-max).replace(/^\S*\s/, '')}`;
+}
+
+// A finished session stays on the rail this long, waiting for the pilot's next orders; older idle
+// ones are history (Home still lists them). The Deck's own session and anything working or
+// asking always shows.
+export const YOUR_TURN_FOR_MS = 2 * 3600_000;
+export function onRail(j: Job, now = Date.now()): boolean {
+  return !j.remote || j.working || !!j.needs || now - (j.updatedAt ?? 0) < YOUR_TURN_FOR_MS;
+}
+
+// The rail's order: what needs the pilot first, then finished sessions waiting for orders, then the
+// ones still working; most recent first within each (the order the jobs came in).
+const RANK: Record<Turn, number> = { 'needs-you': 0, 'your-turn': 1, working: 2 };
+export function railOrder(jobs: Job[], now = Date.now()): Job[] {
+  return jobs.filter((j) => onRail(j, now)).map((j, i) => ({ j, i })).sort((a, b) => RANK[turnOf(a.j)] - RANK[turnOf(b.j)] || a.i - b.i).map((x) => x.j);
+}
+
+// Y moves the selection down the rail, wrapping; a selection that left the rail falls to the top.
+export function nextSelection(rail: Job[], current: string | null): string | null {
+  if (!rail.length) return null;
+  const i = rail.findIndex((j) => j.id === current);
+  return rail[(i + 1) % rail.length].id;
 }
 
 // How long the controls rest, with Claude working, before the game comes up.

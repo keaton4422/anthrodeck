@@ -7,7 +7,8 @@ import ProjectDrawer from './components/ProjectDrawer';
 import AskUserModal from './components/AskUserModal';
 import ShareModal from './components/ShareModal';
 import GameCanvas, { formatLapTime, type LapCard } from './components/GameCanvas';
-import { finished, shouldStart, stillDismissed, tidyHit, TIDY_COMPACT, TIDY_HITS, type Job, type Tidy } from './lib/intermission';
+import { finished, lastWords, nextSelection, railOrder, shouldStart, stillDismissed, tidyHit, TIDY_COMPACT, TIDY_HITS, type Job, type Tidy } from './lib/intermission';
+import type { CommsDraft } from './components/CommsRail';
 import { folderName } from './lib/ui';
 import TeachModal from './components/TeachModal';
 import RadialMenu from './components/RadialMenu';
@@ -132,6 +133,8 @@ export default function App() {
     [model, effort, extendedThinking, teachMode, teachTimeout],
   );
 
+  // A card the engine withdrew (answered elsewhere, interrupted) earns no power-up.
+  const promptWithdrawn = useRef(false);
   const {
     messages,
     sendMessage,
@@ -160,6 +163,7 @@ export default function App() {
     },
     // The engine withdrew a card (interrupt / rewind): close it wherever it is showing.
     onPromptCancel: (id) => {
+      promptWithdrawn.current = true;
       setPendingWrite((w) => (w?.id === id ? null : w));
       setQuestions((qs) => qs.filter((q) => q.id !== id));
       setPendingTeach((t) => (t?.id === id ? null : t));
@@ -220,11 +224,24 @@ export default function App() {
   const writeDiffRef = useRef<HTMLPreElement>(null);
 
   // Dictation is written into the message box on screen (the live session's, or the chat's), so the
-  // pilot can read and fix it before A sends it.
+  // pilot can read and fix it before A sends it. In the game it becomes orders for the session
+  // picked in the comms rail, shown there to check before Y sends them.
   const sendLive = liveChat.send;
   const composerRef = useRef<ComposerHandle>(null);
+  const [commsSel, setCommsSel] = useState<string | null>(null);
+  const [commsDraft, setCommsDraft] = useState<CommsDraft | null>(null);
+  const [commsTalking, setCommsTalking] = useState(false);
+  const inGame = useRef({ open: false, sel: null as string | null });
+  inGame.current = { open: cockpitOpen, sel: commsSel };
   const handleVoiceResult = useCallback((text: string) => {
-    if (text.trim()) composerRef.current?.insert(text);
+    const words = text.trim();
+    if (!words) return;
+    const { open, sel } = inGame.current;
+    if (open) {
+      if (sel) setCommsDraft((d) => ({ jobId: sel, text: d?.jobId === sel ? `${d.text} ${words}` : words }));
+      return;
+    }
+    composerRef.current?.insert(words);
   }, []);
 
   const { isListening, transcript, isSupported, startListening, stopListening } =
@@ -415,15 +432,24 @@ export default function App() {
   const jobs = useMemo<Job[]>(() => {
     const out: Job[] = [];
     if (currentSession || isStreaming) {
-      out.push({ id: 'deck', label: currentSession?.title ?? 'This session', remote: false, working: isStreaming });
+      const said = [...messages].reverse().find((m) => m.role === 'assistant')?.content ?? null;
+      out.push({
+        id: 'deck', label: currentSession?.title ?? 'This session', remote: false, working: isStreaming,
+        needs: questions.filter((q) => !q.id.startsWith('live-')).length + (pendingWrite ? 1 : 0) + (pendingTeach ? 1 : 0),
+        said: said && lastWords(said), tool: null,
+      });
     }
     for (const s of live?.state?.live ?? []) {
       // The Deck's own session, run on the remote computer through the SDK, is already 'deck'.
       if (projectHost && s.entrypoint === 'sdk-ts' && s.cwd === projectPath) continue;
-      out.push({ id: s.sessionId, label: s.name || folderName(s.cwd), remote: true, working: s.status === 'busy' });
+      out.push({
+        id: s.sessionId, label: s.name || folderName(s.cwd), remote: true, working: s.status === 'busy',
+        needs: live?.state?.requests.filter((r) => r.sessionId === s.sessionId).length ?? 0,
+        said: s.said ?? null, tool: s.tool ?? null, updatedAt: s.updatedAt,
+      });
     }
     return out;
-  }, [currentSession, isStreaming, live, projectHost, projectPath]);
+  }, [currentSession, isStreaming, live, projectHost, projectPath, messages, questions, pendingWrite, pendingTeach]);
   useEffect(() => { telemetry.setRemoteWorking(jobs.some((j) => j.remote && j.working)); }, [jobs, telemetry]);
   // The tool calls of the Mac session the Deck has open drive the game like the Deck's own.
   const seenTools = useRef(new Set<string>());
@@ -486,6 +512,40 @@ export default function App() {
     else { setLiveOpen(null); setShowHome(false); }
   }, [doneCard, live]);
   const doneOwnsPad = cockpitOpen && !!doneCard && !modalActive;
+
+  // ─── The comms rail (components/CommsRail.tsx) ───────────────────────────────
+  const rail = useMemo(() => railOrder(jobs), [jobs]);
+  useEffect(() => {
+    if (!rail.some((j) => j.id === commsSel)) setCommsSel(rail[0]?.id ?? null);
+  }, [rail, commsSel]);
+  const [commsType, setCommsType] = useState(0);
+  // Real work done mid-game earns a power-up in it.
+  const powerUp = useCallback((source: 'answer' | 'prompt') => {
+    telemetry.emit({ type: 'powerup', source });
+    fireFeedback('level-up');
+    showToast(source === 'answer' ? '⚡ Power-up: you answered Claude' : '⚡ Power-up: orders sent');
+  }, [telemetry, fireFeedback, showToast]);
+  const wasAsking = useRef(false);
+  useEffect(() => {
+    if (wasAsking.current && !modalActive) {
+      if (!promptWithdrawn.current && cockpitOpen) powerUp('answer');
+      promptWithdrawn.current = false;
+    }
+    wasAsking.current = modalActive;
+  }, [modalActive, cockpitOpen, powerUp]);
+  const sendOrders = useCallback(async (jobId: string, text: string) => {
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job || !text.trim()) return;
+    if (!job.remote) {
+      if (isStreaming) { showToast('Claude is still working here. Send these when it finishes.'); return; }
+      sendMessage(text.trim());
+    } else {
+      const r = await window.electronAPI.liveSend(jobId, text.trim());
+      if (!r.ok && !r.unsure) { showToast(`Not sent: ${r.error ?? 'no answer'}`); return; }
+    }
+    setCommsDraft((d) => (d?.jobId === jobId ? null : d));
+    powerUp('prompt');
+  }, [jobs, isStreaming, sendMessage, showToast, powerUp]);
   // When the cockpit game is open it owns the controller; App-level bindings stand down. A card
   // always wins: the game pauses, the face buttons answer it, and play resumes. That is the loop:
   // play while Claude drives, answer when it radios in.
@@ -493,6 +553,8 @@ export default function App() {
   // With the game menu up, the pad drives the menu instead of the game.
   const menuOwnsPad = cockpitOpen && gameMenuOpen && !modalActive;
   const gameOwnsPad = cockpitOpen && !modalActive && !gameMenuOpen;
+  // In the game, Y / hold X / R3 / View drive the comms rail (the games don't use them).
+  const commsOwnsPad = gameOwnsPad && !doneOwnsPad;
   // Home takes the D-pad and A/B while it's up and nothing else is asking.
   // The folder picker sits over everything else, so it comes first.
   const pickerOwnsPad = !!folderPick && !modalActive;
@@ -555,10 +617,25 @@ export default function App() {
       else if (!showHome && !showSettings && !drawerOpen && !cockpitOpen) sendOrWrite();
     },
     onXPress: (mod) => {
+      if (commsOwnsPad) {
+        // Hold X: talk to the session picked in the comms rail.
+        if (!voiceReady) { showToast('Voice isn\'t set up on this device. Press R3 to type instead.'); return; }
+        if (!commsSel) return;
+        setCommsTalking(true);
+        startDictation();
+        fireFeedback('voice-start');
+        return;
+      }
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'X')) return;
       if (pendingWrite) handleWriteReject();
       else if (pendingQuestion) answerOption(2);
+    },
+    onXRelease: () => {
+      if (!commsTalking) return;
+      setCommsTalking(false);
+      stopDictation();
+      fireFeedback('voice-stop');
     },
     onBPress: (mod) => {
       if (doneOwnsPad) { setDoneCard(null); return; }
@@ -586,6 +663,12 @@ export default function App() {
     },
     onYPress: (mod) => {
       if (homeOwnsPad) { homeNav.current?.switchMachine(); return; }
+      // In the game: send the orders waiting, or move down the comms rail.
+      if (commsOwnsPad) {
+        if (commsDraft) void sendOrders(commsDraft.jobId, commsDraft.text);
+        else setCommsSel(nextSelection(rail, commsSel));
+        return;
+      }
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'Y')) return;
       if (pendingQuestion) answerOption(3);
@@ -607,7 +690,10 @@ export default function App() {
     },
     // L3 / R3 — quick panel toggles.
     onL3Press: () => { if (!cockpitOpen && !modalActive) setDrawerOpen((s) => !s); },
-    onR3Press: () => { if (!cockpitOpen && !modalActive) setShowSettings((s) => !s); },
+    onR3Press: () => {
+      if (commsOwnsPad) { setCommsType((n) => n + 1); return; }   // type orders in the comms rail
+      if (!cockpitOpen && !modalActive) setShowSettings((s) => !s);
+    },
     // D-pad: up/down scrolls a pending diff; left/right collapses/expands tool detail lines.
     onDpadUp: () => {
       if (menuOwnsPad) gameMenuNav.current?.move('up');
@@ -640,7 +726,10 @@ export default function App() {
       else if (!cockpitOpen && !pendingWrite) setCollapseTools(false);
     },
     // Radial menu: hold Select (Steam Input can map trackpad center-click here), aim, release.
-    onRadialOpen: () => { if (!cockpitOpen && !modalActive) { setRadialOpen(true); setRadialIndex(null); } },
+    onRadialOpen: () => {
+      if (commsOwnsPad) { setCommsDraft(null); return; }   // View drops the orders waiting in the rail
+      if (!cockpitOpen && !modalActive) { setRadialOpen(true); setRadialIndex(null); }
+    },
     onRadialAim: (x, y) => { if (radialOpen) setRadialIndex(radialIndexFromStick(x, y, RADIAL_ITEMS.length)); },
     onRadialClose: () => {
       if (!radialOpen) return;
@@ -905,6 +994,13 @@ export default function App() {
           career={{ level: season.level, tier: season.tier, progress: season.progress }}
           driveMode={mode}
           jobs={jobs}
+          comms={{
+            rail, selected: commsSel, draft: commsDraft, remoteLabel: remoteTarget?.label ?? null, typeSignal: commsType,
+            listening: commsTalking || (localDict.transcribing && !!commsSel),
+            onSelect: setCommsSel,
+            onSend: (id, text) => void sendOrders(id, text),
+            onDiscard: () => setCommsDraft(null),
+          }}
           tidy={tidyUp ? { hits: tidy.hits, needed: TIDY_HITS, queued: tidy.queued, contextPct: context?.percentage ?? null } : null}
           doneCard={doneCard}
           onDoneGo={goToDone}

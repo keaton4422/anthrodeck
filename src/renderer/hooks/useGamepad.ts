@@ -8,6 +8,7 @@ interface GamepadActions {
   onAPress?: (modifier: boolean) => void;
   onBPress?: (modifier: boolean) => void;
   onXPress?: (modifier: boolean) => void;
+  onXRelease?: () => void;   // X held is push-to-talk in the game's comms rail
   onYPress?: (modifier: boolean) => void;
   onStartPress?: () => void;
   // Wheel controls: R1 is the drive-mode paddle; R2 (with L1 held, so it is never an accident)
@@ -93,6 +94,7 @@ export function useGamepad(actions: GamepadActions) {
         if (pressed(BTN.A) && !prevButtons[BTN.A]) acts.onAPress?.(modifier);
         if (pressed(BTN.B) && !prevButtons[BTN.B]) acts.onBPress?.(modifier);
         if (pressed(BTN.X) && !prevButtons[BTN.X]) acts.onXPress?.(modifier);
+        if (!pressed(BTN.X) && prevButtons[BTN.X]) acts.onXRelease?.();
         if (pressed(BTN.Y) && !prevButtons[BTN.Y]) acts.onYPress?.(modifier);
         if (pressed(BTN.START) && !prevButtons[BTN.START]) acts.onStartPress?.();
         if (pressed(BTN.RB) && !prevButtons[BTN.RB]) acts.onR1Press?.();

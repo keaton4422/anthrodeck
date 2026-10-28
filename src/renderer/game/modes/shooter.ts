@@ -30,6 +30,7 @@ export interface ShooterState extends IntentCarrier {
   wave: number;
   cleared: number;
   invuln: number;
+  powerT: number;   // power-up left: shield and rapid fire, earned by answering Claude mid-game
   gameOver: boolean;
   tick: number;
   intents: GameIntent[];
@@ -82,7 +83,7 @@ export function createMode(): GameMode<ShooterState> {
         shipX: w / 2, shipY: h / 2, vx: 0, vy: 0, aim: -Math.PI / 2,
         bullets: [], rocks: makeWave(w, h, 1, 1),
         cooldown: 0, score: 0, lives: 3, wave: 1, cleared: 0,
-        invuln: INVULN_TIME, gameOver: false, tick: 0, intents: [],
+        invuln: INVULN_TIME, gameOver: false, tick: 0, intents: [], powerT: 0,
       };
     },
 
@@ -91,7 +92,10 @@ export function createMode(): GameMode<ShooterState> {
       const dt = clampDt(dtRaw);
       const s: ShooterState = { ...state, tick: state.tick + 1, intents: [] };
 
+      // The pilot answered Claude or sent it orders: shield and rapid fire, and it stacks.
+      s.powerT = Math.max(0, (s.powerT ?? 0) - dt);
       for (const ev of tel.events) {
+        if (ev.type === 'powerup') { s.powerT = Math.min(30, s.powerT + 10); s.invuln = Math.max(s.invuln, s.powerT); }
         // Extra debris when the engine errors — free-play, so no crash coupling.
         if (ev.type === 'error') s.rocks = [...s.rocks, spawnRock(s.w, s.h, s.tick, s.rocks.length)];
       }
@@ -121,7 +125,7 @@ export function createMode(): GameMode<ShooterState> {
           vx: Math.cos(s.aim) * BULLET_V, vy: Math.sin(s.aim) * BULLET_V,
           life: BULLET_LIFE,
         }];
-        s.cooldown = FIRE_CD;
+        s.cooldown = s.powerT > 0 ? FIRE_CD * 0.35 : FIRE_CD;
       }
       bullets = bullets
         .map((b) => ({ ...b, x: wrap(b.x + b.vx * dt, s.w), y: wrap(b.y + b.vy * dt, s.h), life: b.life - dt }))
@@ -275,7 +279,7 @@ export function createMode(): GameMode<ShooterState> {
 
     hud(s) {
       if (s.gameOver) return `GAME OVER · ${s.score}`;
-      return `♥ ${s.lives} · wave ${s.wave} · ${s.score} pts · ${s.cleared} cleared`;
+      return `${s.powerT > 0 ? `⚡ ${Math.ceil(s.powerT)}s · ` : ''}♥ ${s.lives} · wave ${s.wave} · ${s.score} pts · ${s.cleared} cleared`;
     },
   };
 }
