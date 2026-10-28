@@ -55,10 +55,8 @@ describe('classify', () => {
     expect(classify(['@fastify/static/lib/x'], new Set(['@fastify/static'])).missing).toEqual([]);
   });
 
-  it('tolerates the optional native module rather than failing the build', () => {
-    const r = classify(['nodejs-whisper'], new Set());
-    expect(r.missing).toEqual([]);
-    expect(r.tolerated).toEqual(['nodejs-whisper']);
+  it('fails the build on a module that didn\'t ship', () => {
+    expect(classify(['nodejs-whisper'], new Set())).toEqual({ missing: ['nodejs-whisper'], tolerated: [] });
   });
 });
 

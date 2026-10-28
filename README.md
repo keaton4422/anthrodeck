@@ -292,29 +292,17 @@ Home then switches between this device and the Mac (**Y**). On the Mac side you 
 
 Haptics and sound cues are on by default and can be muted in Settings.
 
-## Local voice (offline Whisper) on Steam Deck
+## Voice
 
-By default, dictation uses the browser Web Speech API (needs internet). For fully offline, on-device
-transcription you can enable **local voice** in Settings. The native Whisper module is **not** bundled
-(it needs a compile step and a ~140 MB model), so it's a one-time manual install:
+Hold **L2** (or the mic button) and talk; let go to send. Speech is transcribed on the device with
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp) and the `base.en` model, so nothing leaves it.
+Chromium's speech API doesn't work inside Electron, so this is the only voice path.
 
-1. Install build tools on SteamOS (Arch). SteamOS's rootfs is read-only by default:
-   ```sh
-   sudo steamos-readonly disable
-   sudo pacman -S base-devel cmake
-   sudo steamos-readonly enable
-   ```
-   (Or build the module on another Arch/Linux x86_64 machine and copy `node_modules/nodejs-whisper`.)
-2. From the app's install directory, add the module:
-   ```sh
-   npm install nodejs-whisper
-   ```
-3. Launch AnthroDeck → **Settings → Voice & Assist → Local voice** → toggle on → **Download local
-   voice** (fetches the `base.en` model into the app's user-data directory).
-
-Once the module and model are present, L2 records audio, encodes a 16 kHz WAV, and transcribes it
-locally (a `…TRANSCRIBING` indicator shows in the status bar). If the module or model is missing, the
-app automatically falls back to Web Speech.
+- **Steam Deck / Linux:** built in. The release job builds `whisper-cli` and fetches the model with
+  `tools/linux/build-whisper.sh`, and both ship in the AppImage as `resources/whisper`.
+- **macOS / Windows:** install whisper.cpp so `whisper-cli` is on your PATH (macOS:
+  `brew install whisper-cpp`), or point `ANTHRODECK_WHISPER_CLI` at it, then **Settings → Voice →
+  Download the speech model** (about 60 MB, checked against its hash).
 
 ## Share preview over LAN
 
@@ -332,7 +320,7 @@ axis with no extra configuration. Without a gyro mapping, the sticks steer norma
 ## Package targets
 
 Electron Forge builds a zip (all platforms), a `.deb`, and an **AppImage** for Linux — see
-`forge.config.ts`. Whisper's native binaries are Linux x86_64, matching SteamOS.
+`forge.config.ts`. The Linux builds include the speech engine, built for the Deck's x86_64 CPU.
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds win32 + linux and publishes a
 GitHub Release with the artifacts.

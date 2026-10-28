@@ -118,6 +118,7 @@ export interface GitOpResult {
 export interface LocalVoiceStatus {
   available: boolean;
   ready: boolean;
+  bundled: boolean;
   model: string;
   reason?: string;
 }

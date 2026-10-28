@@ -3,13 +3,16 @@ import { pcmToWav } from '../lib/audio';
 
 // Push-to-talk capture for the local whisper backend. Records raw mic PCM via Web Audio while L2 is
 // held, then on release encodes a 16 kHz mono WAV and hands it to the main process for
-// transcription. Distinct from useVoice (Web Speech) so the two backends can coexist.
-export function useLocalVoice(onResult: (text: string) => void) {
+// transcription. Distinct from useVoice (Web Speech) so the two backends can coexist. `onError`
+// says why nothing was heard (no mic, or the engine failed), so the pilot isn't left guessing.
+export function useLocalVoice(onResult: (text: string) => void, onError?: (msg: string) => void) {
   const [isListening, setIsListening] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
 
   const onResultRef = useRef(onResult);
   onResultRef.current = onResult;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -36,8 +39,9 @@ export function useLocalVoice(onResult: (text: string) => void) {
       source.connect(proc);
       proc.connect(ctx.destination);
       setIsListening(true);
-    } catch {
+    } catch (e) {
       setIsListening(false);
+      onErrorRef.current?.(`Couldn't use the microphone (${(e as Error).name || 'error'}).`);
     }
   }, [isListening]);
 
@@ -70,8 +74,10 @@ export function useLocalVoice(onResult: (text: string) => void) {
       const wav = pcmToWav(merged, rate);
       const text = await window.electronAPI.voiceTranscribe(wav);
       if (text && text.trim()) onResultRef.current(text.trim());
+      else if (text === null) onErrorRef.current?.('Couldn\'t make out any words. Try again.');
+      else onErrorRef.current?.('Didn\'t hear anything. Hold L2 while you talk.');
     } catch {
-      /* swallow — caller keeps Web Speech as the safety net */
+      onErrorRef.current?.('Couldn\'t make out any words. Try again.');
     } finally {
       setTranscribing(false);
     }

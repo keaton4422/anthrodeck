@@ -15,8 +15,6 @@ import { builtinModules } from 'module';
 //
 // So: external is now ONLY things that genuinely cannot be bundled.
 //   * node builtins and `electron` — provided by the runtime
-//   * nodejs-whisper — a native addon, deliberately not shipped, and required inside a try/catch
-//     in whisperTranscriber.ts so its absence degrades local voice instead of killing the app
 //
 // Anything else added here must also be physically copied into the package or the app will not
 // start. `npm run verify:package` enforces that and runs as part of `npm run make`.
@@ -27,7 +25,6 @@ export default defineConfig({
     rollupOptions: {
       external: [
         'electron',
-        'nodejs-whisper',
         // fastify's ajv / fast-json-stringify chain builds require() paths at runtime, so Rollup
         // cannot bundle it correctly. These are shipped as real files instead — see tools/shipDeps.mjs.
         'fastify',
