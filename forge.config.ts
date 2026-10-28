@@ -4,12 +4,17 @@ import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-nati
 import MakerAppImage from '@reforged/maker-appimage';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { shipInto } = require('./tools/shipDeps.mjs');
-import { copyFileSync, chmodSync } from 'fs';
+import { copyFileSync, chmodSync, existsSync } from 'fs';
 import path from 'path';
 
 // The AppImage starts through this script rather than the binary, so Steam's overlay can be removed
 // from LD_PRELOAD before Chromium starts. See tools/linux/anthrodeck-launch.
 const LINUX_LAUNCHER = 'anthrodeck-launch';
+
+// The on-device speech engine and its model, built by tools/linux/build-whisper.sh (the release job
+// runs it before the Linux make). Ships as resources/whisper; see src/main/whisperTranscriber.ts.
+const WHISPER = 'build/whisper';
+const withWhisper = process.platform === 'linux' && existsSync(path.join(__dirname, WHISPER, 'whisper-cli'));
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -20,7 +25,7 @@ const config: ForgeConfig = {
     // All of them are rendered from assets/logo.svg by tools/renderIcons.cjs.
     icon: 'assets/icon',
     // The window icon on Linux (taskbar, Alt+Tab). Ships beside app.asar as resources/icon.png.
-    extraResource: ['assets/icon.png'],
+    extraResource: ['assets/icon.png', ...(withWhisper ? [WHISPER] : [])],
   },
   rebuildConfig: {},
   hooks: {

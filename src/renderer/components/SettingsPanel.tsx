@@ -21,8 +21,7 @@ interface Props {
   onExtendedThinkingChange: (v: boolean) => void;
   effort: string;
   onEffortChange: (e: string) => void;
-  localVoice: boolean;
-  onLocalVoiceChange: (v: boolean) => void;
+  onVoiceChanged: () => void;
   teachMode: boolean;
   onTeachModeChange: (v: boolean) => void;
   previewPort: number;
@@ -61,8 +60,7 @@ export function SettingsPanel({
   onExtendedThinkingChange,
   effort,
   onEffortChange,
-  localVoice,
-  onLocalVoiceChange,
+  onVoiceChanged,
   teachMode,
   onTeachModeChange,
   previewPort,
@@ -444,7 +442,7 @@ export function SettingsPanel({
         {/* ── Voice & Assist ───────────────────────────────────────────── */}
         <section style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <label style={labelStyle}>Voice &amp; Assist</label>
-          <LocalVoiceRow enabled={localVoice} onChange={onLocalVoiceChange} />
+          <LocalVoiceRow onChanged={onVoiceChanged} />
           <ToggleRow
             label="Teach mode"
             hint="Explain each tool call before it runs; A continues, B redirects by voice. Auto-continues after a few seconds."
@@ -666,7 +664,7 @@ function UpdateSection({ status, onCheck, onDownload, onInstall }: UpdateProps) 
 }
 
 // ─── Local voice (whisper) row ─────────────────────────────────────────────────
-function LocalVoiceRow({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+function LocalVoiceRow({ onChanged }: { onChanged: () => void }) {
   const [status, setStatus] = useState<LocalVoiceStatus | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -681,36 +679,28 @@ function LocalVoiceRow({ enabled, onChange }: { enabled: boolean; onChange: (v: 
       const r = await window.electronAPI.voiceDownloadModel();
       setMsg(r.message);
       await refresh();
+      onChanged();
     } finally {
       setDownloading(false);
     }
   };
 
+  // Voice runs on this device (whisper.cpp): built into the Linux install, a one-time model
+  // download elsewhere. Hold L2 or the mic button to talk.
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <ToggleRow
-        label="Local voice (offline Whisper)"
-        hint="Transcribe on-device instead of cloud Web Speech. Needs the Whisper model downloaded."
-        value={enabled}
-        onChange={() => onChange(!enabled)}
-      />
-      {enabled && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 2 }}>
-          <div style={{ fontSize: 12, color: status?.ready ? '#52A77C' : '#D9A441' }}>
-            {status?.ready
-              ? `Ready (${status.model}).`
-              : status?.available
-                ? (status.reason ?? 'Model not downloaded.')
-                : (status?.reason ?? 'Whisper native module not installed — see README.')}
-          </div>
-          {status?.available && !status.ready && (
-            <button onClick={download} disabled={downloading} style={secondaryBtn}>
-              {downloading ? 'Downloading… (~140 MB)' : 'Download local voice'}
-            </button>
-          )}
-          {msg && <div style={{ fontSize: 12, color: '#8A8A8A' }}>{msg}</div>}
-        </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ fontSize: 14, color: '#ECECEC', fontWeight: 600 }}>Voice</div>
+      <div style={{ fontSize: 12, color: status?.ready ? '#52A77C' : '#D9A441' }}>
+        {status?.ready
+          ? `Ready: hold L2 and talk. Runs on this device (${status.model}${status.bundled ? ', built in' : ''}).`
+          : (status?.reason ?? 'Checking…')}
+      </div>
+      {status?.available && !status.ready && (
+        <button onClick={download} disabled={downloading} style={secondaryBtn}>
+          {downloading ? 'Downloading… (~60 MB)' : 'Download the speech model'}
+        </button>
       )}
+      {msg && <div style={{ fontSize: 12, color: '#8A8A8A' }}>{msg}</div>}
     </div>
   );
 }

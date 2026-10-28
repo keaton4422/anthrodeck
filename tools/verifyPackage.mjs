@@ -17,10 +17,9 @@ import path from 'path';
 // at runtime: a node builtin, `electron`, something physically present in the package, or an
 // explicitly-allowed optional dependency.
 
-// nodejs-whisper is a native addon that is deliberately not shipped; whisperTranscriber.ts requires
-// it inside a try/catch, so a miss degrades local voice rather than killing the app. Anything added
-// here MUST be require()d defensively at its call site.
-const ALLOWED_MISSING = new Set(['nodejs-whisper']);
+// Optional modules that may be absent from the package. Anything added here MUST be require()d
+// defensively at its call site.
+const ALLOWED_MISSING = new Set();
 
 const BUILTINS = new Set([...builtinModules, ...builtinModules.map((m) => `node:${m}`)]);
 
@@ -136,6 +135,10 @@ function main() {
     // path main loads.
     verifyRenderer(tmp);
 
+    // The Deck has no other way to hear the pilot, so a Linux build without its speech engine is
+    // broken even though it starts.
+    if (process.platform === 'linux') verifyVoice(appDir);
+
     // Static resolution is necessary but NOT sufficient. fastify 5 resolved fine against
     // Electron 28 and still exploded on load, because Electron 28 ships Node 18 and fastify needs
     // `diagnostics_channel.tracingChannel` and the global `File` from Node 20. So actually LOAD the
@@ -145,6 +148,27 @@ function main() {
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+function verifyVoice(appDir) {
+  const dir = path.join(appDir, 'resources', 'whisper');
+  const cli = path.join(dir, 'whisper-cli');
+  const model = path.join(dir, 'ggml-base.en-q5_1.bin');
+  if (!existsSync(cli) || !existsSync(model)) {
+    console.error('\n  VOICE MISSING — resources/whisper has no whisper-cli or model.');
+    console.error('  Run tools/linux/build-whisper.sh before `npm run make`.\n');
+    process.exit(1);
+  }
+  try {
+    execFileSync(cli, ['--help'], { stdio: 'pipe' });
+  } catch (e) {
+    // --help exits non-zero on some versions; it only has to load and print its usage.
+    if (!String(e.stdout ?? '').concat(String(e.stderr ?? '')).includes('usage')) {
+      console.error(`\n  VOICE BROKEN — whisper-cli doesn't run: ${e.message}\n`);
+      process.exit(1);
+    }
+  }
+  console.log('  OK — the speech engine and model shipped and whisper-cli runs.');
 }
 
 // Exported for testing: pulls the local src="" / href="" targets out of the renderer's entry HTML.

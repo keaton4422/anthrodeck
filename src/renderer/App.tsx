@@ -90,8 +90,10 @@ export default function App() {
   const [previewPort, setPreviewPort] = useStore<number>('previewPort', 5757);
   const [previewHttps, setPreviewHttps] = useStore<boolean>('previewHttps', false);
   const [cockpitMode, setCockpitMode] = useStore<string>('cockpitMode', 'cockpit-flight');
-  const [localVoice, setLocalVoice] = useStore<boolean>('localVoice', false);
+  // On-device voice (whisper): ready once its engine and model are here. Settings asks again
+  // after downloading the model.
   const [localReady, setLocalReady] = useState(false);
+  const [voiceCheck, setVoiceCheck] = useState(0);
   const [teachMode, setTeachMode] = useStore<boolean>('teachMode', false);
   const [teachTimeout] = useStore<number>('teachTimeout', 5);
   const [haptics, setHaptics] = useStore<boolean>('haptics', true);
@@ -230,16 +232,16 @@ export default function App() {
 
   const { isListening, transcript, isSupported, startListening, stopListening } =
     useVoice(handleVoiceResult);
-  const localDict = useLocalVoice(handleVoiceResult);
+  const localDict = useLocalVoice(handleVoiceResult, showToast);
 
-  // Decide the active dictation backend: local whisper when enabled AND ready, else Web Speech.
+  // The dictation backend: on-device whisper whenever it's ready (the Linux build ships it), else
+  // the system's speech recognition where there is one (never inside Electron, see useVoice).
   useEffect(() => {
-    if (!localVoice) { setLocalReady(false); return; }
     window.electronAPI.voiceLocalStatus()
       .then((s) => setLocalReady(s.ready))
       .catch(() => setLocalReady(false));
-  }, [localVoice]);
-  const useLocal = localVoice && localReady;
+  }, [voiceCheck]);
+  const useLocal = localReady;
   // Some way to talk exists here: on-device whisper, or the system's speech recognition.
   const voiceReady = useLocal || isSupported;
   const startDictation = useLocal ? localDict.startListening : startListening;
@@ -754,8 +756,7 @@ export default function App() {
           onExtendedThinkingChange={setExtendedThinking}
           effort={effort}
           onEffortChange={setEffort}
-          localVoice={localVoice}
-          onLocalVoiceChange={setLocalVoice}
+          onVoiceChanged={() => setVoiceCheck((n) => n + 1)}
           teachMode={teachMode}
           onTeachModeChange={setTeachMode}
           previewPort={previewPort}
