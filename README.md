@@ -251,8 +251,13 @@ Home then switches between this device and the Mac (**Y**). On the Mac side you 
 - **Its projects and sessions.** Resume one or start a new one; Claude Code runs on the Mac, in its
   folders, under its own sign-in.
 - **What's running right now.** The sessions open in the Claude app or a terminal on the Mac are
-  listed at the top as **LIVE**, each marked working, idle or **NEEDS YOU**. Open an idle one to
-  carry it on from the Deck.
+  listed at the top as **LIVE**, each marked working, idle or **NEEDS YOU**. Press **A** on one to
+  open it on the live session screen: its conversation streams in as it works, and you can send it
+  messages (type, or hold **L2** and talk). The session keeps running where it is. A message
+  reaches a working session when its current turn ends, and an idle one starts on it at once.
+  Claude Code passes it through its own session inbox, so Claude sees it as a message from another
+  session that you sent from the Deck. A session that skips permission prompts holds such messages
+  for you to review in its own window instead, and the Deck says so. **B** goes back to Home.
 - **Their approvals and questions.** In **Settings → Remote computer**, press **Install on <Mac>**
   under "Approvals from <Mac>". This adds one `PermissionRequest` hook to Claude Code's settings on
   the Mac (`~/.claude/settings.json`, backed up first). From then on, when a session on the Mac asks
@@ -268,6 +273,8 @@ Home then switches between this device and the Mac (**Y**). On the Mac side you 
 - **L3** — project drawer · **R3** — settings.
 - **Home**: **D-pad** moves between projects and their sessions · **A** opens · **B** back to the
   current session. The header logo (or radial → New session) returns to Home.
+- **Live session screen** (a LIVE session from the other computer): **A** to the message box ·
+  **L2** talk · **D-pad ↑↓ / right stick** scroll · **B** back to Home.
 - **D-pad ← / →** — collapse / expand tool detail lines in the transcript.
 - **Write approval**: **A** apply · **X** reject · **B** reject with voice · **D-pad ↑↓** scroll the diff.
 - **ask_user / teach prompts**: face buttons **A/B/X/Y** map to the on-screen options.

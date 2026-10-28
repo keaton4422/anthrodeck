@@ -6,11 +6,11 @@ import type { UpdateAvailable, WhatsNew } from '../main/releaseNotes';
 import type { ProjectTile, SessionCard, GitState, RestoredMessage } from '../main/sessions';
 import type { FolderListing, FolderEntry } from '../main/folders';
 import type { RemoteTarget } from '../main/remote';
-import type { LiveLinkStatus, LiveSession } from '../main/live';
+import type { LiveLinkStatus, LiveSession, LiveEntry, LiveTail, LiveSent } from '../main/live';
 
 // Which computer something is on: this one, or the remote computer set up in Settings.
 export type Machine = 'local' | 'remote';
-export type { RemoteTarget, LiveSession };
+export type { RemoteTarget, LiveSession, LiveEntry, LiveTail, LiveSent };
 
 // The remote computer's live sessions, as the Deck sees them (null: no remote computer set up).
 export type LiveStatus = (LiveLinkStatus & { label: string }) | null;
@@ -164,6 +164,9 @@ declare global {
       liveGet: () => Promise<LiveStatus>;
       liveRelay: (op: 'install' | 'remove') => Promise<{ ok: boolean; error?: string }>;
       onLiveState: (cb: (s: LiveStatus) => void) => () => void;
+      liveWatch: (sessionId: string | null) => void;
+      liveSend: (sessionId: string, text: string) => Promise<LiveSent>;
+      onLiveTail: (cb: (t: LiveTail) => void) => () => void;
       // File system
       fsList: (dir?: string) => Promise<string[]>;
       fsRead: (relPath: string) => Promise<string>;

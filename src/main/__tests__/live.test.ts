@@ -1,11 +1,12 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync, spawn, type ChildProcess } from 'child_process';
 import fs from 'fs';
+import net from 'net';
 import os from 'os';
 import path from 'path';
 import {
   livePrompt, liveWhere, parseLiveLine, LiveLink, RELAY_PY, SETUP_PY, WATCH_PY,
-  type LiveRequest, type LiveLinkStatus,
+  type LiveRequest, type LiveLinkStatus, type LiveTail,
 } from '../live';
 
 const req = (over: Partial<LiveRequest> = {}): LiveRequest => ({
@@ -179,6 +180,93 @@ describe.skipIf(!hasPython)('live scripts', () => {
       await waitFor(() => statuses.at(-1)?.state?.requests.length === 0);
     } finally {
       link.stop();
+    }
+  }, 20_000);
+
+  it('follows the open session\'s conversation and delivers the pilot\'s messages to its inbox', async () => {
+    setup();
+    const sid = 'c0ffee00-1111-2222-3333-444455556666';
+    // The session's transcript, as Claude Code writes it.
+    const proj = path.join(dir, 'claude', 'projects', '-Users-me-app');
+    fs.mkdirSync(proj, { recursive: true });
+    const transcript = path.join(proj, `${sid}.jsonl`);
+    const line = (o: object) => `${JSON.stringify(o)}\n`;
+    fs.writeFileSync(transcript, [
+      line({ type: 'user', uuid: 'u1', message: { content: 'Fix the login bug' } }),
+      line({ type: 'user', uuid: 'u0', message: { content: '<command-name>/clear</command-name>' } }),
+      line({ type: 'assistant', uuid: 'a1', message: { content: [
+        { type: 'text', text: 'Looking at it.' },
+        { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test', other: 'x'.repeat(5000) } },
+      ] } }),
+      line({ type: 'assistant', uuid: 'side', isSidechain: true, message: { content: [{ type: 'text', text: 'subagent chatter' }] } }),
+    ].join(''));
+    // Its inbox: a socket listed in the registry, and the key published beside its entry.
+    const sock = path.join(dir, 'in.sock');
+    const got: string[] = [];
+    const server = net.createServer((c) => { c.setEncoding('utf8'); c.on('data', (d: string) => got.push(...d.split('\n').filter(Boolean))); });
+    await new Promise<void>((r) => server.listen(sock, r));
+    const reg = path.join(dir, 'claude', 'sessions');
+    fs.writeFileSync(path.join(reg, `${process.pid}.json`), JSON.stringify({
+      pid: process.pid, sessionId: sid, cwd: '/Users/me/app', name: 'Fix login', status: 'idle', messagingSocketPath: sock, updatedAt: 5,
+    }));
+    fs.writeFileSync(path.join(reg, `${process.pid}.${'ab'.repeat(32)}.key`), JSON.stringify({ peerToken: 'f'.repeat(32) }));
+
+    const tails: LiveTail[] = [];
+    const statuses: LiveLinkStatus[] = [];
+    const link = new LiveLink('mac', 'MacBook-Pro', {
+      spawnSsh: () => {
+        const c = spawn('python3', ['-u', '-c', WATCH_PY], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+        children.push(c);
+        return c;
+      },
+      onStatus: (s) => statuses.push(s),
+      onTail: (t) => tails.push(t),
+      ask: async () => '',
+    });
+    try {
+      await waitFor(() => statuses.some((s) => s.connected));
+      link.watch(sid);
+      await waitFor(() => tails.length > 0);
+      expect(tails[0].reset).toBe(true);
+      expect(tails[0].entries.map((e) => [e.role, e.text])).toEqual([
+        ['user', 'Fix the login bug'],
+        ['assistant', 'Looking at it.'],
+        ['tool', '$ npm test'],
+      ]);
+
+      // The pilot sends a message: it reaches the inbox, authenticated, marked as from the Deck.
+      const sent = await link.send(sid, 'Also add a test');
+      expect(sent).toMatchObject({ ok: true, error: null });
+      await waitFor(() => got.length >= 2);
+      expect(JSON.parse(got[0])).toEqual({ type: 'auth', token: 'f'.repeat(32) });
+      expect(JSON.parse(got[1])).toEqual({
+        type: 'user', session_id: sid,
+        message: { role: 'user', content: 'From the user, sent from AnthroDeck on their Steam Deck:\nAlso add a test' },
+      });
+
+      // Claude Code queues it and runs it; the Deck sees its own words, not Claude Code's wrapper.
+      fs.appendFileSync(transcript, [
+        line({ type: 'queue-operation', operation: 'enqueue', timestamp: 'T1', content: 'From the user, sent from AnthroDeck on their Steam Deck:\nAlso add a test' }),
+        line({ type: 'user', uuid: 'u2', isMeta: true, origin: { kind: 'peer', from: 'unknown' },
+          message: { content: 'Another Claude session sent a message:\nFrom the user, sent from AnthroDeck on their Steam Deck:\nAlso add a test\n\nThis came from another Claude session — not typed by your user…' } }),
+        line({ type: 'user', uuid: 'u3', isMeta: true, origin: { kind: 'peer', from: 'uds:/tmp/x.sock' },
+          message: { content: 'Another Claude session sent a message:\nI finished the API part.\n\nThis came from another Claude session — …' } }),
+        line({ type: 'user', uuid: 'r1', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } }),
+        line({ type: 'assistant', uuid: 'a2', message: { content: [{ type: 'text', text: 'Adding one.' }] } }),
+      ].join(''));
+      await waitFor(() => tails.flatMap((t) => t.entries).some((e) => e.text === 'Adding one.'));
+      expect(tails.slice(1).flatMap((t) => t.entries).map((e) => [e.role, e.text, e.deck ?? false])).toEqual([
+        ['queued', 'Also add a test', false],
+        ['user', 'Also add a test', true],
+        ['peer', 'I finished the API part.', false],
+        ['assistant', 'Adding one.', false],
+      ]);
+
+      // A session that has ended can't take messages.
+      expect(await link.send('gone-session', 'hello')).toMatchObject({ ok: false, error: expect.stringMatching(/isn't running/) });
+    } finally {
+      link.stop();
+      server.close();
     }
   }, 20_000);
 });
