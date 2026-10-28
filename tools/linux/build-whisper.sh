@@ -33,7 +33,7 @@ cmake -S "$work" -B "$work/build" -DCMAKE_BUILD_TYPE=Release \
 cmake --build "$work/build" --config Release --target whisper-cli -j "$(nproc 2>/dev/null || echo 4)" >/dev/null
 install -m 755 "$work/build/bin/whisper-cli" "$out/whisper-cli"
 
-if ! echo "$MODEL_SHA256  $out/$MODEL" | sha256sum -c --status 2>/dev/null; then
+if ! echo "$MODEL_SHA256  $out/$MODEL" | sha256sum -c --status >/dev/null 2>&1; then
   curl -fsSL -o "$out/$MODEL.part" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$MODEL"
   echo "$MODEL_SHA256  $out/$MODEL.part" | sha256sum -c --quiet
   mv "$out/$MODEL.part" "$out/$MODEL"
