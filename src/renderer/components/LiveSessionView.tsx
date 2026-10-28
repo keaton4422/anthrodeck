@@ -10,7 +10,8 @@ import { C, folderName, liveSource } from '../lib/ui';
 // works; the pilot's messages go to it through Claude Code's session inbox (main/live.ts), and its
 // approvals and questions keep arriving as cards. The session itself stays where it runs.
 //
-// Pad: B back to Home, A to the message box (STEAM + X for the keyboard, or hold L2 and talk),
+// Pad: B back to Home, A sends what's in the message box or puts the cursor there (STEAM + X for
+// the keyboard; hold L2 and talk to dictate into it),
 // D-pad up/down scrolls. App routes the buttons.
 
 interface Props {
@@ -100,7 +101,7 @@ export function LiveSessionView({ session, label, waiting, connected, entries, m
             {connected ? '' : ' · reconnecting…'}
           </div>
         </div>
-        <div style={{ fontSize: 13, color: C.dim }}><Glyph b="A" /> Write</div>
+        <div style={{ fontSize: 13, color: C.dim }}><Glyph b="A" /> Write · send</div>
         <button onClick={onBack} style={{
           padding: '8px 14px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
           border: `1px solid ${C.line}`, background: 'transparent', color: C.dim,
