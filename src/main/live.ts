@@ -12,7 +12,12 @@
 //
 //   * The watcher, started over SSH while the Deck app runs. It keeps the relay's "Deck connected"
 //     heartbeat fresh, reports the live sessions (Claude Code's own registry in ~/.claude/sessions)
-//     and the waiting requests as JSON lines, and writes the Deck's answers back.
+//     and the waiting requests as JSON lines, and writes the Deck's answers back. It also streams
+//     the conversation of the session the Deck has open, and delivers the pilot's messages to it
+//     through Claude Code's own session inbox: the socket each running session lists in that
+//     registry, the one Claude sessions use to message each other. Claude Code shows such a message
+//     as coming from another session, and a session that skips permission prompts holds it for
+//     review in its own window rather than acting on it.
 //
 // The builders here are pure so they unit-test; LiveLink (bottom) does the I/O.
 
@@ -57,6 +62,43 @@ export function parseLiveLine(line: string): LiveState | null {
   const o = d as Partial<LiveState>;
   if (!Array.isArray(o.live) || !Array.isArray(o.requests)) return null;
   return { live: o.live, requests: o.requests, relay: typeof o.relay === 'number' ? o.relay : null };
+}
+
+// The conversation of the session the Deck has open, as the watcher reads it from its transcript.
+// 'queued': the Deck's message reached the session's queue; 'peer': a message from another session.
+export interface LiveEntry {
+  id: string;
+  role: 'user' | 'assistant' | 'tool' | 'peer' | 'queued';
+  text: string;
+  deck?: boolean;             // a user message sent from the Deck
+}
+export interface LiveTail { sessionId: string; reset: boolean; entries: LiveEntry[] }
+export interface LiveSent { id: string; ok: boolean; error: string | null }
+
+interface RawEntry { id?: unknown; role?: unknown; text?: unknown; deck?: unknown; name?: unknown; input?: unknown }
+
+// The watcher's other lines: a piece of the open session's conversation, or a send's outcome.
+// Tool calls arrive as name + input and become the same one-line labels the cockpit uses.
+export function parseLiveEvent(line: string, cwd: string): { tail: LiveTail } | { sent: LiveSent } | null {
+  let d: { tail?: { sessionId?: unknown; reset?: unknown; entries?: unknown }; sent?: { id?: unknown; ok?: unknown; error?: unknown } };
+  try { d = JSON.parse(line); } catch { return null; }
+  if (d?.tail && typeof d.tail.sessionId === 'string' && Array.isArray(d.tail.entries)) {
+    const entries: LiveEntry[] = [];
+    for (const e of d.tail.entries as RawEntry[]) {
+      const role = e?.role;
+      if (role === 'tool') {
+        const input = (e.input && typeof e.input === 'object' ? e.input : {}) as Record<string, unknown>;
+        entries.push({ id: String(e.id ?? ''), role, text: toolLabel(String(e.name ?? ''), input, cwd) });
+      } else if ((role === 'user' || role === 'assistant' || role === 'peer' || role === 'queued') && typeof e.text === 'string') {
+        entries.push({ id: String(e.id ?? ''), role, text: e.text, ...(e.deck === true && { deck: true }) });
+      }
+    }
+    return { tail: { sessionId: d.tail.sessionId, reset: d.tail.reset === true, entries } };
+  }
+  if (d?.sent && typeof d.sent.id === 'string') {
+    return { sent: { id: d.sent.id, ok: d.sent.ok === true, error: typeof d.sent.error === 'string' ? d.sent.error : null } };
+  }
+  return null;
 }
 
 // ─── turning a request into cards for the pilot, and the answers into a decision ─
@@ -257,6 +299,121 @@ def relay_version():
         return int(m.group(1)) if m else None
     except OSError: return None
 
+CONFIG = os.environ.get('CLAUDE_CONFIG_DIR') or os.path.expanduser('~/.claude')
+DECK = 'From the user, sent from AnthroDeck on their Steam Deck:\n'
+PEER_HEAD = 'Another Claude session sent a message:\n'
+PEER_TAIL = '\n\nThis came from another Claude session'
+SKIP = ('<command-', '<local-command-', 'Caveat:', '<system-reminder>', '<task-notification>')
+TOOL_KEYS = ('command', 'description', 'file_path', 'notebook_path', 'path', 'pattern', 'url', 'query', 'subagent_type')
+
+def emit(o):
+    sys.stdout.write(json.dumps(o) + '\n'); sys.stdout.flush()
+
+def clip(s, n=4000):
+    return s if len(s) <= n else s[:n] + '…'
+
+def entries(e):
+    # One transcript line -> what the Deck shows: words from either side, and a line per tool call.
+    if e.get('isSidechain'): return []
+    t, uid, msg = e.get('type'), e.get('uuid') or '', e.get('message') or {}
+    c = msg.get('content')
+    if t == 'queue-operation':
+        # The Deck's message got into the session's queue (a session that skips permission prompts
+        # holds outside messages for review in its own window instead, so this never shows up).
+        q = e.get('content')
+        if e.get('operation') == 'enqueue' and isinstance(q, str) and q.startswith(DECK):
+            return [{'id': 'q-%s' % e.get('timestamp', ''), 'role': 'queued', 'text': clip(q[len(DECK):])}]
+        return []
+    if t == 'user':
+        origin = e.get('origin') or {}
+        if e.get('isMeta'):
+            # A message delivered through Claude Code's session inbox: the Deck's own, or another
+            # session's. Show the words that were sent, not the wrapper Claude Code adds.
+            if origin.get('kind') != 'peer' or not isinstance(c, str): return []
+            body = c[len(PEER_HEAD):] if c.startswith(PEER_HEAD) else c
+            body = body.split(PEER_TAIL)[0]
+            if body.startswith(DECK): return [{'id': uid, 'role': 'user', 'text': clip(body[len(DECK):]), 'deck': True}]
+            return [{'id': uid, 'role': 'peer', 'text': clip(body)}]
+        if isinstance(c, list):
+            c = '\n'.join(b.get('text', '') for b in c if isinstance(b, dict) and b.get('type') == 'text')
+        if not isinstance(c, str) or not c.strip() or c.lstrip().startswith(SKIP): return []
+        return [{'id': uid, 'role': 'user', 'text': clip(c.strip())}]
+    if t == 'assistant' and isinstance(c, list):
+        out = []
+        for i, b in enumerate(c):
+            if not isinstance(b, dict): continue
+            if b.get('type') == 'text' and b.get('text', '').strip():
+                out.append({'id': '%s-%d' % (uid, i), 'role': 'assistant', 'text': clip(b['text'].strip())})
+            elif b.get('type') == 'tool_use':
+                inp = b.get('input') or {}
+                out.append({'id': '%s-%d' % (uid, i), 'role': 'tool', 'name': b.get('name') or '',
+                            'input': {k: clip(str(inp[k]), 300) for k in TOOL_KEYS if k in inp}})
+        return out
+    return []
+
+def parse(chunk):
+    out = []
+    for raw in chunk.splitlines():
+        try: out += entries(json.loads(raw))
+        except Exception: pass
+    return out
+
+watching = None     # the session the Deck has open: {'sid', 'path', 'offset'}
+
+def watch(sid):
+    global watching
+    watching = None
+    if not sid or not re.fullmatch(r'[0-9A-Za-z_-]{1,100}', sid): return
+    hits = glob.glob(os.path.join(CONFIG, 'projects', '*', sid + '.jsonl'))
+    if not hits:
+        emit({'tail': {'sessionId': sid, 'reset': True, 'entries': []}}); return
+    path = hits[0]
+    with open(path, 'rb') as fh:
+        fh.seek(0, 2); size = fh.tell(); fh.seek(max(0, size - 1024 * 1024))
+        data = fh.read()
+    if size > len(data): data = data.split(b'\n', 1)[-1]    # drop the partial first line
+    end = data.rfind(b'\n') + 1
+    watching = {'sid': sid, 'path': path, 'offset': size - len(data) + end}
+    emit({'tail': {'sessionId': sid, 'reset': True, 'entries': parse(data[:end].decode('utf-8', 'replace'))[-80:]}})
+
+def follow():
+    w = watching
+    if not w: return
+    try:
+        with open(w['path'], 'rb') as fh:
+            fh.seek(w['offset']); data = fh.read(4 * 1024 * 1024)
+    except OSError:
+        return
+    end = data.rfind(b'\n') + 1
+    if not end: return
+    w['offset'] += end
+    new = parse(data[:end].decode('utf-8', 'replace'))
+    if new: emit({'tail': {'sessionId': w['sid'], 'reset': False, 'entries': new}})
+
+def deliver(sid, text):
+    # Into a running session through Claude Code's own session inbox: the socket it lists in the
+    # registry, opened with the key it publishes beside its entry (readable only by this user).
+    import socket
+    for f in glob.glob(os.path.join(REG, '*.json')):
+        e = load(f)
+        if not e or e.get('sessionId') != sid or not alive(e.get('pid', 0)): continue
+        sock = e.get('messagingSocketPath')
+        if not sock: return 'That session can\'t take messages (its Claude Code is too old).'
+        keys = glob.glob(os.path.join(REG, '%s.*.key' % e['pid']))
+        key = load(keys[0]) if keys else None
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(5)
+        try:
+            s.connect(sock)
+            if key and key.get('peerToken'):
+                s.sendall((json.dumps({'type': 'auth', 'token': key['peerToken']}) + '\n').encode())
+            s.sendall((json.dumps({'type': 'user', 'session_id': sid,
+                                   'message': {'role': 'user', 'content': DECK + text}}) + '\n').encode())
+        finally:
+            s.close()
+        return None
+    return 'That session isn\'t running any more.'
+
 last, last_at = None, 0
 while True:
     with open(ONLINE, 'a'): pass
@@ -283,6 +440,7 @@ while True:
     if out != last or time.time() - last_at > 15:
         sys.stdout.write(out + '\n'); sys.stdout.flush()
         last, last_at = out, time.time()
+    follow()
     if select.select([sys.stdin], [], [], 1.0)[0]:
         line = sys.stdin.readline()
         if not line: bye()
@@ -292,6 +450,13 @@ while True:
             p = os.path.join(ROOT, 'ans', cmd['id'] + '.json')
             with open(p + '.tmp', 'w') as fh: json.dump({'decision': cmd['decision']}, fh)
             os.replace(p + '.tmp', p)
+        elif cmd.get('op') == 'watch':
+            try: watch(cmd.get('sessionId'))
+            except Exception: watching = None
+        elif cmd.get('op') == 'send' and isinstance(cmd.get('text'), str) and cmd['text'].strip():
+            try: err = deliver(str(cmd.get('sessionId')), cmd['text'].strip())
+            except Exception as ex: err = 'Couldn\'t reach that session (%s).' % ex
+            emit({'sent': {'id': cmd.get('id'), 'ok': err is None, 'error': err}})
 `;
 
 // Installs or removes the relay: the script, plus one PermissionRequest hook in Claude Code's user
@@ -344,6 +509,7 @@ export interface LiveLinkStatus { connected: boolean; error: string | null; stat
 export interface LiveLinkDeps {
   ask(card: LiveCard & { id: string }, signal: AbortSignal): Promise<string>;
   onStatus(s: LiveLinkStatus): void;
+  onTail?(t: LiveTail): void;
   spawnSsh?: (args: string[]) => ChildProcess;
 }
 
@@ -357,6 +523,10 @@ export class LiveLink {
   private queue: LiveRequest[] = [];
   private asking: { id: string; abort: AbortController } | null = null;
   private stderr = '';
+  // The session the Deck has open (its conversation streams in as tail lines), kept across reconnects.
+  private watching: { sessionId: string; cwd: string } | null = null;
+  private sends = new Map<string, (r: LiveSent) => void>();
+  private sendSeq = 0;
 
   constructor(readonly host: string, readonly label: string, private deps: LiveLinkDeps) {
     this.connect();
@@ -370,6 +540,49 @@ export class LiveLink {
     this.asking?.abort.abort();
     this.child?.kill();
     this.child = null;
+    this.failSends('AnthroDeck stopped.');
+  }
+
+  // Follow one session's conversation (null: stop following).
+  watch(sessionId: string | null): void {
+    const s = sessionId ? this.status.state?.live.find((x) => x.sessionId === sessionId) : null;
+    this.watching = sessionId ? { sessionId, cwd: s?.cwd ?? '' } : null;
+    this.write({ op: 'watch', sessionId });
+  }
+
+  // Send the pilot's message into a running session. Resolves once that computer has handed it to
+  // the session's inbox (or couldn't).
+  send(sessionId: string, text: string, timeoutMs = 15_000): Promise<LiveSent> {
+    const id = `s${++this.sendSeq}`;
+    if (!this.child?.stdin?.writable || !this.status.connected) {
+      return Promise.resolve({ id, ok: false, error: `Not connected to ${this.label}.` });
+    }
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { this.sends.delete(id); resolve({ id, ok: false, error: `${this.label} didn't answer.` }); }, timeoutMs);
+      this.sends.set(id, (r) => { clearTimeout(timer); resolve(r); });
+      this.write({ op: 'send', id, sessionId, text });
+    });
+  }
+
+  private write(cmd: object): void {
+    if (this.child?.stdin?.writable) this.child.stdin.write(`${JSON.stringify(cmd)}\n`);
+  }
+
+  private failSends(error: string): void {
+    for (const [id, done] of this.sends) done({ id, ok: false, error });
+    this.sends.clear();
+  }
+
+  private onEvent(line: string): void {
+    const ev = parseLiveEvent(line, this.watching?.cwd ?? '');
+    if (!ev) return;
+    if ('sent' in ev) {
+      const done = this.sends.get(ev.sent.id);
+      this.sends.delete(ev.sent.id);
+      done?.(ev.sent);
+    } else if (ev.tail.sessionId === this.watching?.sessionId) {
+      this.deps.onTail?.(ev.tail);
+    }
   }
 
   private connect(): void {
@@ -384,9 +597,11 @@ export class LiveLink {
       buf += chunk;
       let nl: number;
       while ((nl = buf.indexOf('\n')) >= 0) {
-        const state = parseLiveLine(buf.slice(0, nl));
+        const line = buf.slice(0, nl);
         buf = buf.slice(nl + 1);
+        const state = parseLiveLine(line);
         if (state) this.onState(state);
+        else this.onEvent(line);
       }
     });
     child.stderr?.setEncoding('utf8');
@@ -396,6 +611,7 @@ export class LiveLink {
       if (this.child !== child) return;
       this.child = null;
       this.asking?.abort.abort();
+      this.failSends(`Lost the connection to ${this.label}.`);
       this.setStatus({
         connected: false,
         state: null,
@@ -414,6 +630,11 @@ export class LiveLink {
 
   private onState(state: LiveState): void {
     this.backoff = 2000;
+    // First report on a fresh connection: pick the open session back up.
+    if (!this.status.connected && this.watching) this.write({ op: 'watch', sessionId: this.watching.sessionId });
+    if (this.watching && !this.watching.cwd) {
+      this.watching.cwd = state.live.find((x) => x.sessionId === this.watching?.sessionId)?.cwd ?? '';
+    }
     this.setStatus({ connected: true, error: null, state });
     const ids = new Set(state.requests.map((r) => r.id));
     // Answered on that computer (or withdrawn): take the card down.

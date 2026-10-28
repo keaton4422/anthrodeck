@@ -16,7 +16,8 @@ import { Logo } from './Logo';
 // With a remote computer set up (Settings → Remote computer), Home switches between "This device"
 // and that computer (Y, or the tabs): its projects and sessions, run there over SSH. Its sessions
 // running right now (in the Claude app or a terminal) lead the list as LIVE, with what each is doing;
-// their approvals and questions pop up as cards wherever the pilot is (main/live.ts).
+// their approvals and questions pop up as cards wherever the pilot is (main/live.ts). A opens one on
+// the live session screen, to follow it and send it messages while it keeps running there.
 
 export interface HomeNav {
   move(dx: number, dy: number): void;
@@ -33,6 +34,7 @@ interface Props {
   onResume: (s: SessionCard, machine: Machine) => void;
   onNew: (cwd: string, machine: Machine) => void;
   onOpenFolder: (machine: Machine) => void;
+  onOpenLive: (s: LiveSession) => void;
 }
 
 type Item =
@@ -56,9 +58,11 @@ const C = {
 };
 
 const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
+export const liveSource = (entrypoint: string | null) =>
+  entrypoint === 'claude-desktop' ? 'Claude app' : entrypoint === 'cli' ? 'terminal' : 'another app';
 
 const Home = forwardRef<HomeNav, Props>(function Home(
-  { projectPath, projectHost, current, onContinue, onResume, onNew, onOpenFolder }, ref,
+  { projectPath, projectHost, current, onContinue, onResume, onNew, onOpenFolder, onOpenLive }, ref,
 ) {
   const [wall, setWall] = useState<PitWall | null>(null);
   const [col, setCol] = useState(0);
@@ -68,7 +72,6 @@ const Home = forwardRef<HomeNav, Props>(function Home(
   // Start on the computer the open project is on.
   const [machine, setMachine] = useState<Machine>(projectHost ? 'remote' : 'local');
   const live = useLive();
-  const [liveHint, setLiveHint] = useState<string | null>(null);
 
   useEffect(() => { void window.electronAPI.remoteGet().then(setRemote); }, []);
   useEffect(() => {
@@ -133,18 +136,9 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     else if (item.kind === 'open') onOpenFolder(machine);
     else if (item.kind === 'new') onNew(item.cwd, machine);
     else if (item.kind === 'session') onResume(item.session, machine);
-    else if (item.kind === 'live') {
-      const s = item.session;
-      if (s.status === 'busy') {
-        // Two copies of one session would talk over each other: wait for it to finish its turn.
-        setLiveHint(`"${s.name || folderName(s.cwd)}" is working on ${remote?.label ?? 'that computer'}. Its prompts come here as cards; open it once it's idle.`);
-        return;
-      }
-      setLiveHint(null);
-      onResume({ id: s.sessionId, title: s.name || folderName(s.cwd), project: folderName(s.cwd), cwd: s.cwd, branch: null, lastModified: s.updatedAt }, machine);
-    }
+    else if (item.kind === 'live') onOpenLive(item.session);
     else if (item.kind === 'project') { setCol(1); setRow((r) => [r[0], 0]); }
-  }, [onContinue, onOpenFolder, onNew, onResume, machine, remote]);
+  }, [onContinue, onOpenFolder, onNew, onResume, onOpenLive, machine]);
 
   const stateRef = useRef({ col, row, columns });
   stateRef.current = { col, row, columns };
@@ -233,8 +227,6 @@ const Home = forwardRef<HomeNav, Props>(function Home(
         </div>
       )}
 
-      {liveHint && <div style={{ fontSize: 12, color: C.amber }}>{liveHint}</div>}
-
       {wall?.error && (
         <div style={{ fontSize: 12, color: C.amber }}>Couldn&apos;t read Claude Code&apos;s sessions on {where}: {wall.error}</div>
       )}
@@ -273,8 +265,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
                     {s.name || folderName(s.cwd)}
                   </div>
                   <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
-                    {folderName(s.cwd)} · {s.entrypoint === 'claude-desktop' ? 'Claude app' : s.entrypoint === 'cli' ? 'terminal' : 'another app'}
-                    {busy ? '' : ' · A to open here'}
+                    {folderName(s.cwd)} · {liveSource(s.entrypoint)} · A to open
                   </div>
                 </Row>
               );

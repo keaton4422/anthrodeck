@@ -29,6 +29,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('live:state', handler);
     return () => ipcRenderer.removeListener('live:state', handler);
   },
+  liveWatch: (sessionId: string | null) => ipcRenderer.send('live:watch', sessionId),
+  liveSend: (sessionId: string, text: string) => ipcRenderer.invoke('live:send', sessionId, text),
+  onLiveTail: (cb: (t: unknown) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, t: unknown) => cb(t);
+    ipcRenderer.on('live:tail', handler);
+    return () => ipcRenderer.removeListener('live:tail', handler);
+  },
 
   // ── File System ────────────────────────────────────────────────────────────
   fsList: (dir?: string) => ipcRenderer.invoke('fs:list', dir),

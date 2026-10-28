@@ -93,7 +93,8 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
 
   // ─── live sessions on the remote computer (see main/live.ts) ─────────────────
   // While a remote computer is set up, one SSH link watches its running Claude Code sessions and
-  // brings their permission prompts and questions here, as the same cards local sessions use.
+  // brings their permission prompts and questions here, as the same cards local sessions use. The
+  // live session screen follows one session's conversation over it and sends that session messages.
   let live: LiveLink | null = null;
   const liveStatus = () => {
     const t = remoteTarget();
@@ -107,11 +108,15 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
     live = t ? new LiveLink(t.host, t.label, {
       ask: (card, signal) => ask('claude:ask-user', card, '', signal),
       onStatus: () => send('live:state', liveStatus()),
+      onTail: (tail) => send('live:tail', tail),
     }) : null;
     send('live:state', liveStatus());
   };
   relink();
   ipcMain.handle('live:get', () => liveStatus());
+  ipcMain.on('live:watch', (_e, sessionId: string | null) => live?.watch(sessionId));
+  ipcMain.handle('live:send', (_e, sessionId: string, text: string) =>
+    live ? live.send(sessionId, text) : { id: '', ok: false, error: 'No remote computer set up.' });
   ipcMain.handle('live:relay', async (_e, op: 'install' | 'remove') => {
     const t = remoteTarget();
     if (!t) return { ok: false, error: 'No remote computer set up.' };

@@ -11,9 +11,10 @@ import TeachModal from './components/TeachModal';
 import RadialMenu from './components/RadialMenu';
 import WritePreview from './components/WritePreview';
 import Home, { type HomeNav } from './components/Home';
+import { LiveSessionView } from './components/LiveSessionView';
 import FolderPicker from './components/FolderPicker';
 import type { PadFocus } from './hooks/usePadFocus';
-import type { Machine, RemoteTarget } from './types';
+import type { LiveSession, Machine, RemoteTarget } from './types';
 import { SectorStrip } from './components/SectorStrip';
 import { useFeedback } from './hooks/useFeedback';
 import {
@@ -29,6 +30,8 @@ import { useClaude } from './hooks/useClaude';
 import { useSeason } from './hooks/useSeason';
 import { DRIVE_MODE_LABELS, nextDriveMode, normalizeModel } from '../main/engine/config';
 import { useVoice } from './hooks/useVoice';
+import { useLive } from './hooks/useLive';
+import { useLiveSession } from './hooks/useLiveSession';
 import { useLocalVoice } from './hooks/useLocalVoice';
 import { useGamepad } from './hooks/useGamepad';
 import { useStore } from './hooks/useStore';
@@ -65,6 +68,13 @@ export default function App() {
   // Home is the launch screen; the chat takes over once a session is under way.
   const [showHome, setShowHome] = useState(true);
   const homeNav = useRef<HomeNav>(null);
+  // A session running on the remote computer, open on the live session screen (from Home's LIVE rows).
+  const [liveOpen, setLiveOpen] = useState<LiveSession | null>(null);
+  const live = useLive();
+  const liveChat = useLiveSession(liveOpen?.sessionId ?? null);
+  const liveScrollRef = useRef<HTMLDivElement>(null);
+  // Its latest state from the watcher (the one Home opened stays on screen if the session ends).
+  const liveShown = (liveOpen && live?.state?.live.find((s) => s.sessionId === liveOpen.sessionId)) || liveOpen;
   const settingsNav = useRef<PadFocus | null>(null);
   // The in-app folder picker (the system dialog can't open in the Deck's Game Mode).
   const [folderPick, setFolderPick] = useState<null | { onPick: (p: string) => void; machine: Machine }>(null);
@@ -205,9 +215,15 @@ export default function App() {
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const writeDiffRef = useRef<HTMLPreElement>(null);
 
+  // Dictation goes to whichever session is on screen: a live one on the remote computer, or the chat.
+  const sendLive = liveChat.send;
   const handleVoiceResult = useCallback(
-    (text: string) => { if (text.trim()) sendMessage(text.trim()); },
-    [sendMessage]
+    (text: string) => {
+      if (!text.trim()) return;
+      if (liveOpen) void sendLive(text.trim());
+      else sendMessage(text.trim());
+    },
+    [sendMessage, sendLive, liveOpen]
   );
 
   const { isListening, transcript, isSupported, startListening, stopListening } =
@@ -378,7 +394,10 @@ export default function App() {
   // Home takes the D-pad and A/B while it's up and nothing else is asking.
   // The folder picker sits over everything else, so it comes first.
   const pickerOwnsPad = !!folderPick && !modalActive;
-  const homeOwnsPad = showHome && !cockpitOpen && !modalActive && !showSettings && !drawerOpen && !folderPick;
+  const homeOwnsPad = showHome && !liveOpen && !cockpitOpen && !modalActive && !showSettings && !drawerOpen && !folderPick;
+  // The live session screen: B back to Home, A to the message box, D-pad and right stick scroll.
+  const liveOwnsPad = !!liveOpen && !cockpitOpen && !modalActive && !showSettings && !drawerOpen && !folderPick;
+  const scrollLive = (px: number) => { if (liveScrollRef.current) liveScrollRef.current.scrollTop += px; };
   // Settings takes the D-pad and A while it's open (B already closes it).
   const settingsOwnsPad = showSettings && !cockpitOpen && !modalActive && !drawerOpen && !folderPick;
 
@@ -409,6 +428,7 @@ export default function App() {
       if (!cockpitOpen && tryChord(mod, 'A')) return;
       if (pickerOwnsPad) { pickerNav.current?.activate(); return; }
       if (homeOwnsPad) { homeNav.current?.activate(); return; }
+      if (liveOwnsPad) { document.querySelector<HTMLTextAreaElement>('.live-composer textarea')?.focus(); return; }
       if (settingsOwnsPad) { settingsNav.current?.activate(); return; }
       if (pendingTeach) teachContinue();
       else if (pendingWrite) handleWriteAccept();
@@ -427,6 +447,7 @@ export default function App() {
       // On Home, B goes back to the current session (when there is one).
       if (pickerOwnsPad) { setFolderPick(null); return; }
       if (homeOwnsPad) { if (messages.length) setShowHome(false); return; }
+      if (liveOwnsPad) { setLiveOpen(null); return; }
       if (pendingTeach) { setTeachRedirectSignal((s) => s + 1); return; }
       if (pendingWrite) {
         // Toggle spoken-rejection push-to-talk.
@@ -471,6 +492,7 @@ export default function App() {
       else if (pickerOwnsPad) pickerNav.current?.move('up');
       else if (settingsOwnsPad) settingsNav.current?.move('up');
       else if (homeOwnsPad) homeNav.current?.move(0, -1);
+      else if (liveOwnsPad) scrollLive(-160);
       else if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop -= 48;
     },
     onDpadDown: () => {
@@ -478,6 +500,7 @@ export default function App() {
       else if (pickerOwnsPad) pickerNav.current?.move('down');
       else if (settingsOwnsPad) settingsNav.current?.move('down');
       else if (homeOwnsPad) homeNav.current?.move(0, 1);
+      else if (liveOwnsPad) scrollLive(160);
       else if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop += 48;
     },
     onDpadLeft: () => {
@@ -510,6 +533,7 @@ export default function App() {
     onScrollY: (d) => {
       if (pickerOwnsPad) pickerNav.current?.scroll(d * 18);
       else if (settingsOwnsPad) settingsNav.current?.scroll(d * 18);
+      else if (liveOwnsPad) scrollLive(d * 18);
       else if (!cockpitOpen) scrollChat(d);
     },
   });
@@ -637,6 +661,29 @@ export default function App() {
           sound={sound}
           onSoundChange={setSound}
         />
+      ) : liveShown ? (
+        <LiveSessionView
+          session={liveShown}
+          label={live?.label ?? remoteTarget?.label ?? 'your other computer'}
+          waiting={live?.state?.requests.filter((r) => r.sessionId === liveShown.sessionId).length ?? 0}
+          connected={!!live?.connected}
+          entries={liveChat.entries}
+          outgoing={liveChat.outgoing}
+          onDismiss={liveChat.dismiss}
+          scrollRef={liveScrollRef}
+          onBack={() => setLiveOpen(null)}
+          composer={
+            <InputBar
+              onSend={(text) => void sendLive(text)}
+              isStreaming={false}
+              isListening={dictationListening}
+              transcript={useLocal ? '' : transcript}
+              isVoiceSupported={isSupported || useLocal}
+              onVoiceStart={startDictation}
+              onVoiceStop={stopDictation}
+            />
+          }
+        />
       ) : showHome ? (
         <Home
           ref={homeNav}
@@ -647,6 +694,7 @@ export default function App() {
           onResume={(s, machine) => void openSession(s, machine)}
           onNew={(cwd, machine) => void startSession(cwd, machine)}
           onOpenFolder={(machine) => setFolderPick({ machine, onPick: (p) => { setFolderPick(null); void startSession(p, machine); } })}
+          onOpenLive={setLiveOpen}
         />
       ) : (
         <>
