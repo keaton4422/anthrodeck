@@ -8,7 +8,7 @@ import {
 } from '../engine/config';
 import { candidatePaths, locateEngine, readClaudeSignIn, type LocateDeps } from '../engine/locate';
 import { displayPath, milestoneFor, proposedContent, SectorBoard, toolLabel } from '../engine/tools';
-import { newTranslateState, translate } from '../engine/translate';
+import { newTranslateState, planUsageFrom, translate } from '../engine/translate';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 
 const msg = (m: unknown) => m as SDKMessage;
@@ -228,6 +228,34 @@ describe('engine translate', () => {
       .toEqual([{ type: 'compacted', preTokens: 9000, postTokens: 2000 }]);
     expect(translate(msg({ type: 'system', subtype: 'api_retry', attempt: 1, max_retries: 4, retry_delay_ms: 500 }), st))
       .toEqual([{ type: 'retry', attempt: 1, maxRetries: 4, delayMs: 500 }]);
+  });
+});
+
+describe('plan usage', () => {
+  it('reads the 5-hour and weekly windows Claude Code reports with each turn', () => {
+    const info = {
+      status: 'allowed', resetsAt: 1793170200, rateLimitType: 'five_hour',
+      unifiedWindows: {
+        five_hour: { utilization: 0.13, resetsAt: 1793170200, status: 'allowed' },
+        seven_day: { utilization: 0.29, resetsAt: 1793530800, status: 'allowed' },
+      },
+    };
+    expect(planUsageFrom(info, 5)).toEqual({
+      fiveHour: { used: 0.13, resetsAt: 1793170200000 },
+      week: { used: 0.29, resetsAt: 1793530800000 },
+      limited: false,
+      at: 5,
+    });
+    const msg = { type: 'rate_limit_event', rate_limit_info: info, uuid: 'u', session_id: 's' } as unknown as SDKMessage;
+    expect(translate(msg, newTranslateState('/p'))[0]).toMatchObject({ type: 'plan-usage', usage: { fiveHour: { used: 0.13 } } });
+  });
+
+  it('notices a hit limit, and ignores reports without usage figures', () => {
+    expect(planUsageFrom({ status: 'rejected', unifiedWindows: { five_hour: { utilization: 1.2 } } })).toMatchObject({
+      fiveHour: { used: 1, resetsAt: null }, week: null, limited: true,
+    });
+    expect(planUsageFrom({ status: 'allowed', resetsAt: 1 })).toBeNull();
+    expect(planUsageFrom(null)).toBeNull();
   });
 });
 

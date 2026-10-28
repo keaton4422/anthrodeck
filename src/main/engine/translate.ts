@@ -33,7 +33,32 @@ export type CockpitEvent =
   | { type: 'milestone'; kind: Milestone; command: string }
   | { type: 'compacted'; preTokens: number; postTokens: number | null }
   | { type: 'retry'; attempt: number; maxRetries: number; delayMs: number }
+  | { type: 'plan-usage'; usage: PlanUsage }
   | { type: 'result'; summary: TurnSummary };
+
+// How much of the Claude plan's usage limits is spent, as Claude Code reports it with each turn
+// (claude.ai subscriptions only). `used` is 0..1; `resetsAt` is epoch ms.
+export interface PlanWindow { used: number; resetsAt: number | null }
+export interface PlanUsage {
+  fiveHour: PlanWindow | null;
+  week: PlanWindow | null;
+  limited: boolean;           // a limit has been hit: requests are being refused until it resets
+  at: number;                 // when this was reported
+}
+
+export function planUsageFrom(info: unknown, now = Date.now()): PlanUsage | null {
+  if (!info || typeof info !== 'object') return null;
+  const i = info as { status?: unknown; unifiedWindows?: Record<string, { utilization?: unknown; resetsAt?: unknown }> };
+  const win = (k: string): PlanWindow | null => {
+    const w = i.unifiedWindows?.[k];
+    if (!w || typeof w.utilization !== 'number') return null;
+    return { used: Math.max(0, Math.min(1, w.utilization)), resetsAt: typeof w.resetsAt === 'number' ? w.resetsAt * 1000 : null };
+  };
+  const fiveHour = win('five_hour');
+  const week = win('seven_day');
+  if (!fiveHour && !week) return null;
+  return { fiveHour, week, limited: i.status === 'rejected', at: now };
+}
 
 export interface TranslateState {
   root: string;
@@ -80,6 +105,12 @@ export function translate(msg: SDKMessage, st: TranslateState): CockpitEvent[] {
       } else if (msg.subtype === 'api_retry') {
         out.push({ type: 'retry', attempt: msg.attempt, maxRetries: msg.max_retries, delayMs: msg.retry_delay_ms });
       }
+      break;
+    }
+
+    case 'rate_limit_event': {
+      const usage = planUsageFrom(msg.rate_limit_info);
+      if (usage) out.push({ type: 'plan-usage', usage });
       break;
     }
 

@@ -115,7 +115,7 @@ export function ChatView({ messages, error, scrollRef, isStreaming, pendingWrite
 
       {/* Write preview — shows at the bottom of chat when Claude wants to write a file */}
       {pendingWrite && onWriteAccept && onWriteReject && (
-        <div style={{ padding: '0 16px' }}>
+        <div style={{ padding: '0 24px', width: '100%', maxWidth: 968, alignSelf: 'center' }}>
           <WritePreview
             write={pendingWrite}
             onAccept={onWriteAccept}
@@ -130,8 +130,10 @@ export function ChatView({ messages, error, scrollRef, isStreaming, pendingWrite
       {error && (
         <div
           style={{
-            margin: '12px 24px',
-            padding: '10px 16px',
+            margin: '12px auto',
+            width: 'calc(100% - 48px)',
+            maxWidth: 920,
+            padding: '12px 18px',
             borderRadius: 8,
             background: 'rgba(224,82,82,0.1)',
             border: '1px solid rgba(224,82,82,0.35)',

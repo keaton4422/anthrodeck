@@ -1,5 +1,5 @@
 import type { EngineEvent } from '../main/engine/session';
-import type { TurnSummary } from '../main/engine/translate';
+import type { TurnSummary, PlanUsage } from '../main/engine/translate';
 import type { Sector, Milestone } from '../main/engine/tools';
 import type { DriveMode } from '../main/engine/config';
 import type { UpdateAvailable, WhatsNew } from '../main/releaseNotes';
@@ -10,7 +10,7 @@ import type { LiveLinkStatus, LiveSession, LiveEntry, LiveTail, LiveSent } from 
 
 // Which computer something is on: this one, or the remote computer set up in Settings.
 export type Machine = 'local' | 'remote';
-export type { RemoteTarget, LiveSession, LiveEntry, LiveTail, LiveSent };
+export type { RemoteTarget, LiveSession, LiveEntry, LiveTail, LiveSent, PlanUsage };
 
 // The remote computer's live sessions, as the Deck sees them (null: no remote computer set up).
 export type LiveStatus = (LiveLinkStatus & { label: string }) | null;
@@ -164,6 +164,7 @@ declare global {
       liveGet: () => Promise<LiveStatus>;
       liveRelay: (op: 'install' | 'remove') => Promise<{ ok: boolean; error?: string }>;
       onLiveState: (cb: (s: LiveStatus) => void) => () => void;
+      planUsage: () => Promise<PlanUsage | null>;
       liveWatch: (sessionId: string | null) => void;
       liveSend: (sessionId: string, text: string) => Promise<LiveSent>;
       onLiveTail: (cb: (t: LiveTail) => void) => () => void;

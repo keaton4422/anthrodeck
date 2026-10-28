@@ -7,12 +7,13 @@ interface Props {
   onStart: () => void;
   onStop: () => void;
   compact?: boolean; // smaller size for use in drawers/previews
+  inline?: boolean;  // the message box's size, level with the text field and without the label under it
 }
 
-export default function VoiceButton({ isListening, isSupported, transcript, onStart, onStop, compact }: Props) {
+export default function VoiceButton({ isListening, isSupported, transcript, onStart, onStop, compact, inline }: Props) {
   if (!isSupported) return null;
-  const size = compact ? 36 : 72;
-  const iconSize = compact ? 16 : 26;
+  const size = compact ? 36 : inline ? 52 : 72;
+  const iconSize = compact ? 16 : inline ? 22 : 26;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: compact ? 3 : 6, flexShrink: 0 }}>
@@ -21,7 +22,7 @@ export default function VoiceButton({ isListening, isSupported, transcript, onSt
         <div
           style={{
             position: 'absolute',
-            bottom: 110,
+            bottom: inline ? 96 : 110,
             left: '50%',
             transform: 'translateX(-50%)',
             background: '#1A1A1A',
@@ -74,7 +75,7 @@ export default function VoiceButton({ isListening, isSupported, transcript, onSt
         <MicIcon muted={false} active={isListening} size={iconSize} />
       </button>
 
-      <span
+      {!inline && <span
         style={{
           fontSize: 10,
           color: isListening ? '#E05252' : '#6A6A6A',
@@ -84,7 +85,7 @@ export default function VoiceButton({ isListening, isSupported, transcript, onSt
         }}
       >
         {isListening ? 'RELEASE' : 'HOLD'}
-      </span>
+      </span>}
     </div>
   );
 }

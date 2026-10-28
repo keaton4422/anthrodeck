@@ -114,6 +114,8 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
   };
   relink();
   ipcMain.handle('live:get', () => liveStatus());
+  // The Claude plan's usage, as last reported by a session run from here (Home's dashboard).
+  ipcMain.handle('usage:plan', () => store.get('planUsage', null));
   ipcMain.on('live:watch', (_e, sessionId: string | null) => live?.watch(sessionId));
   ipcMain.handle('live:send', (_e, sessionId: string, text: string) =>
     live ? live.send(sessionId, text) : { id: '', ok: false, error: 'No remote computer set up.' });
@@ -134,6 +136,7 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
     emit(ev: EngineEvent) {
       send('engine:event', ev);
       switch (ev.type) {
+        case 'plan-usage': store.set('planUsage', ev.usage); break;
         case 'delta': turnText += ev.text; send('claude:delta', ev.text); break;
         case 'thinking': send('claude:thinking-delta', ev.text); break;
         case 'tool': if (!ev.quiet) send('claude:tool-activity', `\n\`${ev.label}\`\n`); break;
