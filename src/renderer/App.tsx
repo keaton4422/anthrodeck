@@ -504,6 +504,12 @@ export default function App() {
     if (done.length && cockpitOpen) setDoneCard(done[done.length - 1]);
   }, [jobs, cockpitOpen]);
   useEffect(() => { if (!cockpitOpen) setDoneCard(null); }, [cockpitOpen]);
+  // Into the game: let go of any text field, or SteamOS keeps its keyboard ready over the game.
+  useEffect(() => {
+    if (cockpitOpen && document.activeElement instanceof HTMLElement && document.activeElement.matches('input, textarea')) {
+      document.activeElement.blur();
+    }
+  }, [cockpitOpen]);
   const goToDone = useCallback(() => {
     const job = doneCard;
     setDoneCard(null);
@@ -533,7 +539,7 @@ export default function App() {
     setDoneCard(null);
     if (id === 'reply' && job) {
       setCommsSel(job.id);
-      showToast(`Hold [X] and talk to ${job.label}, or click [R3] to type.`);
+      showToast(`Hold [X] and talk to ${job.label}, or tap the box under the sessions to type.`);
     }
   }, [doneCard, goToDone, showToast]);
 
@@ -542,7 +548,6 @@ export default function App() {
   useEffect(() => {
     if (!rail.some((j) => j.id === commsSel)) setCommsSel(rail[0]?.id ?? null);
   }, [rail, commsSel]);
-  const [commsType, setCommsType] = useState(0);
   // Real work done mid-game earns a power-up in it.
   const powerUp = useCallback((source: 'answer' | 'prompt') => {
     telemetry.emit({ type: 'powerup', source });
@@ -577,7 +582,7 @@ export default function App() {
   // With the game menu up, the pad drives the menu instead of the game.
   const menuOwnsPad = cockpitOpen && gameMenuOpen && !modalActive;
   const gameOwnsPad = cockpitOpen && !modalActive && !gameMenuOpen;
-  // In the game, Y / hold X / R3 / View drive the comms rail (the games don't use them).
+  // In the game, Y / hold X / View drive the comms rail (the games don't use them).
   const commsOwnsPad = gameOwnsPad;
   // Home takes the D-pad and A/B while it's up and nothing else is asking.
   // The folder picker sits over everything else, so it comes first.
@@ -591,11 +596,14 @@ export default function App() {
 
   // A in a conversation: send what's in the message box (dictated or typed), or put the cursor in
   // an empty box (STEAM + X then brings up the keyboard).
+  // Only a deliberate X puts the cursor in the box: SteamOS raises its keyboard for any focused
+  // text field, so A on an empty box just says how to write.
   const sendOrWrite = () => {
     const box = composerRef.current;
     if (box?.hasText()) box.send();
-    else document.querySelector<HTMLTextAreaElement>('.message-box')?.focus();
+    else showToast('Hold [L2] and talk, or press [X] to type.');
   };
+  const typeInBox = () => document.querySelector<HTMLTextAreaElement>('.message-box')?.focus();
 
   // L1 + face button fires a meta action instead of the button's normal job. Returns true when the
   // chord consumed the press.
@@ -642,7 +650,7 @@ export default function App() {
     onXPress: (mod) => {
       if (commsOwnsPad) {
         // Hold X: talk to the session picked in the comms rail.
-        if (!voiceReady) { showToast('Voice isn\'t set up on this device. Click [R3] to type instead.'); return; }
+        if (!voiceReady) { showToast('Voice isn\'t set up on this device. Tap the box under the sessions to type.'); return; }
         if (!commsSel) return;
         setCommsTalking(true);
         startDictation();
@@ -653,6 +661,7 @@ export default function App() {
       if (!cockpitOpen && tryChord(mod, 'X')) return;
       if (pendingWrite) handleWriteReject();
       else if (pendingQuestion) answerOption(2);
+      else if (liveOwnsPad || (!showHome && !showSettings && !drawerOpen && !cockpitOpen && !folderPick)) typeInBox();
     },
     onXRelease: () => {
       if (!commsTalking) return;
@@ -710,12 +719,11 @@ export default function App() {
       telemetry.emit({ type: 'crash' });
       showToast('Brake: Claude interrupted.');
     },
-    // L3 / R3 — quick panel toggles.
+    // L3 — the project drawer.
     onL3Press: () => { if (!cockpitOpen && !modalActive) setDrawerOpen((s) => !s); },
-    onR3Press: () => {
-      if (commsOwnsPad) { setCommsType((n) => n + 1); return; }   // type orders in the comms rail
-      if (!cockpitOpen && !modalActive) setShowSettings((s) => !s);
-    },
+    // R3 does nothing: on the Deck a light press on the right trackpad sends it (Steam's layout), so
+    // anything bound here fires by accident. Settings is on Menu.
+
     // D-pad: up/down scrolls a pending diff; left/right collapses/expands tool detail lines.
     onDpadUp: () => {
       if (menuOwnsPad) gameMenuNav.current?.move('up');
@@ -1017,7 +1025,7 @@ export default function App() {
           driveMode={mode}
           jobs={jobs}
           comms={{
-            rail, selected: commsSel, draft: commsDraft, remoteLabel: remoteTarget?.label ?? null, typeSignal: commsType,
+            rail, selected: commsSel, draft: commsDraft, remoteLabel: remoteTarget?.label ?? null,
             listening: commsTalking || (localDict.transcribing && !!commsSel),
             onSelect: setCommsSel,
             onSend: (id, text) => void sendOrders(id, text),
