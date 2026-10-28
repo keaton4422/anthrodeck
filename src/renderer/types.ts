@@ -161,8 +161,8 @@ declare global {
       projectSet: (p: string, host?: string | null) => Promise<void>;
       projectHost: () => Promise<string | null>;
       remoteGet: () => Promise<RemoteTarget | null>;
-      remoteSet: (host: string | null) => Promise<RemoteTarget | null>;
-      remoteTest: () => Promise<{ ok: boolean; claudePath?: string; version?: string; error?: string }>;
+      remoteSet: (host: string | null, away?: string | null) => Promise<RemoteTarget | null>;
+      remoteTest: () => Promise<{ ok: boolean; claudePath?: string; version?: string; via?: string; error?: string }>;
       liveGet: () => Promise<LiveStatus>;
       liveRelay: (op: 'install' | 'remove') => Promise<{ ok: boolean; error?: string }>;
       onLiveState: (cb: (s: LiveStatus) => void) => () => void;

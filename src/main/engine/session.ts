@@ -23,7 +23,7 @@ import type {
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import { COCKPIT_PROMPT, DRIVE_MODE_LABELS, firstSentence, type DriveMode, type EngineSettings } from './config';
-import { remoteSpawner } from '../remote';
+import { remoteSpawner, type LinkState } from '../held';
 import { displayPath, filePathOf, isQuietTool, isWriteTool, proposedContent, toolLabel, SectorBoard, type Sector } from './tools';
 import { newTranslateState, translate, type CockpitEvent, type TranslateState } from './translate';
 
@@ -34,7 +34,9 @@ export type EngineEvent =
   | { type: 'file-written'; path: string }
   | { type: 'mode'; mode: DriveMode }
   | { type: 'context'; percentage: number; totalTokens: number; maxTokens: number }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  // A session on the other computer lost its connection (Claude keeps working there) or got it back.
+  | { type: 'link'; state: LinkState };
 
 export interface ChoiceOption { label: string; value: string; description?: string }
 export type ChoiceKind = 'question' | 'approval' | 'plan';
@@ -248,7 +250,7 @@ export class EngineSession {
       },
       pathToClaudeCodeExecutable: this.env.remote ? this.env.remote.claudePath : this.env.executable,
       ...(this.env.remote
-        ? { spawnClaudeCodeProcess: remoteSpawner(this.env.remote.host, this.env.remote.claudePath, this.env.projectPath) as never }
+        ? { spawnClaudeCodeProcess: remoteSpawner(this.env.remote.host, this.env.remote.claudePath, this.env.projectPath, (state) => this.port.emit({ type: 'link', state })) as never }
         : {}),
       env: {
         ...process.env,

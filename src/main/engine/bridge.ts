@@ -27,23 +27,27 @@ import { detectDevPortFromOutput } from '../network';
 import { setDetectedDevPort } from '../previewServer';
 import { parseGitStatus, toProjects, toRestoredMessages, toSessionCards, type GitState } from '../sessions';
 import {
-  defaultLabel, remoteExec, remotePython, sshProblem, LOCATE_CLAUDE_SH, LIST_SESSIONS_PY, READ_SESSION_PY, READ_FILE_PY,
+  addressOf, defaultLabel, remoteExec, remotePython, setAddresses, sshProblem, LOCATE_CLAUDE_SH, LIST_SESSIONS_PY, READ_SESSION_PY, READ_FILE_PY,
   type RemoteTarget,
 } from '../remote';
 import type { SDKSessionInfo, SessionMessage } from '@anthropic-ai/claude-agent-sdk';
 import { LiveLink, setupRelay, type LiveLinkStatus } from '../live';
+import { reconnectHeld } from '../held';
 
 interface Pending<T> { resolve: (v: T) => void; fallback: T }
 
-export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow | null): { shutdown(): void } {
+export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow | null): { shutdown(): void; reconnect(): void } {
   let session: EngineSession | null = null;
   let turnText = '';
 
   // ─── remote computer (see main/remote.ts) ─────────────────────────────────────
   const remoteTarget = (): RemoteTarget | null => {
-    const r = store.get('remote', null) as { host?: string; label?: string } | null;
-    return r?.host ? { host: r.host, label: r.label || defaultLabel(r.host) } : null;
+    const r = store.get('remote', null) as { host?: string; label?: string; away?: string | null } | null;
+    return r?.host ? { host: r.host, label: r.label || defaultLabel(r.host), away: r.away || null } : null;
   };
+  // SSH tries the home address, then the away address (see Addresses in main/remote.ts).
+  const applyAddresses = () => { const t = remoteTarget(); if (t) setAddresses(t.host, t.away); };
+  applyAddresses();
   // The open project's computer: null for this one, else the remote host.
   const projectHost = () => (store.get('projectHost', null) as string | null) || null;
   // Where Claude Code lives on each remote computer, found once per run.
@@ -291,12 +295,14 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
 
   // The remote computer: what it's called, and a check that SSH, Claude Code and python3 all work.
   ipcMain.handle('remote:get', () => remoteTarget());
-  ipcMain.handle('remote:set', (_e, host: string | null) => {
+  ipcMain.handle('remote:set', (_e, host: string | null, away?: string | null) => {
     const h = host?.trim();
     if (!h) { store.set('remote', null); relink(); return null; }
     remoteClaude.delete(h);
-    store.set('remote', { host: h, label: defaultLabel(h) });
+    store.set('remote', { host: h, label: defaultLabel(h), away: away?.trim() || null });
+    applyAddresses();
     relink();
+    live?.reconnectNow();
     return remoteTarget();
   });
   ipcMain.handle('remote:test', async () => {
@@ -308,7 +314,7 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
       const v = await remoteExec(t.host, `${JSON.stringify(claudePath)} --version 2>&1 | head -1; python3 --version 2>&1`);
       const [version = '', python = ''] = v.stdout.trim().split('\n');
       if (!/python 3/i.test(python)) return { ok: false, claudePath, version, error: 'python3 isn\'t available on that computer (needed to list its sessions).' };
-      return { ok: true, claudePath, version };
+      return { ok: true, claudePath, version, via: addressOf(t.host) };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
@@ -355,6 +361,11 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
   }));
 
   return {
+    // The Deck woke up or came back online: every link to the other computer reconnects now.
+    reconnect() {
+      live?.reconnectNow();
+      reconnectHeld();
+    },
     shutdown() {
       cancelAllPrompts();
       live?.stop();

@@ -1,6 +1,6 @@
 // First, before anything else starts: relaunch without Steam's overlay if it was injected.
 import './steamOverlayGuard';
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, powerMonitor } from 'electron';
 import path from 'path';
 import { exec, execFile } from 'child_process';
 import os from 'os';
@@ -351,6 +351,8 @@ ipcMain.handle('shell:run', async (_, { code, language }: { code: string; langua
 // ─── Claude Code engine IPC ───────────────────────────────────────────────────
 // Claude Code (through the Agent SDK) is the engine; see engine/bridge.ts for the channels.
 const engine = registerEngineIpc(store, () => mainWindow);
+// The network came back (the renderer sees it first): same as waking.
+ipcMain.on('net:online', () => engine.reconnect());
 
 // ─── Preview / LAN sharing IPC ────────────────────────────────────────────────
 ipcMain.handle('preview:start', async (_, opts: { port?: number; https?: boolean; devPort?: number | null }) => {
@@ -532,6 +534,10 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
     handleModProtocol();
     createWindow();
     setupAutoUpdater();
+    // Waking the Deck (the power button is a console's pause): reconnect to the other computer
+    // straight away instead of waiting for SSH to notice the old connection died.
+    powerMonitor.on('resume', () => engine.reconnect());
+    powerMonitor.on('unlock-screen', () => engine.reconnect());
   });
 }
 

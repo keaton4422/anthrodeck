@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'child_process';
-import { defaultLabel, shq, sshArgs, forwardedEnv, remoteClaudeCommand, sshProblem } from '../remote';
+import { defaultLabel, shq, sshArgs, forwardedEnv, remoteClaudeCommand, sshProblem, setAddresses, addressOf, addressFailed, addressWorked, withUser, unreachable } from '../remote';
 
 describe('remote builders', () => {
   it('labels a host by its machine name', () => {
@@ -38,5 +38,34 @@ describe('remote builders', () => {
     expect(sshProblem('me@mac: Permission denied (publickey).')).toMatch(/key/);
     expect(sshProblem('ssh: Could not resolve hostname macx: nodename nor servname')).toMatch(/find that computer/);
     expect(sshProblem('Traceback (most recent call last)')).toBeNull();
+  });
+});
+
+describe('home and away addresses', () => {
+  it('logs in as the home user at an away address that names none', () => {
+    expect(withUser('Admin@MacBook-Pro.local', 'mac.tail1.ts.net')).toBe('Admin@mac.tail1.ts.net');
+    expect(withUser('Admin@MacBook-Pro.local', 'me@mac.tail1.ts.net')).toBe('me@mac.tail1.ts.net');
+    expect(withUser('studio', 'studio.tail1.ts.net')).toBe('studio.tail1.ts.net');
+  });
+
+  it('tries home, then away, and stays on whichever worked', () => {
+    const home = 'Admin@Mac-A.local';
+    setAddresses(home, 'mac-a.tail1.ts.net');
+    expect(sshArgs(home, 'true').slice(-2)).toEqual([home, 'true']);
+    expect(addressFailed(home)).toBe(true);              // away not tried yet: try it now
+    expect(addressOf(home)).toBe('Admin@mac-a.tail1.ts.net');
+    addressWorked(home);
+    expect(sshArgs(home, 'true').slice(-2)).toEqual(['Admin@mac-a.tail1.ts.net', 'true']);
+    expect(addressFailed(home)).toBe(true);
+    expect(addressFailed(home)).toBe(false);              // both failed this round: back off
+    setAddresses(home, null);
+    expect(addressOf(home)).toBe(home);
+    expect(addressFailed(home)).toBe(false);
+  });
+
+  it('tells an address that is not there from a refused key', () => {
+    expect(unreachable('ssh: Could not resolve hostname mac.local: nodename nor servname provided')).toBe(true);
+    expect(unreachable('ssh: connect to host 10.0.0.2 port 22: Operation timed out')).toBe(true);
+    expect(unreachable('me@mac: Permission denied (publickey).')).toBe(false);
   });
 });

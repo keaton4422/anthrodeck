@@ -4,6 +4,9 @@ import type { UpdateAvailable } from '../main/releaseNotes';
 // Which computer an action is for: this one, or the remote computer set up in Settings.
 type Machine = 'local' | 'remote';
 
+// Back online (a hotspot reconnecting, a new Wi-Fi network): the links to the other computer reconnect.
+window.addEventListener('online', () => ipcRenderer.send('net:online'));
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // ── Store ──────────────────────────────────────────────────────────────────
   storeGet: (key: string) => ipcRenderer.invoke('store:get', key),
@@ -20,7 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   projectSet: (p: string, host?: string | null) => ipcRenderer.invoke('project:set', p, host ?? null),
   projectHost: () => ipcRenderer.invoke('project:host'),
   remoteGet: () => ipcRenderer.invoke('remote:get'),
-  remoteSet: (host: string | null) => ipcRenderer.invoke('remote:set', host),
+  remoteSet: (host: string | null, away?: string | null) => ipcRenderer.invoke('remote:set', host, away),
   remoteTest: () => ipcRenderer.invoke('remote:test'),
   liveGet: () => ipcRenderer.invoke('live:get'),
   liveRelay: (op: 'install' | 'remove') => ipcRenderer.invoke('live:relay', op),
