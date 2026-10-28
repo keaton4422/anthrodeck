@@ -8,7 +8,7 @@ import {
 } from '../engine/config';
 import { candidatePaths, locateEngine, readClaudeSignIn, type LocateDeps } from '../engine/locate';
 import { displayPath, milestoneFor, proposedContent, SectorBoard, toolLabel } from '../engine/tools';
-import { newTranslateState, planUsageFrom, translate } from '../engine/translate';
+import { mergePlanUsage, newTranslateState, planUsageFrom, translate } from '../engine/translate';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 
 const msg = (m: unknown) => m as SDKMessage;
@@ -256,6 +256,16 @@ describe('plan usage', () => {
     });
     expect(planUsageFrom({ status: 'allowed', resetsAt: 1 })).toBeNull();
     expect(planUsageFrom(null)).toBeNull();
+  });
+
+  it('reads the documented single-window report, and keeps the other window from the last one', () => {
+    const week = planUsageFrom({ status: 'allowed_warning', rateLimitType: 'seven_day', utilization: 0.81, resetsAt: 100 }, 7);
+    expect(week).toEqual({ fiveHour: null, week: { used: 0.81, resetsAt: 100_000 }, limited: false, at: 7 });
+    const five = planUsageFrom({ status: 'rejected', rateLimitType: 'five_hour', utilization: 1, resetsAt: 50 }, 9)!;
+    expect(mergePlanUsage(week, five)).toEqual({
+      fiveHour: { used: 1, resetsAt: 50_000 }, week: { used: 0.81, resetsAt: 100_000 }, limited: true, at: 9,
+    });
+    expect(planUsageFrom({ status: 'allowed', rateLimitType: 'overage', utilization: 0.5 })).toBeNull();
   });
 });
 

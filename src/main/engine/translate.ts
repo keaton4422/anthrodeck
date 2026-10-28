@@ -46,18 +46,28 @@ export interface PlanUsage {
   at: number;                 // when this was reported
 }
 
+// Newer Claude Code reports both windows in `unifiedWindows`; the documented fields name just the
+// window the report is about (`rateLimitType`, `utilization`, `resetsAt`), and the other stays null.
 export function planUsageFrom(info: unknown, now = Date.now()): PlanUsage | null {
   if (!info || typeof info !== 'object') return null;
-  const i = info as { status?: unknown; unifiedWindows?: Record<string, { utilization?: unknown; resetsAt?: unknown }> };
-  const win = (k: string): PlanWindow | null => {
-    const w = i.unifiedWindows?.[k];
+  const i = info as {
+    status?: unknown; rateLimitType?: unknown; utilization?: unknown; resetsAt?: unknown;
+    unifiedWindows?: Record<string, { utilization?: unknown; resetsAt?: unknown }>;
+  };
+  const read = (w: { utilization?: unknown; resetsAt?: unknown } | undefined): PlanWindow | null => {
     if (!w || typeof w.utilization !== 'number') return null;
     return { used: Math.max(0, Math.min(1, w.utilization)), resetsAt: typeof w.resetsAt === 'number' ? w.resetsAt * 1000 : null };
   };
-  const fiveHour = win('five_hour');
-  const week = win('seven_day');
+  const type = typeof i.rateLimitType === 'string' ? i.rateLimitType : '';
+  const fiveHour = read(i.unifiedWindows?.five_hour) ?? (type === 'five_hour' ? read(i) : null);
+  const week = read(i.unifiedWindows?.seven_day) ?? (type.startsWith('seven_day') ? read(i) : null);
   if (!fiveHour && !week) return null;
   return { fiveHour, week, limited: i.status === 'rejected', at: now };
+}
+
+// A report that names one window keeps what's known of the other.
+export function mergePlanUsage(prev: PlanUsage | null | undefined, next: PlanUsage): PlanUsage {
+  return { ...next, fiveHour: next.fiveHour ?? prev?.fiveHour ?? null, week: next.week ?? prev?.week ?? null };
 }
 
 export interface TranslateState {

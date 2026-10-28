@@ -20,6 +20,7 @@ import { normalizeDriveMode, resolveEngineSettings } from './config';
 import { defaultLocateDeps, engineVersion, INSTALL_COMMAND, locateEngine, readClaudeSignIn } from './locate';
 import path from 'path';
 import { EngineSession, type CockpitPort, type EngineEvent } from './session';
+import { mergePlanUsage, type PlanUsage } from './translate';
 import { generateFlashcard, recordToolCalls, setLastContext } from '../flashcards';
 import { pushWrite } from '../writeHistory';
 import { detectDevPortFromOutput } from '../network';
@@ -136,7 +137,7 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
     emit(ev: EngineEvent) {
       send('engine:event', ev);
       switch (ev.type) {
-        case 'plan-usage': store.set('planUsage', ev.usage); break;
+        case 'plan-usage': store.set('planUsage', mergePlanUsage(store.get('planUsage', null) as PlanUsage | null, ev.usage)); break;
         case 'delta': turnText += ev.text; send('claude:delta', ev.text); break;
         case 'thinking': send('claude:thinking-delta', ev.text); break;
         case 'tool': if (!ev.quiet) send('claude:tool-activity', `\n\`${ev.label}\`\n`); break;

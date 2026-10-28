@@ -4,6 +4,8 @@ import { timeAgo } from '../lib/timeAgo';
 import { dashboardStats, planHeadline, resetsIn, type DashboardStats } from '../lib/dashboard';
 import { useLive } from '../hooks/useLive';
 import { Logo } from './Logo';
+import { Glyph } from './Glyph';
+import { C, folderName, liveSource } from '../lib/ui';
 
 // Home: the cockpit's landing screen. Across the top, the readout: what needs the pilot (Claude's
 // waiting questions), what's running, work not shipped yet, and how much of the plan's limits is
@@ -47,28 +49,18 @@ type Item =
   | { kind: 'new'; cwd: string; name: string }
   | { kind: 'session'; session: SessionCard };
 
-const C = {
-  panel: '#151515',
-  line: '#262626',
-  text: '#ECECEC',
-  dim: '#8A8A8A',
-  faint: '#5E5E5E',
-  clay: '#D97757',
-  clayBg: 'rgba(217,119,87,0.10)',
-  green: '#52A77C',
-  amber: '#D9A35B',
-  red: '#E05252',
-};
-
-const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
-export const liveSource = (entrypoint: string | null) =>
-  entrypoint === 'claude-desktop' ? 'Claude app' : entrypoint === 'cli' ? 'terminal' : 'another app';
+// Home remounts each time the pilot comes back to it. The last listings show at once while the
+// shown computer is read again; the other one only feeds the readout's totals, so it's read again
+// only once this old (for the remote computer, every read is a trip over SSH).
+const wallCache: Partial<Record<Machine, { wall: PitWall; at: number }>> = {};
+const OTHER_FRESH_MS = 60_000;
 
 const Home = forwardRef<HomeNav, Props>(function Home(
   { projectPath, projectHost, current, onContinue, onResume, onNew, onOpenFolder, onOpenLive }, ref,
 ) {
   // Both computers' projects: the shown one drives the columns, both feed the readout.
-  const [walls, setWalls] = useState<Record<Machine, PitWall | null>>({ local: null, remote: null });
+  const [walls, setWalls] = useState<Record<Machine, PitWall | null>>(
+    { local: wallCache.local?.wall ?? null, remote: wallCache.remote?.wall ?? null });
   const [col, setCol] = useState(0);
   const [row, setRow] = useState<[number, number]>([0, 0]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -84,6 +76,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     void window.electronAPI.planUsage().then(setPlan);
   }, []);
   const load = useCallback((m: Machine) => window.electronAPI.sessionsList(m).then((w) => {
+    wallCache[m] = { wall: w, at: Date.now() };
     setWalls((ws) => ({ ...ws, [m]: w }));
   }), []);
   useEffect(() => {
@@ -92,7 +85,8 @@ const Home = forwardRef<HomeNav, Props>(function Home(
   }, [machine, load]);
   // The other computer too, once it's known, for the readout's totals.
   useEffect(() => {
-    if (remote) void load(machine === 'local' ? 'remote' : 'local');
+    const other = machine === 'local' ? 'remote' : 'local';
+    if (remote && Date.now() - (wallCache[other]?.at ?? 0) > OTHER_FRESH_MS) void load(other);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remote]);
   const stats = useMemo(() => dashboardStats([walls.local, remote ? walls.remote : null], live?.state ?? null),
@@ -151,10 +145,16 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     if (item.kind === 'continue') onContinue();
     else if (item.kind === 'open') onOpenFolder(machine);
     else if (item.kind === 'new') onNew(item.cwd, machine);
-    else if (item.kind === 'session') onResume(item.session, machine);
+    else if (item.kind === 'session') {
+      // Still running on that computer: follow it there, rather than start a second copy of it.
+      const running = machine === 'remote' && item.session.id !== wall?.currentId
+        ? live?.state?.live.find((l) => l.sessionId === item.session.id) : undefined;
+      if (running) onOpenLive(running);
+      else onResume(item.session, machine);
+    }
     else if (item.kind === 'live') onOpenLive(item.session);
     else if (item.kind === 'project') { setCol(1); setRow((r) => [r[0], 0]); }
-  }, [onContinue, onOpenFolder, onNew, onResume, onOpenLive, machine]);
+  }, [onContinue, onOpenFolder, onNew, onResume, onOpenLive, machine, wall, live]);
 
   const stateRef = useRef({ col, row, columns });
   stateRef.current = { col, row, columns };
@@ -331,6 +331,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
             if (item.kind === 'session') {
               const s = item.session;
               const isCurrent = s.id === wall?.currentId;
+              const running = !isCurrent && machine === 'remote' && !!live?.state?.live.some((l) => l.sessionId === s.id);
               return (
                 <Row key={s.id} focused={focused} onClick={() => activate(item)}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -338,6 +339,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
                       {s.title}
                     </span>
                     {isCurrent && <Tag>current</Tag>}
+                    {running && <Tag>live</Tag>}
                   </div>
                   <div style={{ fontSize: 13, color: C.dim, marginTop: 3 }}>
                     {s.branch ? `⎇ ${s.branch} · ` : ''}{timeAgo(s.lastModified)}
@@ -366,23 +368,9 @@ const Home = forwardRef<HomeNav, Props>(function Home(
 
 export default Home;
 
-// Face buttons in the Deck's colours, as on the cards.
-const GLYPH: Record<string, string> = { A: '#52A77C', B: '#E05252', X: '#6B8CCE', Y: '#D9A35B' };
-export function Glyph({ b }: { b: string }) {
-  const round = b.length === 1 && GLYPH[b];
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle',
-      minWidth: 22, height: 22, padding: round ? 0 : '0 6px', borderRadius: round ? '50%' : 6,
-      background: round ? GLYPH[b] : '#2A2A2A', color: round ? '#101010' : C.text,
-      fontSize: 12, fontWeight: 800, marginRight: 4,
-    }}>{b}</span>
-  );
-}
-
 // The readout across the top of Home: four numbers, each pointing at something to do.
 function Readout({ stats, plan, remoteLabel }: { stats: DashboardStats; plan: PlanUsage | null; remoteLabel: string | null }) {
-  const head = plan && planHeadline(plan);
+  const head = plan && planHeadline(plan, Date.now());
   const stale = plan && Date.now() - plan.at > 6 * 3600_000 ? ` · as of ${timeAgo(plan.at)}` : '';
   const { files, projects, toPush } = stats.unshipped;
   return (
@@ -412,10 +400,10 @@ function Readout({ stats, plan, remoteLabel }: { stats: DashboardStats; plan: Pl
       <Tile
         label="PLAN USAGE"
         value={head ? `${Math.round(head.used * 100)}%` : '—'}
-        tone={plan?.limited || (head && head.used >= 0.9) ? C.red : head && head.used >= 0.7 ? C.amber : C.text}
+        tone={head?.limited || (head && head.used >= 0.9) ? C.red : head && head.used >= 0.7 ? C.amber : C.text}
         meter={head ? head.used : null}
         sub={head
-          ? `${plan?.limited ? 'Limit reached' : head.label} · ${resetsIn(head.resetsAt)}${stale}`
+          ? [head.limited ? 'Limit reached' : head.label, resetsIn(head.resetsAt)].filter(Boolean).join(' · ') + stale
           : 'Shows after your next session'}
       />
     </div>

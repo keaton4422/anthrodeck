@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMessage, LiveEntry, LiveSession } from '../types';
 import type { OutgoingMessage } from '../hooks/useLiveSession';
 import { MessageBubble } from './MessageBubble';
-import { Glyph, liveSource } from './Home';
+import { Glyph } from './Glyph';
+import { C, folderName, liveSource } from '../lib/ui';
 
 // The live session screen: a Claude Code session running on the remote computer right now (in the
 // Claude app, a terminal…), followed from the Deck. The conversation streams in as that session
@@ -26,23 +27,10 @@ interface Props {
   onBack: () => void;
 }
 
-const C = {
-  line: '#262626',
-  text: '#ECECEC',
-  dim: '#8A8A8A',
-  faint: '#5E5E5E',
-  clay: '#D97757',
-  green: '#52A77C',
-  amber: '#D9A35B',
-  red: '#E05252',
-};
-
 // The conversation's column, as MessageBubble lays it out.
 const column: React.CSSProperties = {
   width: 'calc(100% - 48px)', maxWidth: 920, margin: '6px auto', padding: '12px 18px', boxSizing: 'border-box',
 };
-
-const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
 
 // A message the Deck sent that the session hasn't picked up after this long is probably being held.
 const HELD_AFTER_MS = 8000;
@@ -78,11 +66,17 @@ export function LiveSessionView({ session, label, waiting, connected, entries, m
     return () => clearInterval(t);
   }, [outgoing]);
 
-  // Follow the conversation as it grows.
-  useEffect(() => {
+  // Follow the conversation as it grows, a reply getting longer included, unless the pilot has
+  // scrolled up to read.
+  const pinned = useRef(true);
+  useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [blocks.length, outgoing.length, scrollRef]);
+    if (el && pinned.current) el.scrollTop = el.scrollHeight;
+  }, [entries, outgoing, scrollRef]);
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (el) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
 
   const badge = waiting ? { text: `NEEDS YOU · ${waiting}`, color: C.amber }
     : busy ? { text: 'LIVE · WORKING', color: C.green } : { text: 'LIVE · IDLE', color: C.faint };
@@ -113,7 +107,7 @@ export function LiveSessionView({ session, label, waiting, connected, entries, m
         }}><Glyph b="B" /> Home</button>
       </div>
 
-      <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      <div ref={scrollRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {entries === null && (
           <div style={{ ...column, fontSize: 15, color: C.dim }}>Reading the conversation on {label}…</div>
         )}
@@ -141,7 +135,8 @@ export function LiveSessionView({ session, label, waiting, connected, entries, m
                     Delivered, but the session hasn&apos;t picked it up. A session that skips permission prompts holds
                     messages from outside for you to review in its own window on {label}.
                   </span>)}
-              {m.state === 'failed' && <>Not sent: {m.error} <button onClick={() => onDismiss(m.id)} style={{
+              {m.state === 'unsure' && <span style={{ color: C.amber }}>{m.error}</span>}
+              {(m.state === 'failed' || m.state === 'unsure') && <>{m.state === 'failed' && `Not sent: ${m.error}`} <button onClick={() => onDismiss(m.id)} style={{
                 marginLeft: 6, background: 'none', border: `1px solid ${C.line}`, color: C.dim, borderRadius: 5, fontSize: 11, cursor: 'pointer',
               }}>Dismiss</button></>}
             </div>

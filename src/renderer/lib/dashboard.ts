@@ -42,12 +42,21 @@ export function resetsIn(at: number | null, now = Date.now()): string {
   return `resets ${new Date(at).toLocaleDateString(undefined, { weekday: 'short' })}`;
 }
 
-// The window closest to its limit leads: that's the one that can stop work.
-export function planHeadline(u: PlanUsage): { label: string; used: number; resetsAt: number | null } | null {
-  const wins = [
-    u.fiveHour && { label: '5-hour limit', ...u.fiveHour },
-    u.week && { label: 'Weekly limit', ...u.week },
-  ].filter(Boolean) as { label: string; used: number; resetsAt: number | null }[];
+export interface PlanHeadline { label: string; used: number; resetsAt: number | null; limited: boolean }
+
+// The window closest to its limit leads: that's the one that can stop work. Figures are only as
+// fresh as the last session's report, so a window past its reset time counts as empty again, and
+// a hit limit as lifted.
+export function planHeadline(u: PlanUsage, now = Date.now()): PlanHeadline | null {
+  let reset = false;
+  const win = (label: string, w: PlanUsage['fiveHour']) => {
+    if (!w) return null;
+    if (w.resetsAt !== null && w.resetsAt <= now) { reset = true; return { label, used: 0, resetsAt: null }; }
+    return { label, ...w };
+  };
+  const wins = [win('5-hour limit', u.fiveHour), win('Weekly limit', u.week)]
+    .filter(Boolean) as { label: string; used: number; resetsAt: number | null }[];
   if (!wins.length) return null;
-  return wins.reduce((a, b) => (b.used > a.used ? b : a));
+  const lead = wins.reduce((a, b) => (b.used > a.used ? b : a));
+  return { ...lead, limited: u.limited && !reset };
 }
