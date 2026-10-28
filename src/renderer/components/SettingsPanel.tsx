@@ -30,6 +30,10 @@ interface Props {
   onPreviewHttpsChange: (v: boolean) => void;
   haptics: boolean;
   onHapticsChange: (v: boolean) => void;
+  intermission: boolean;
+  onIntermissionChange: (v: boolean) => void;
+  tidyUp: boolean;
+  onTidyUpChange: (v: boolean) => void;
   sound: boolean;
   onSoundChange: (v: boolean) => void;
 }
@@ -65,6 +69,10 @@ export function SettingsPanel({
   onPreviewHttpsChange,
   haptics,
   onHapticsChange,
+  intermission,
+  onIntermissionChange,
+  tidyUp,
+  onTidyUpChange,
   sound,
   onSoundChange,
 }: Props) {
@@ -440,6 +448,18 @@ export function SettingsPanel({
             hint="Explain each tool call before it runs; A continues, B redirects by voice. Auto-continues after a few seconds."
             value={teachMode}
             onChange={() => onTeachModeChange(!teachMode)}
+          />
+          <ToggleRow
+            label="Play while Claude works"
+            hint="Put the controls down while Claude works and a game comes up. Cards from any session pause it, and when a session finishes it offers to take you there."
+            value={intermission}
+            onChange={() => onIntermissionChange(!intermission)}
+          />
+          <ToggleRow
+            label="Playing tidies the context"
+            hint="Clearing stale-context targets in a game queues a compaction of Claude's context, run when its turn ends."
+            value={tidyUp}
+            onChange={() => onTidyUpChange(!tidyUp)}
           />
           <ToggleRow
             label="Haptics"

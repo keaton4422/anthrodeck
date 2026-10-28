@@ -108,7 +108,7 @@ if (playerHitStaleThing) s.intents.push({ type: 'prune-stale' });
 
 | Intent | Effect |
 |---|---|
-| `prune-stale` | Pit-crew call: when Claude Code's context is above 70% the pilot gets a "box, box" nudge to take a pit stop (`/compact`). It never compacts by itself; that costs a model call |
+| `prune-stale` | One stale-context target cleared. With the context at 50% or more, eight of them queue a tidy-up: a `/compact` (told to keep the task, decisions and open questions and drop superseded output) that runs when Claude finishes its turn. Claude Code can't compact mid-turn, and it costs a model call, so it only happens because the pilot played for it (Settings → Playing tidies the context) |
 | `focus-question` | Surfaces a pending `ask_user` to the pilot |
 
 **Only non-destructive intents exist, on purpose.** Approving a file write or committing code from a
@@ -116,6 +116,21 @@ game would mean a stray flick of the stick could ship a change. If you want a ne
 be safe to trigger by accident — that's the bar.
 
 Always reset `intents: []` at the top of your `step`, or you'll re-fire them every frame.
+
+## Intermission: the game is part of the session
+
+The games aren't a separate feature you go to. While Claude works (the Deck's own session, or any
+live session on the remote computer) and the pilot has put the controls down for five seconds, the
+game comes up by itself, like the Claude Code mods that open a game while Claude is busy:
+
+- A card from any session (an approval, a question) pauses the game; answer it and play resumes.
+- When a session finishes, the game stops on a "Claude is done" card: **A** goes to that session,
+  **B** keeps playing.
+- The header shows every session in flight, and the tidy-up meter for the Deck's own context.
+- Leaving the game (Start → Leave the game) means "not now" until another session starts working
+  or this one starts its next turn.
+
+`lib/intermission.ts` holds the rules; Settings → **Play while Claude works** turns it off.
 
 ## Testing your mode
 

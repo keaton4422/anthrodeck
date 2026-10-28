@@ -7,6 +7,8 @@ import ProjectDrawer from './components/ProjectDrawer';
 import AskUserModal from './components/AskUserModal';
 import ShareModal from './components/ShareModal';
 import GameCanvas, { formatLapTime, type LapCard } from './components/GameCanvas';
+import { finished, shouldStart, stillDismissed, tidyHit, TIDY_COMPACT, TIDY_HITS, type Job, type Tidy } from './lib/intermission';
+import { folderName } from './lib/ui';
 import TeachModal from './components/TeachModal';
 import RadialMenu from './components/RadialMenu';
 import WritePreview from './components/WritePreview';
@@ -282,19 +284,29 @@ export default function App() {
   }, [fireFeedback, showToast]);
 
   // Games act on the session here. Only non-destructive intents exist (see game/types.ts): a stray
-  // flick of the stick must never approve a write. Claude Code manages its own context now, so a
-  // cleanup intent (smash a hunter, sweep a node) is the pit crew calling the pilot in when the tank
-  // is low. It never compacts by itself; that costs a model call and is the pilot's decision.
-  const lastPitCall = useRef(0);
+  // flick of the stick must never approve a write. Clearing stale context in a game is the pilot
+  // tidying up: enough of it, with the context filling up, queues a compaction that runs when
+  // Claude finishes its turn (lib/intermission.ts). Settings → Playing tidies the context.
+  const [tidyUp, setTidyUp] = useStore<boolean>('tidyUp', true);
+  const [tidy, setTidy] = useState<Tidy>({ hits: 0, queued: false });
   const handleGameIntents = useCallback((intents: { type: string }[]) => {
-    if (!intents.some((i) => i.type === 'prune-stale')) return;
-    if (!context || context.percentage < 70) return;
-    const now = Date.now();
-    if (now - lastPitCall.current < 60_000) return;
-    lastPitCall.current = now;
-    showToast(`Context is ${Math.round(context.percentage)}% full. Radial → Compact.`);
-    fireFeedback('tool-success');
-  }, [context, showToast, fireFeedback]);
+    if (!tidyUp || !intents.some((i) => i.type === 'prune-stale')) return;
+    setTidy((t) => {
+      const next = tidyHit(t, context?.percentage ?? null);
+      if (next.queued && !t.queued) {
+        showToast('Tidy-up ready: Claude\'s context gets compacted when it finishes this turn.');
+        fireFeedback('level-up');
+      }
+      return next;
+    });
+  }, [tidyUp, context, showToast, fireFeedback]);
+  // The turn is over: run the tidy-up the pilot played for.
+  useEffect(() => {
+    if (isStreaming || !tidy.queued) return;
+    setTidy({ hits: 0, queued: false });
+    sendMessage(TIDY_COMPACT);
+    showToast('Compacting: the clutter you cleared is going.');
+  }, [isStreaming, tidy.queued, sendMessage, showToast]);
 
   // Meta actions reachable from the L1 chords and the radial menu.
   const runAction = useCallback(async (action: RadialAction) => {
@@ -388,6 +400,95 @@ export default function App() {
   }, [pendingTeach]);
 
   const modalActive = !!pendingWrite || !!pendingQuestion || !!pendingTeach;
+
+  // The Deck's own session, as Home and the game show it.
+  const currentSession = useMemo(() => {
+    const first = messages.find((m) => m.role === 'user');
+    if (!first) return null;
+    const title = first.content.replace(/\s+/g, ' ').trim();
+    return {
+      title: title.length > 80 ? `${title.slice(0, 79)}…` : title,
+      project: projectPath ? projectPath.split(/[\\/]/).filter(Boolean).pop() ?? null : null,
+    };
+  }, [messages, projectPath]);
+
+  // ─── Intermission: play while Claude works (lib/intermission.ts) ─────────────
+  // Every session the Deck flies: its own, and the ones live on the remote computer.
+  const [intermission, setIntermission] = useStore<boolean>('intermission', true);
+  const jobs = useMemo<Job[]>(() => {
+    const out: Job[] = [];
+    if (currentSession || isStreaming) {
+      out.push({ id: 'deck', label: currentSession?.title ?? 'This session', remote: false, working: isStreaming });
+    }
+    for (const s of live?.state?.live ?? []) {
+      // The Deck's own session, run on the remote computer through the SDK, is already 'deck'.
+      if (projectHost && s.entrypoint === 'sdk-ts' && s.cwd === projectPath) continue;
+      out.push({ id: s.sessionId, label: s.name || folderName(s.cwd), remote: true, working: s.status === 'busy' });
+    }
+    return out;
+  }, [currentSession, isStreaming, live, projectHost, projectPath]);
+  useEffect(() => { telemetry.setRemoteWorking(jobs.some((j) => j.remote && j.working)); }, [jobs, telemetry]);
+  // The tool calls of the Mac session the Deck has open drive the game like the Deck's own.
+  const seenTools = useRef(new Set<string>());
+  useEffect(() => {
+    for (const e of liveChat.entries ?? []) {
+      if (e.role !== 'tool' || seenTools.current.has(e.id)) continue;
+      if (seenTools.current.size) telemetry.remoteTool(e.text);   // not the history read on opening
+      seenTools.current.add(e.id);
+    }
+    if (!liveChat.entries) seenTools.current = new Set();
+  }, [liveChat.entries, telemetry]);
+
+  // When the pilot last touched the controls or the keyboard.
+  const lastInput = useRef(Date.now());
+  useEffect(() => {
+    const touch = () => { lastInput.current = Date.now(); };
+    window.addEventListener('keydown', touch);
+    window.addEventListener('pointerdown', touch);
+    return () => { window.removeEventListener('keydown', touch); window.removeEventListener('pointerdown', touch); };
+  }, []);
+  // Closing the game is "not now" for the sessions working at that moment.
+  const dismissed = useRef(new Set<string>());
+  const closeGame = useCallback(() => {
+    dismissed.current = new Set(jobs.filter((j) => j.working).map((j) => j.id));
+    setCockpitOpen(false);
+  }, [jobs]);
+  // The game comes up by itself once Claude is working and the controls have been put down.
+  const startCheck = useRef<() => boolean>(() => false);
+  startCheck.current = () => shouldStart({
+    enabled: intermission,
+    jobs,
+    needsYou: modalActive,
+    idleMs: Date.now() - lastInput.current,
+    busyScreen: showSettings || !!folderPick || radialOpen || drawerOpen || dictationListening
+      || document.activeElement instanceof HTMLTextAreaElement || document.activeElement instanceof HTMLInputElement,
+    playing: cockpitOpen,
+    dismissed: dismissed.current,
+  });
+  useEffect(() => {
+    const id = window.setInterval(() => { if (startCheck.current()) setCockpitOpen(true); }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  // A session finished while the pilot plays: the game stops on a card that goes straight there.
+  const [doneCard, setDoneCard] = useState<Job | null>(null);
+  const prevJobs = useRef<Job[]>([]);
+  useEffect(() => {
+    const done = finished(prevJobs.current, jobs);
+    prevJobs.current = jobs;
+    dismissed.current = stillDismissed(dismissed.current, jobs);
+    if (done.length && cockpitOpen) setDoneCard(done[done.length - 1]);
+  }, [jobs, cockpitOpen]);
+  useEffect(() => { if (!cockpitOpen) setDoneCard(null); }, [cockpitOpen]);
+  const goToDone = useCallback(() => {
+    const job = doneCard;
+    setDoneCard(null);
+    setCockpitOpen(false);
+    if (!job) return;
+    const s = job.remote ? live?.state?.live.find((x) => x.sessionId === job.id) : null;
+    if (s) setLiveOpen(s);
+    else { setLiveOpen(null); setShowHome(false); }
+  }, [doneCard, live]);
+  const doneOwnsPad = cockpitOpen && !!doneCard && !modalActive;
   // When the cockpit game is open it owns the controller; App-level bindings stand down. A card
   // always wins: the game pauses, the face buttons answer it, and play resumes. That is the loop:
   // play while Claude drives, answer when it radios in.
@@ -433,7 +534,9 @@ export default function App() {
       stopDictation();
       fireFeedback('voice-stop');
     },
+    onActivity: () => { lastInput.current = Date.now(); },
     onAPress: (mod) => {
+      if (doneOwnsPad) { goToDone(); return; }
       if (menuOwnsPad) { gameMenuNav.current?.activate(); return; }
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'A')) return;
@@ -452,6 +555,7 @@ export default function App() {
       else if (pendingQuestion) answerOption(2);
     },
     onBPress: (mod) => {
+      if (doneOwnsPad) { setDoneCard(null); return; }
       if (menuOwnsPad) { setGameMenuOpen(false); return; }
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'B')) return;
@@ -556,15 +660,6 @@ export default function App() {
   }
 
   // ─── Home actions ──────────────────────────────────────────────────────────
-  const currentSession = useMemo(() => {
-    const first = messages.find((m) => m.role === 'user');
-    if (!first) return null;
-    const title = first.content.replace(/\s+/g, ' ').trim();
-    return {
-      title: title.length > 80 ? `${title.slice(0, 79)}…` : title,
-      project: projectPath ? projectPath.split(/[\\/]/).filter(Boolean).pop() ?? null : null,
-    };
-  }, [messages, projectPath]);
 
   const openSession = useCallback(async (s: { id: string; cwd: string; title: string }, machine: Machine = 'local') => {
     if (isStreaming) { showToast('Claude is still working. Stop it first, or wait for it to finish.'); return; }
@@ -670,6 +765,10 @@ export default function App() {
           onPreviewHttpsChange={setPreviewHttps}
           haptics={haptics}
           onHapticsChange={setHaptics}
+          intermission={intermission}
+          onIntermissionChange={setIntermission}
+          tidyUp={tidyUp}
+          onTidyUpChange={setTidyUp}
           sound={sound}
           onSoundChange={setSound}
         />
@@ -783,7 +882,7 @@ export default function App() {
       {/* Cockpit game layer — pauses when an approval modal is up */}
       {cockpitOpen && (
         <GameCanvas
-          onClose={() => setCockpitOpen(false)}
+          onClose={closeGame}
           selectedId={cockpitMode}
           onSelect={setCockpitMode}
           telemetry={telemetry}
@@ -797,6 +896,11 @@ export default function App() {
           lapCard={lapCard}
           career={{ level: season.level, tier: season.tier, progress: season.progress }}
           driveMode={mode}
+          jobs={jobs}
+          tidy={tidyUp ? { hits: tidy.hits, needed: TIDY_HITS, queued: tidy.queued, contextPct: context?.percentage ?? null } : null}
+          doneCard={doneCard}
+          onDoneGo={goToDone}
+          onDoneKeep={() => setDoneCard(null)}
         />
       )}
 
