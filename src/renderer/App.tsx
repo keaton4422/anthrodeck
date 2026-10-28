@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StatusBar } from './components/StatusBar';
 import { ChatView } from './components/ChatView';
-import { InputBar } from './components/InputBar';
+import { InputBar, type ComposerHandle } from './components/InputBar';
 import { SettingsPanel } from './components/SettingsPanel';
 import ProjectDrawer from './components/ProjectDrawer';
 import AskUserModal from './components/AskUserModal';
@@ -223,29 +223,26 @@ export default function App() {
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const writeDiffRef = useRef<HTMLPreElement>(null);
 
-  // Dictation goes to whichever session is on screen: a live one on the remote computer, or the chat.
-  // In the game it becomes orders for the session picked in the comms rail, shown there to check
-  // before Y sends them.
+  // Dictation is written into the message box on screen (the live session's, or the chat's), so the
+  // pilot can read and fix it before A sends it. In the game it becomes orders for the session
+  // picked in the comms rail, shown there to check before Y sends them.
   const sendLive = liveChat.send;
+  const composerRef = useRef<ComposerHandle>(null);
   const [commsSel, setCommsSel] = useState<string | null>(null);
   const [commsDraft, setCommsDraft] = useState<CommsDraft | null>(null);
   const [commsTalking, setCommsTalking] = useState(false);
   const inGame = useRef({ open: false, sel: null as string | null });
   inGame.current = { open: cockpitOpen, sel: commsSel };
-  const handleVoiceResult = useCallback(
-    (text: string) => {
-      const words = text.trim();
-      if (!words) return;
-      const { open, sel } = inGame.current;
-      if (open) {
-        if (sel) setCommsDraft((d) => ({ jobId: sel, text: d?.jobId === sel ? `${d.text} ${words}` : words }));
-        return;
-      }
-      if (liveOpen) void sendLive(words);
-      else sendMessage(words);
-    },
-    [sendMessage, sendLive, liveOpen]
-  );
+  const handleVoiceResult = useCallback((text: string) => {
+    const words = text.trim();
+    if (!words) return;
+    const { open, sel } = inGame.current;
+    if (open) {
+      if (sel) setCommsDraft((d) => ({ jobId: sel, text: d?.jobId === sel ? `${d.text} ${words}` : words }));
+      return;
+    }
+    composerRef.current?.insert(words);
+  }, []);
 
   const { isListening, transcript, isSupported, startListening, stopListening } =
     useVoice(handleVoiceResult);
@@ -568,6 +565,14 @@ export default function App() {
   // Settings takes the D-pad and A while it's open (B already closes it).
   const settingsOwnsPad = showSettings && !cockpitOpen && !modalActive && !drawerOpen && !folderPick;
 
+  // A in a conversation: send what's in the message box (dictated or typed), or put the cursor in
+  // an empty box (STEAM + X then brings up the keyboard).
+  const sendOrWrite = () => {
+    const box = composerRef.current;
+    if (box?.hasText()) box.send();
+    else document.querySelector<HTMLTextAreaElement>('.message-box')?.focus();
+  };
+
   // L1 + face button fires a meta action instead of the button's normal job. Returns true when the
   // chord consumed the press.
   const tryChord = useCallback((modifier: boolean, button: FaceButton): boolean => {
@@ -604,11 +609,12 @@ export default function App() {
       if (!cockpitOpen && tryChord(mod, 'A')) return;
       if (pickerOwnsPad) { pickerNav.current?.activate(); return; }
       if (homeOwnsPad) { homeNav.current?.activate(); return; }
-      if (liveOwnsPad) { document.querySelector<HTMLTextAreaElement>('.live-composer textarea')?.focus(); return; }
+      if (liveOwnsPad) { sendOrWrite(); return; }
       if (settingsOwnsPad) { settingsNav.current?.activate(); return; }
       if (pendingTeach) teachContinue();
       else if (pendingWrite) handleWriteAccept();
       else if (pendingQuestion) answerOption(0);
+      else if (!showHome && !showSettings && !drawerOpen && !cockpitOpen) sendOrWrite();
     },
     onXPress: (mod) => {
       if (commsOwnsPad) {
@@ -875,6 +881,7 @@ export default function App() {
           onBack={() => setLiveOpen(null)}
           composer={
             <InputBar
+              ref={composerRef}
               onSend={(text) => void sendLive(text)}
               isStreaming={false}
               isListening={dictationListening}
@@ -914,6 +921,7 @@ export default function App() {
             collapseTools={collapseTools}
           />
           <InputBar
+            ref={composerRef}
             onSend={sendMessage}
             isStreaming={isStreaming}
             isListening={dictationListening}

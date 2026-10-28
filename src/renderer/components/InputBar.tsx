@@ -1,5 +1,13 @@
-import React, { KeyboardEvent, useRef, useState } from 'react';
+import React, { forwardRef, KeyboardEvent, useImperativeHandle, useRef, useState } from 'react';
 import VoiceButton from './VoiceButton';
+
+// What App drives from the pad and dictation. Dictation is written into the box, not sent, so the
+// pilot can read and fix it first; A sends it (or puts the cursor in an empty box).
+export interface ComposerHandle {
+  insert(text: string): void;
+  send(): void;
+  hasText(): boolean;
+}
 
 interface Props {
   onSend: (text: string) => void;
@@ -11,7 +19,7 @@ interface Props {
   onVoiceStop: () => void;
 }
 
-export function InputBar({
+export const InputBar = forwardRef<ComposerHandle, Props>(function InputBar({
   onSend,
   isStreaming,
   isListening,
@@ -19,9 +27,18 @@ export function InputBar({
   isVoiceSupported,
   onVoiceStart,
   onVoiceStop,
-}: Props) {
+}, ref) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textRef = useRef(text);
+  textRef.current = text;
+
+  const fit = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  };
 
   const handleSend = () => {
     const trimmed = text.trim();
@@ -32,6 +49,18 @@ export function InputBar({
       textareaRef.current.style.height = 'auto';
     }
   };
+
+  // Never focuses the box: on the Deck that would raise SteamOS's keyboard over the words.
+  useImperativeHandle(ref, () => ({
+    insert(words: string) {
+      const w = words.trim();
+      if (!w) return;
+      setText((t) => (t.trim() ? `${t.replace(/\s+$/, '')} ${w}` : w));
+      requestAnimationFrame(fit);
+    },
+    send: () => handleSend(),
+    hasText: () => !!textRef.current.trim(),
+  }));
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -66,6 +95,7 @@ export function InputBar({
           <div style={{ flex: 1, position: 'relative', display: 'flex' }}>
             <textarea
               ref={textareaRef}
+              className="message-box"
               value={isListening ? transcript : text}
               onChange={isListening ? undefined : handleTextChange}
               onKeyDown={handleKeyDown}
@@ -138,13 +168,14 @@ export function InputBar({
         </div>
 
         <div style={{ display: 'flex', gap: 18, marginTop: 8, fontSize: 12, color: '#6A6A6A' }}>
-          {isVoiceSupported && <span><Key>L2</Key> {isListening ? 'Release to send' : 'Hold to talk'}</span>}
+          {text.trim() && !isListening && <span><Key>A</Key> Send</span>}
+          {isVoiceSupported && <span><Key>L2</Key> {isListening ? 'Let go to write it in' : 'Hold to talk'}</span>}
           <span><Key>STEAM</Key>+<Key>X</Key> Keyboard</span>
         </div>
       </div>
     </div>
   );
-}
+});
 
 function Key({ children }: { children: React.ReactNode }) {
   return (
