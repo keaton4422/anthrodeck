@@ -13,7 +13,7 @@ let links: ChildProcess[];
 const env = () => ({ ...process.env, HOME: home });
 const deps = () => ({
   spawnSsh: (args: string[]) => {
-    const c = spawn('sh', ['-c', args[args.length - 1]], { stdio: ['pipe', 'pipe', 'pipe'], env: env() });
+    const c = spawn('sh', ['-c', `exec ${args[args.length - 1]}`], { stdio: ['pipe', 'pipe', 'pipe'], env: env() });
     links.push(c);
     return c;
   },
@@ -42,7 +42,8 @@ const exited = (h: HeldProcess) => new Promise<number | null>((r) => h.once('exi
 beforeEach(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'adk-held-')); links = []; });
 afterEach(() => { for (const c of links) c.kill('SIGKILL'); fs.rmSync(home, { recursive: true, force: true }); });
 
-describe('held sessions', () => {
+// The holder runs on the remote computer (a Mac or Linux box), never on Windows.
+describe.skipIf(process.platform === 'win32')('held sessions', { timeout: 20_000 }, () => {
   it('passes input and output through, and ends cleanly when the input closes', async () => {
     const h = new HeldProcess('mac', 'a1', 'cat', deps());
     const got = lines(h);
