@@ -2,22 +2,24 @@ import React, { useEffect, useState } from 'react';
 import { useGit } from '../hooks/useGit';
 import VoiceButton from './VoiceButton';
 import { useVoice } from '../hooks/useVoice';
-import { Sector } from '../types';
+import { Sector, type Commit } from '../types';
+import { timeAgo } from '../lib/timeAgo';
 
-// The 'race' tab holds the current session: tasks, context, rank and achievements.
-const TAB_LABELS = { files: 'files', git: 'git', race: 'session', learn: 'learn' } as const;
-import { useFlashcards } from '../hooks/useFlashcards';
-import { RaceTab } from './RaceTab';
+// Pilot: the pilot's rank and achievements. Overview: what's going on, and what the app does.
+const TAB_LABELS = { files: 'files', git: 'git', pilot: 'pilot', overview: 'overview' } as const;
+import { PilotTab } from './PilotTab';
+import { OverviewTab } from './OverviewTab';
 import type { SeasonView } from '../hooks/useSeason';
 import type { ContextGauge } from '../hooks/useClaude';
 
-export interface TeachLogEntry { tool: string; why: string; timestamp: number; }
 
 interface Props {
   open: boolean;
   onClose: () => void;
   projectPath: string | null;
   projectRemote?: string | null;   // the remote computer's name when the project is on it
+  otherComputer: string | null;    // the remote computer set up in Settings, if any
+  session: { title: string; said: string | null; working: boolean } | null;
   files: string[];
   onOpenFolder: () => void;
   onRefreshFiles: () => void;
@@ -30,7 +32,6 @@ interface Props {
   onPitStop: () => void;
   isStreaming: boolean;
   onShare: () => void;
-  teachLog: TeachLogEntry[];
 }
 
 export default function ProjectDrawer({
@@ -38,6 +39,8 @@ export default function ProjectDrawer({
   onClose,
   projectPath,
   projectRemote,
+  otherComputer,
+  session,
   files,
   onOpenFolder,
   onRefreshFiles,
@@ -50,10 +53,9 @@ export default function ProjectDrawer({
   onPitStop,
   isStreaming,
   onShare,
-  teachLog,
 }: Props) {
   const git = useGit(projectPath);
-  const [activeTab, setActiveTab] = useState<'files' | 'git' | 'race' | 'learn'>('files');
+  const [activeTab, setActiveTab] = useState<keyof typeof TAB_LABELS>('files');
 
   // Refresh git status when drawer opens
   useEffect(() => {
@@ -212,7 +214,7 @@ export default function ProjectDrawer({
         {projectPath && (
           <>
             <div style={{ display: 'flex', borderBottom: '1px solid #1E1E1E' }}>
-              {(['files', 'git', 'race', 'learn'] as const).map((tab) => (
+              {(Object.keys(TAB_LABELS) as (keyof typeof TAB_LABELS)[]).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -402,17 +404,26 @@ export default function ProjectDrawer({
                     </pre>
                   )}
                 </div>
+                {/* History */}
+                <div style={{ padding: '12px 16px', borderTop: '1px solid #1E1E1E' }}>
+                  <div style={{ color: '#666', fontSize: 11, letterSpacing: 1, fontWeight: 600, marginBottom: 8 }}>HISTORY</div>
+                  <GitHistory history={git.history} />
+                </div>
               </div>
             )}
 
-            {/* Race: lap plan, fuel, career */}
-            {activeTab === 'race' && (
-              <RaceTab sectors={sectors} context={context} season={season} onPitStop={onPitStop} busy={isStreaming} />
-            )}
+            {activeTab === 'pilot' && <PilotTab season={season} />}
 
-            {/* Learn: teach-mode session summary + flashcard deck */}
-            {activeTab === 'learn' && (
-              <LearnTab projectPath={projectPath} teachLog={teachLog} />
+            {activeTab === 'overview' && (
+              <OverviewTab
+                project={folderName ?? null}
+                remoteLabel={projectRemote ?? null}
+                otherLabel={otherComputer}
+                session={session ?? (isStreaming ? { title: 'This session', said: null, working: true } : null)}
+                sectors={sectors}
+                context={context}
+                onCompact={onPitStop}
+              />
             )}
           </>
         )}
@@ -421,86 +432,36 @@ export default function ProjectDrawer({
   );
 }
 
-// ─── Learn: teach summary + flashcards ───────────────────────────────────────
-function LearnTab({ projectPath, teachLog }: { projectPath: string | null; teachLog: TeachLogEntry[] }) {
-  const { cards, busy, generate, clear } = useFlashcards(projectPath);
-  const [review, setReview] = useState(false);
-  const [idx, setIdx] = useState(0);
-
-  const card = cards[idx];
-
+// ─── Git history ─────────────────────────────────────────────────────────────
+function GitHistory({ history }: { history: { commits: Commit[]; error: string | null } | null }) {
+  if (!history) return <div style={{ color: '#555', fontSize: 12 }}>Reading the history…</div>;
+  if (history.error) return <div style={{ color: '#D9A441', fontSize: 12, lineHeight: 1.5 }}>{history.error}</div>;
+  if (!history.commits.length) return <div style={{ color: '#555', fontSize: 12 }}>No commits yet.</div>;
   return (
-    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-      {/* Flashcards */}
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #1E1E1E' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span style={{ color: '#666', fontSize: 11, letterSpacing: 1, fontWeight: 600 }}>
-            FLASHCARDS ({cards.length})
-          </span>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-            {cards.length > 0 && (
-              <button onClick={() => { setReview((r) => !r); setIdx(0); }} style={miniBtn}>
-                {review ? 'list' : 'review'}
-              </button>
-            )}
-            <button onClick={generate} disabled={busy} style={miniBtn}>{busy ? '…' : '+ card'}</button>
-            {cards.length > 0 && <button onClick={clear} style={miniBtn}>clear</button>}
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {history.commits.map((c, i) => (
+        <div key={c.hash} style={{ display: 'flex', gap: 10, padding: '7px 0', borderTop: i ? '1px solid #1A1A1A' : 'none' }}>
+          {/* The line of history: a dot per commit. */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 4 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: i ? '#3A3A3A' : '#CC785C', flexShrink: 0 }} />
           </div>
-        </div>
-
-        {cards.length === 0 ? (
-          <div style={{ color: '#444', fontSize: 13 }}>
-            Cards appear every 10 tool calls, or tap “+ card”.
-          </div>
-        ) : review ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
-            <div style={{
-              minHeight: 90, width: '100%', background: '#1A1A1A', border: '1px solid #333',
-              borderRadius: 10, padding: 14, display: 'flex', alignItems: 'center',
-              justifyContent: 'center', textAlign: 'center', color: '#ECECEC', fontSize: 14, lineHeight: 1.5,
-            }}>
-              {card?.text}
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 13, color: '#DDD', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.subject}>
+              {c.subject}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <button onClick={() => setIdx((i) => (i - 1 + cards.length) % cards.length)} style={miniBtn}>‹</button>
-              <span style={{ fontSize: 12, color: '#8A8A8A' }}>{idx + 1} / {cards.length}</span>
-              <button onClick={() => setIdx((i) => (i + 1) % cards.length)} style={miniBtn}>›</button>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 11, color: '#6A6A6A' }}>
+              <code style={{ color: '#8A8A8A' }}>{c.hash}</code>
+              <span>{c.author} · {timeAgo(c.at)}</span>
+              {c.refs.map((r) => (
+                <span key={r} style={{
+                  padding: '0 6px', borderRadius: 8, border: '1px solid #3A3A3A',
+                  color: r.startsWith('v') && /\d/.test(r) ? '#D9A441' : '#52A77C',
+                }}>{r}</span>
+              ))}
             </div>
           </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {cards.map((c) => (
-              <div key={c.id} style={{
-                background: '#161616', border: '1px solid #262626', borderRadius: 8,
-                padding: '8px 10px', fontSize: 13, color: '#CFCFCF', lineHeight: 1.45,
-              }}>
-                {c.text}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Teach-mode session summary */}
-      <div style={{ padding: '12px 16px' }}>
-        <div style={{ color: '#666', fontSize: 11, letterSpacing: 1, fontWeight: 600, marginBottom: 8 }}>
-          TEACH SUMMARY ({teachLog.length})
         </div>
-        {teachLog.length === 0 ? (
-          <div style={{ color: '#444', fontSize: 13 }}>
-            With teach mode on, each tool’s rationale is logged here.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {teachLog.map((t, i) => (
-              <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
-                <code style={{ color: '#8FE9FF', flexShrink: 0 }}>{t.tool}</code>
-                <span style={{ color: '#AAA', lineHeight: 1.4 }}>{t.why || '(no rationale)'}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      ))}
     </div>
   );
 }

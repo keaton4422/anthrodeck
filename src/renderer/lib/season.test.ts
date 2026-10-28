@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applySeason, EMPTY_LAP, logLap, levelFor, levelProgress, loadSeason, NEW_SEASON, tierFor, xpForLevel, XP, type SeasonEvent, type SeasonState } from './season';
+import { achievementProgress, applySeason, EMPTY_LAP, logLap, levelFor, levelProgress, loadSeason, NEW_SEASON, tierFor, xpForLevel, XP, type SeasonEvent, type SeasonState } from './season';
 
 function run(events: SeasonEvent[], start: SeasonState = NEW_SEASON) {
   let s = start;
@@ -114,5 +114,15 @@ describe('levels and tiers', () => {
     expect(loadSeason({ xp: -5, stats: { commits: 3 }, unlocked: ['podium', 7] })).toMatchObject({
       xp: 0, unlocked: ['podium'], stats: { commits: 3, laps: 0 },
     });
+  });
+});
+
+describe('achievement progress', () => {
+  it('counts toward the counted achievements and caps at the goal', () => {
+    const s = { ...NEW_SEASON, stats: { ...NEW_SEASON.stats, commits: 4, answers: 12 }, bestStreak: 3 };
+    expect(achievementProgress(s, 'ship-ten')).toEqual({ have: 4, need: 10 });
+    expect(achievementProgress(s, 'pit-wall')).toEqual({ have: 10, need: 10 });
+    expect(achievementProgress(s, 'clean-five')).toEqual({ have: 3, need: 5 });
+    expect(achievementProgress(s, 'first-lap')).toBeNull();
   });
 });

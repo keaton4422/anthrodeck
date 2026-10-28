@@ -80,6 +80,18 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'ship-ten', name: 'Ten Commits', blurb: 'Ten commits.' },
 ];
 
+// How far along a counted achievement is (Ten Commits: 4 of 10), for the Pilot tab. Null for the
+// one-off ones, which are simply earned or not.
+export function achievementProgress(state: SeasonState, id: string): { have: number; need: number } | null {
+  const of = (have: number, need: number) => ({ have: Math.min(have, need), need });
+  switch (id) {
+    case 'clean-five': return of(Math.max(state.cleanStreak, state.bestStreak), 5);
+    case 'pit-wall': return of(state.stats.answers, 10);
+    case 'ship-ten': return of(state.stats.commits, 10);
+    default: return null;
+  }
+}
+
 // Pilot ranks. Thresholds grow so each step means more shipped work.
 export const TIERS = [
   { name: 'Cadet', minLevel: 1 },

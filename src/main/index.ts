@@ -2,7 +2,7 @@
 import './steamOverlayGuard';
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import os from 'os';
 import fs from 'fs';
 import Store from 'electron-store';
@@ -14,7 +14,8 @@ import { whatsNew, type RawReleaseNotes, type UpdateAvailable } from './releaseN
 import { LATEST_RELEASE_API, parseLatestRelease } from './manualUpdate';
 import { quitWatchdog } from './quitWatchdog';
 import { listFolders, folderNameProblem, type FolderListing } from './folders';
-import { remotePython, FOLDERS_PY } from './remote';
+import { remotePython, remoteExec, shq, FOLDERS_PY } from './remote';
+import { GIT_LOG_ARGS, parseGitLog, type Commit } from './gitLog';
 import { getFlashcards, clearFlashcards, generateFlashcard } from './flashcards';
 import { undoLastWrite, recordWrite } from './writeHistory';
 import {
@@ -282,6 +283,25 @@ ipcMain.handle('git:addAndCommit', async (_, message: string) => {
   const add = await runGit('git add .', root);
   if (add.stderr && !add.stderr.includes('warning')) return add;
   return runGit(`git commit -m "${message.replace(/"/g, '\\"')}"`, root);
+});
+
+// Recent commits, on whichever computer the project is on.
+ipcMain.handle('git:log', async (): Promise<{ commits: Commit[]; error: string | null }> => {
+  const root = store.get('projectPath', null) as string | null;
+  if (!root) return { commits: [], error: 'No project open' };
+  const host = store.get('projectHost', null) as string | null;
+  try {
+    if (host) {
+      const r = await remoteExec(host, `git -C ${shq(root)} ${GIT_LOG_ARGS.map(shq).join(' ')}`);
+      return r.code === 0 ? { commits: parseGitLog(r.stdout), error: null } : { commits: [], error: r.stderr.trim() || 'git log failed' };
+    }
+    const stdout = await new Promise<string>((resolve, reject) =>
+      execFile('git', GIT_LOG_ARGS, { cwd: root, timeout: 15_000, maxBuffer: 2 * 1024 * 1024 }, (err, out, errOut) =>
+        (err ? reject(new Error(String(errOut || err.message).trim())) : resolve(out))));
+    return { commits: parseGitLog(stdout), error: null };
+  } catch (e) {
+    return { commits: [], error: (e as Error).message };
+  }
 });
 
 ipcMain.handle('git:push', async () => {
