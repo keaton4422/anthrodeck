@@ -99,7 +99,7 @@ export class DeckRc {
     try { fs.unlinkSync(path.join(this.dir, 'status.json')); } catch { /* none yet */ }
     const args = ['-u', '-c', RCPTY_PY, this.dir, '--', claude, '--plugin-dir', mod,
       '--remote-control', 'anthrodeck-deck', '--name', 'anthrodeck-deck'];
-    const env = { ...process.env, ADK_RC_ROLE: 'deck', ADK_RC_URL: this.url, ADK_RC_TOKEN: this.token };
+    const env = { ...process.env, ADK_RC_ROLE: 'deck', ADK_RC_URL: this.url, ADK_RC_TOKEN: this.token, DISABLE_AUTOUPDATER: '1' };
     const child = (this.deps.spawnPty ?? ((a, e, cwd) => spawn('python3', a, { env: e, cwd, stdio: 'ignore' })))(args, env, home);
     this.child = child;
     child.on('exit', () => { if (this.child === child) this.child = null; });
@@ -390,11 +390,13 @@ export function linkSpawner(o: LinkSpawnerOpts): LinkSpawner {
 // Writes the mod and the pty driver to the other computer and starts the hub there if it isn't
 // running (or is running an older mod). Needs SSH, so it's done at home; the hub then keeps
 // running on its own, through the Deck's SSH logins coming and going.
-const HUB_PY = String.raw`
-import base64, json, os, shutil, signal, subprocess, sys, time
+export const HUB_PY = String.raw`
+import base64, json, os, plistlib, shutil, signal, subprocess, sys, time
 P = json.loads(base64.b64decode(sys.argv[1]).decode())
 root = os.path.expanduser('~/.anthrodeck/rc')
 mod = os.path.join(root, 'mod'); hub = os.path.join(root, 'hub'); home = os.path.join(hub, 'home')
+AGENT = 'com.anthrodeck.hub'
+PLIST = os.path.expanduser('~/Library/LaunchAgents/%s.plist' % AGENT)
 os.makedirs(home, exist_ok=True)
 for rel, text in P['files'].items():
     p = os.path.join(mod, rel); os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -410,21 +412,37 @@ def version():
     except Exception: return None
 pid = running()
 if pid and (P.get('restart') or version() != P['version']):
-    os.kill(pid, signal.SIGTERM); time.sleep(1); pid = None
+    if sys.platform == 'darwin': subprocess.run(['launchctl', 'bootout', 'gui/%d/%s' % (os.getuid(), AGENT)], capture_output=True)
+    try: os.kill(pid, signal.SIGTERM)
+    except OSError: pass
+    time.sleep(1); pid = None
 state = 'running'
 if not pid:
-    env = dict(os.environ, ADK_RC_ROLE='hub')
-    log = open(os.path.join(hub, 'log'), 'a')
+    env = dict(os.environ, ADK_RC_ROLE='hub', DISABLE_AUTOUPDATER='1')
     argv = [sys.executable, '-u', os.path.join(root, 'rcpty.py'), hub, '--detached', '--',
             P['claude'], '--plugin-dir', mod, '--remote-control', P['name'], '--name', P['name']]
-    # On Linux (SteamOS among them) logind ends what an SSH login started when it closes, new
-    # session or not: run the hub as a user service there. A Mac leaves a detached process be.
-    if sys.platform.startswith('linux') and shutil.which('systemd-run'):
-        subprocess.run(['systemctl', '--user', 'stop', 'anthrodeck-hub'], capture_output=True)
-        subprocess.run(['systemctl', '--user', 'reset-failed', 'anthrodeck-hub'], capture_output=True)
-        argv = ['systemd-run', '--user', '-q', '--unit', 'anthrodeck-hub', '--working-directory=' + home,
-                '--setenv=ADK_RC_ROLE=hub'] + argv
-    subprocess.Popen(argv, cwd=home, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+    if sys.platform == 'darwin':
+        # Started from an SSH login, Claude Code can't read its sign-in from the keychain. A
+        # LaunchAgent runs in the person's own login session, where it can, and comes back after
+        # a restart once they log in.
+        domain = 'gui/%d' % os.getuid()
+        subprocess.run(['launchctl', 'bootout', domain + '/' + AGENT], capture_output=True)
+        os.makedirs(os.path.dirname(PLIST), exist_ok=True)
+        with open(PLIST, 'wb') as f:
+            plistlib.dump({'Label': AGENT, 'ProgramArguments': argv, 'WorkingDirectory': home, 'RunAtLoad': True,
+                           'EnvironmentVariables': {'ADK_RC_ROLE': 'hub', 'DISABLE_AUTOUPDATER': '1'},
+                           'StandardOutPath': os.path.join(hub, 'log'), 'StandardErrorPath': os.path.join(hub, 'log')}, f)
+        subprocess.run(['launchctl', 'bootstrap', domain, PLIST], capture_output=True)
+    else:
+        log = open(os.path.join(hub, 'log'), 'a')
+        # On Linux (SteamOS among them) logind ends what an SSH login started when it closes, new
+        # session or not: run the hub as a user service there.
+        if shutil.which('systemd-run'):
+            subprocess.run(['systemctl', '--user', 'stop', 'anthrodeck-hub'], capture_output=True)
+            subprocess.run(['systemctl', '--user', 'reset-failed', 'anthrodeck-hub'], capture_output=True)
+            argv = ['systemd-run', '--user', '-q', '--unit', 'anthrodeck-hub', '--working-directory=' + home,
+                    '--setenv=ADK_RC_ROLE=hub', '--setenv=DISABLE_AUTOUPDATER=1'] + argv
+        subprocess.Popen(argv, cwd=home, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
     with open(os.path.join(hub, 'version'), 'w') as f: f.write(str(P['version']))
     state = 'started'
     for _ in range(40):
@@ -444,10 +462,16 @@ export function setupHub(host: string, claudePath: string, restart = false): Pro
   return remotePython<HubResult>(host, HUB_PY, [Buffer.from(JSON.stringify(payload)).toString('base64')], 45_000);
 }
 
-// Stops the hub on the other computer (Settings → turn the link off).
+// Stops the hub on the other computer and takes away what starts it (Settings → turn the link off).
 export function stopHub(host: string): Promise<{ ok: boolean }> {
   return remotePython(host, String.raw`
-import json, os, signal
+import json, os, signal, subprocess, sys
+if sys.platform == 'darwin':
+    subprocess.run(['launchctl', 'bootout', 'gui/%d/com.anthrodeck.hub' % os.getuid()], capture_output=True)
+    try: os.remove(os.path.expanduser('~/Library/LaunchAgents/com.anthrodeck.hub.plist'))
+    except OSError: pass
+else:
+    subprocess.run(['systemctl', '--user', 'stop', 'anthrodeck-hub'], capture_output=True)
 p = os.path.expanduser('~/.anthrodeck/rc/hub/pid')
 try: os.kill(int(open(p).read()), signal.SIGTERM)
 except Exception: pass
