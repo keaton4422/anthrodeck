@@ -23,7 +23,8 @@ export function createMode(): GameMode<MyState> {
     id: 'freeplay-mygame',        // must be unique
     name: 'My Game',
     kind: 'freeplay',             // 'telemetry' = driven by the agent, 'freeplay' = passes the time
-    blurb: 'One line shown under the picker',
+    blurb: 'A sentence or two on what the game is, shown on its card in the game menu',
+    controls: 'Left stick: move · [R2] or [A] fire',   // the bar along the bottom; [X] draws the button
 
     init: (w, h) => ({ x: w / 2, over: false, points: 0, intents: [] }),
 
@@ -55,7 +56,8 @@ export function createMode(): GameMode<MyState> {
 | `step(state, input, tel, dt)` | ✅ | **Must be pure** — same inputs, same output |
 | `render(ctx, state, w, h)` | ✅ | Draw only. Never mutate state here |
 | `hud(state)` | ✅ | Short status string for the header |
-| `score(state)` / `isOver(state)` | — | Implement both for persistent high scores |
+| `controls` | — | The controls bar along the bottom, `·`-separated; `[A]`, `[R2]`, `[D-pad]`… show as the Deck's buttons |
+| `score(state)` / `isOver(state)` | — | Implement both for persistent high scores. Once `isOver` is true the cockpit offers **A: Play again** and re-inits the mode, so don't draw your own restart prompt |
 
 **`step` must be pure** because that's what makes modes testable headlessly, deterministic across a
 restart, and safe to run at any frame rate. If you need randomness, seed it — `makeRng(seed)` in

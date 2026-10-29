@@ -269,7 +269,8 @@ export function createMode(): GameMode<RacerState> {
     id: 'cockpit-runner',
     name: 'Engine Runner',
     kind: 'telemetry',
-    blurb: 'RT throttle · smash red hunters for a BOOST · only civilians and the armco damage you · Claude\'s passing tests and finished tasks raise your multiplier and fix dents · every time Claude finishes is a lap',
+    blurb: 'A night highway run. Smash red hunters for a boost and miss the civilians. Every time Claude finishes is a lap.',
+    controls: 'Left stick: steer · [R2] throttle · [L2] brake',
 
     init(w, h): RacerState {
       return {
@@ -514,7 +515,8 @@ export function createMode(): GameMode<RacerState> {
       const propOff = s.distance % propGap;
       for (let i = -1; i < Math.ceil(h / propGap) + 1; i++) {
         const y = i * propGap + propOff;
-        if (y < horizon - 40 || y > h + 60) continue;
+        // Props stand on the verge, so none rises from above the horizon into the sky.
+        if (y < horizon + 6 || y > h + 60) continue;
         const seed = Math.abs(Math.floor((s.distance - propOff) / propGap) + i) * 2654435761 % 997;
         const k = perspAt(y, h);
         ctx.save();
@@ -569,8 +571,11 @@ export function createMode(): GameMode<RacerState> {
       }
 
       for (const c of s.cars) {
+        // Traffic comes over the crest: hidden behind it, then faded in as it clears the horizon.
+        if (c.y < horizon) continue;
         const k = perspAt(c.y, h);
         ctx.save();
+        ctx.globalAlpha = Math.min(1, (c.y - horizon) / 40);
         ctx.translate(projX(c.x - pan, c.y, w, h), c.y);
         ctx.scale(k, k);
         if (c.spin > 0) ctx.rotate(c.rot);
@@ -633,7 +638,6 @@ export function createMode(): GameMode<RacerState> {
         ctx.font = '14px system-ui, sans-serif';
         ctx.fillStyle = '#9A9A9A';
         ctx.fillText(`${Math.round(s.score)} pts · ${s.laps} lap${s.laps === 1 ? '' : 's'} · ${s.smashed} hunters smashed · ${s.civWrecks} civilian${s.civWrecks === 1 ? '' : 's'} hit`, w / 2, h / 2 + 22);
-        ctx.fillText('↺ to restart', w / 2, h / 2 + 44);
       }
     },
 

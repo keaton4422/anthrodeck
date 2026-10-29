@@ -93,7 +93,8 @@ export function createMode(): GameMode<FormationState> {
     id: 'freeplay-swarm',
     name: 'Swarm Protocol',
     kind: 'freeplay',
-    blurb: 'Formation shooter · attackers sweep in, lock up, then dive · every one you clear prunes a stale context item · stick moves, RT fires',
+    blurb: 'Attackers sweep in, lock into formation, then dive at you. Every one you clear prunes a stale context item.',
+    controls: 'Left stick or [D-pad] move · [R2] or [A] fire',
 
     init(w, h): FormationState {
       return {

@@ -317,7 +317,8 @@ export function createMode(): GameMode<FlightState> {
     id: 'cockpit-flight',
     name: 'Trench Run',
     kind: 'telemetry',
-    blurb: 'Fly a starfighter down Claude\'s trench from the cockpit · RT or A fires twin lasers that converge on the reticle · left stick flies, right stick aims, B boosts, D-pad up swaps to chase view · shoot turrets and fighters to prune stale context, thread the girders, hit the core at the end of each section · answering Claude powers you up',
+    blurb: 'Fly a starfighter down Claude\'s trench. Shoot turrets to prune stale context, and hit the core at the end of each section.',
+    controls: 'Left stick: fly · Right stick: aim · [R2] or [A] fire · [B] or [L1] boost · [D-pad] up: chase view',
 
     init(w, h): FlightState {
       const rng = makeRng(0x7a3c91e5);

@@ -23,7 +23,12 @@ export function carriedOver(events: TelemetryEvent[]): TelemetryEvent[] {
   return events.filter((e) => e.type === 'sector' || e.type === 'milestone' || e.type === 'done');
 }
 
+// How long a finished run's result stays up before A (or fire) starts the next one, so the button
+// that was being mashed at the end doesn't skip the result.
+export const PLAY_AGAIN_DELAY_MS = 800;
+
 // Reads the gamepad (with keyboard fallback) and drives a GameMode's step()/render() on rAF.
+// Returns the HUD line and whether the run is over (and ready for another), both as refs.
 export function useGameLoop(
   canvasRef: React.RefObject<HTMLCanvasElement>,
   mode: GameMode | undefined,
@@ -33,7 +38,10 @@ export function useGameLoop(
   restartKey: number | string,
   onIntents?: (intents: GameIntent[]) => void,
   onGameOver?: (score: number) => void,
+  onPlayAgain?: () => void,
 ) {
+  const onPlayAgainRef = useRef(onPlayAgain);
+  onPlayAgainRef.current = onPlayAgain;
   const onIntentsRef = useRef(onIntents);
   onIntentsRef.current = onIntents;
   const onGameOverRef = useRef(onGameOver);
@@ -43,6 +51,11 @@ export function useGameLoop(
   const stateRef = useRef<unknown>(null);
   const carryRef = useRef<TelemetryEvent[]>([]);
   const hudRef = useRef<string>('');
+  // When the run ended (null while it's on), and whether fire was down last frame: a new run takes
+  // a fresh press, not a trigger still held from the last one.
+  const overAtRef = useRef<number | null>(null);
+  const overRef = useRef(false);
+  const fireWasDown = useRef(false);
 
   // Track keyboard state for a controller-less fallback.
   useEffect(() => {
@@ -75,6 +88,8 @@ export function useGameLoop(
       carryRef.current = [];
     }
     reportedRef.current = false;
+    overAtRef.current = null;
+    overRef.current = false;
   }, [mode, restartKey, canvasRef, telemetry]);
 
   useEffect(() => {
@@ -129,6 +144,23 @@ export function useGameLoop(
         if (ctx) {
           if (!paused) {
             const input = active ? readInput() : NEUTRAL_INPUT;
+            const firePressed = input.fire && !fireWasDown.current;
+            fireWasDown.current = input.fire;
+
+            // A finished run waits for A (or fire) to start the next one, so the pad alone can
+            // play again: the header's ↺ is out of reach of the thumbs.
+            if (overAtRef.current != null) {
+              overRef.current = now - overAtRef.current >= PLAY_AGAIN_DELAY_MS;
+              if (overRef.current && firePressed) {
+                forgetRace(mode.id);
+                stateRef.current = mode.init(canvas.width, canvas.height);
+                carryRef.current = [];
+                reportedRef.current = false;
+                overAtRef.current = null;
+                overRef.current = false;
+                onPlayAgainRef.current?.();
+              }
+            }
             let tel = telemetry.getFrame();
             if (carryRef.current.length) {
               tel = { ...tel, events: [...carryRef.current, ...tel.events] };
@@ -151,6 +183,7 @@ export function useGameLoop(
               reportedRef.current = true;
               onGameOverRef.current?.(mode.score?.(stateRef.current as never) ?? 0);
             }
+            if (overAtRef.current == null && mode.isOver?.(stateRef.current as never)) overAtRef.current = now;
           }
           mode.render(ctx, stateRef.current as never, canvas.width, canvas.height);
         }
@@ -161,5 +194,5 @@ export function useGameLoop(
     return () => cancelAnimationFrame(raf);
   }, [active, mode, paused, telemetry, canvasRef]);
 
-  return hudRef;
+  return { hudRef, overRef };
 }

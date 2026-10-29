@@ -111,7 +111,6 @@ export default function CockpitHud({ telemetry }: Props) {
           <path ref={arcRef} fill="none" stroke="#CC785C" strokeWidth={5} strokeLinecap="round" />
           <line ref={needleRef} x1={60} y1={52} x2={60} y2={22} stroke="#ECECEC" strokeWidth={1.5} strokeLinecap="round" />
           <circle cx={60} cy={52} r={3} fill="#ECECEC" />
-          <text x={60} y={72} textAnchor="middle" fontSize={8} fill="#5A5A5A" letterSpacing="0.14em">THROUGHPUT</text>
         </svg>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
           <span ref={tpsRef} style={bigNum}>0</span>

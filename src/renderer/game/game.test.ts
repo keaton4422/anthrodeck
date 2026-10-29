@@ -560,8 +560,17 @@ describe('grid cycles', () => {
     expect(s.nodes.length).toBe(1);
   });
 
-  it('driving over a node collects it and emits a prune intent', () => {
+  it('waits on the grid until the pilot first moves', () => {
     let s: GridState = mode.init(W, H);
+    const { x, y } = s.player;
+    for (let i = 0; i < 40; i++) s = mode.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.05);
+    expect([s.player.x, s.player.y, s.launched]).toEqual([x, y, false]);
+    s = mode.step(s, input({ left: true }), EMPTY_TELEMETRY, 0.05);
+    expect(s.launched).toBe(true);
+  });
+
+  it('driving over a node collects it and emits a prune intent', () => {
+    let s: GridState = { ...mode.init(W, H), launched: true };
     // Place a node directly in the player's path.
     s.nodes.push({ x: s.player.x, y: s.player.y - 1 });
     for (let i = 0; i < 12 && s.collected === 0; i++) {
@@ -571,7 +580,7 @@ describe('grid cycles', () => {
   });
 
   it('running into the wall derezzes the player', () => {
-    let s: GridState = mode.init(W, H);
+    let s: GridState = { ...mode.init(W, H), launched: true };
     for (let i = 0; i < 400 && !s.crashed; i++) {
       s = mode.step(s, NEUTRAL_INPUT, EMPTY_TELEMETRY, 0.05);
     }
