@@ -278,13 +278,9 @@ Home then switches between this device and the Mac (**Y**). On the Mac side you 
   login session so it's signed in, and starts it again after a restart), and runs one of its own
   when it needs it. It needs a
   claude.ai sign-in on both, Claude Code 2.1.308 or later, and the Mac awake (**System Settings →
-  Energy → Prevent automatic sleeping**). Turn it off in **Settings → Remote computer**. Sessions
+  Energy → Prevent automatic sleeping**). Turn it off in **Settings → Reach it from anywhere**. Sessions
   started from the Deck on the Mac still run over SSH: they keep running while it's away, and the
   Deck picks them back up when it can reach the Mac again.
-- **Away address.** Or give SSH a way there from anywhere: put [Tailscale](https://tailscale.com)
-  (or another private network) on the Mac and the Deck, and enter the Mac's name there (e.g.
-  `your-mac.tail1234.ts.net`) under **Away address** in **Settings → Remote computer**. The Deck
-  tries the home address first, then the away one, then Remote Control.
 - **Dropped connections and sleep.** A session started from the Deck runs on the Mac under a small
   holder that doesn't depend on the connection (`~/.anthrodeck/held/`), so a hotspot dropping out
   or putting the Deck to sleep doesn't stop Claude. The Deck reattaches as soon as it can, right
