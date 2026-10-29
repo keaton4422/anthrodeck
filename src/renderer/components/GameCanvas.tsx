@@ -3,18 +3,18 @@ import { GAME_MODES } from '../game/registry';
 import type { GameMode } from '../game/types';
 import { useGameLoop, forgetRace } from '../hooks/useGameLoop';
 import { TelemetryController } from '../hooks/useTelemetry';
-import CockpitHud from './CockpitHud';
 import ModFrame from './ModFrame';
 import { useModGames } from '../hooks/useModGames';
 import { loadHighScores, applyScore, saveHighScores, type HighScores } from '../lib/highscores';
 import { SectorStrip } from './SectorStrip';
 import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
-import { DRIVE_MODE_LABELS } from '../../main/engine/config';
-import type { DriveMode, Sector } from '../types';
+import type { Sector } from '../types';
 import type { Checkpoint } from '../lib/season';
 import type { Job } from '../lib/intermission';
 import { Glyph, withGlyphs } from './Glyph';
-import { CommsRail } from './CommsRail';
+import { CommsRail, RAIL_W } from './CommsRail';
+import { turnOf, type Turn } from '../lib/intermission';
+import { C } from '../lib/ui';
 import { ShootChoice, type ShotChoice } from './ShootChoice';
 
 // The result of the lap just finished: real XP and real outcomes, shown over the track.
@@ -46,12 +46,10 @@ interface Props {
   onMenu: (open: boolean) => void;
   menuNav: React.MutableRefObject<PadFocus | null>;
   onIntents?: (intents: import('../game/types').GameIntent[]) => void;
-  // The real race, kept in view while playing: Claude's lap plan, the drive mode and the career.
+  // The real work, kept in view while playing: Claude's plan, and the lap card when it finishes.
   sectors: Sector[];
   checkpoints: Checkpoint[];
   lapCard: LapCard | null;
-  career: { level: number; tier: string; progress: number };
-  driveMode: DriveMode;
   // Intermission (lib/intermission.ts): the sessions in flight, the pilot's tidy-up, and a
   // session's news as targets the pilot shoots to answer (components/ShootChoice.tsx). The game
   // keeps running through it.
@@ -64,7 +62,7 @@ interface Props {
 }
 
 export default function GameCanvas({
-  onClose, selectedId, onSelect, telemetry, paused: approvalPaused, onIntents, sectors, checkpoints, lapCard, career, driveMode,
+  onClose, selectedId, onSelect, telemetry, paused: approvalPaused, onIntents, sectors, checkpoints, lapCard,
   menuOpen, onMenu, menuNav, jobs, comms, tidy, choice, onChoose,
 }: Props) {
   // The sim stops for an approval card and while the game menu is up; never for news.
@@ -135,59 +133,162 @@ export default function GameCanvas({
   const telemetryModes = allModes.filter((m) => m.kind === 'telemetry');
   const freeplayModes = allModes.filter((m) => m.kind === 'freeplay');
 
+  // The sessions panel comes and goes over the game: it slides in when a session changes (one
+  // needs you, finishes, starts working), when the pilot moves through it (Y), talks or types to
+  // one, and steps aside a few seconds later. Otherwise a small count of them sits in the corner.
+  const sig = comms.rail.map((j) => `${j.id}:${turnOf(j)}:${j.needs ?? 0}`).join('|');
+  const [peekUntil, setPeekUntil] = useState(0);
+  const [railFocus, setRailFocus] = useState(false);
+  const [, setTick] = useState(0);
+  const peek = useCallback(() => setPeekUntil(Date.now() + PEEK_MS), []);
+  useEffect(() => { peek(); }, [sig, comms.selected, comms.nudge, peek]);
+  useEffect(() => {
+    const ms = peekUntil - Date.now();
+    if (ms <= 0) return;
+    const t = window.setTimeout(() => setTick((x) => x + 1), ms + 50);
+    return () => window.clearTimeout(t);
+  }, [peekUntil]);
+  const railShown = comms.rail.length > 0 && (railFocus || comms.listening || !!comms.draft || Date.now() < peekUntil);
+  const counts = comms.rail.reduce((c, j) => { c[turnOf(j)] += 1; return c; }, { 'needs-you': 0, 'your-turn': 0, working: 0 } as Record<Turn, number>);
+
+  // The controls show for a few seconds each time a game starts, then get out of the way.
+  const [hintUntil, setHintUntil] = useState(0);
+  useEffect(() => { if (!menuOpen) setHintUntil(Date.now() + HINT_MS); }, [mode.id, gen, menuOpen]);
+  useEffect(() => {
+    const ms = hintUntil - Date.now();
+    if (ms <= 0) return;
+    const t = window.setTimeout(() => setTick((x) => x + 1), ms + 50);
+    return () => window.clearTimeout(t);
+  }, [hintUntil]);
+  const hintShown = Date.now() < hintUntil;
+
   return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 70, background: '#0A0B0D',
-        display: 'flex', flexDirection: 'column',
-      }}
-    >
-      {/* Header */}
+    <div style={{ position: 'fixed', inset: 0, zIndex: 70, background: '#0A0B0D', overflow: 'hidden' }}>
+      {/* The playfield is the whole screen; everything else floats over it. */}
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+        <canvas
+          ref={canvasRef}
+          width={dims?.w ?? 1280}
+          height={dims?.h ?? 800}
+          style={{ width: '100%', height: '100%', display: 'block' }}
+        />
+        {modGame && <ModFrame game={modGame} />}
+      </div>
+
+      {/* One bar: the game, its score, and the way out. */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px',
-        borderBottom: '1px solid #1E1E1E', flexShrink: 0,
+        position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: 12,
+        padding: '10px 14px 18px', background: 'linear-gradient(rgba(10,11,13,0.82), rgba(10,11,13,0))', pointerEvents: 'none',
       }}>
-        <span style={{ color: '#CC785C', fontWeight: 700, letterSpacing: '0.08em', fontSize: 14 }}>
-          🎮 COCKPIT
+        <button onClick={() => onMenu(true)} title="All games and mods (Menu)" style={{
+          pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 14px', borderRadius: 8,
+          fontSize: 15, fontWeight: 600, cursor: 'pointer', border: '1px solid rgba(204,120,92,0.7)',
+          background: 'rgba(20,16,14,0.7)', color: '#E08A6C',
+        }}>
+          {mode.name}<span style={{ color: '#9A9A9A', fontWeight: 400 }}>▾</span>
+        </button>
+        <span style={{ fontFamily: 'monospace', fontSize: 15, color: '#D8D8D8', whiteSpace: 'nowrap', textShadow: '0 1px 3px #000' }}>
+          {hud}
         </span>
-
-        {/* One button however many games and mods there are; the full list is the game menu. */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <button onClick={() => onMenu(true)} title="All games and mods (Start)" style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%',
-            padding: '5px 12px', borderRadius: 6, fontSize: 13, cursor: 'pointer',
-            border: '1px solid #CC785C', background: 'rgba(204,120,92,0.12)', color: '#CC785C', fontWeight: 600,
-          }}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mode.name}</span>
-            <span style={{ color: '#9A9A9A', fontWeight: 400 }}>▾</span>
-          </button>
-        </div>
-
         {mode.score && (
-          <span
-            title="Best score for this mode"
-            style={{
-              fontFamily: 'monospace', fontSize: 11, whiteSpace: 'nowrap',
-              color: isRecord ? '#FFD36A' : '#6A6A6A',
-              border: `1px solid ${isRecord ? '#FFD36A' : '#2A2A2A'}`,
-              borderRadius: 6, padding: '3px 8px',
-            }}
-          >
+          <span title="Best score for this game" style={{
+            fontFamily: 'monospace', fontSize: 13, whiteSpace: 'nowrap', color: isRecord ? '#FFD36A' : '#8A8A8A', textShadow: '0 1px 3px #000',
+          }}>
             {isRecord ? 'NEW BEST ' : 'BEST '}{(scores[mode.id] ?? 0).toLocaleString()}
           </span>
         )}
-        <span style={{
-          fontFamily: 'monospace', fontSize: 12, color: '#8A8A8A', flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap',
-        }}>
-          {hud}
-        </span>
-        <span title="Permission mode (R1) · pilot rank" style={{ fontSize: 11, color: '#9A9A9A', whiteSpace: 'nowrap' }}>
-          {DRIVE_MODE_LABELS[driveMode]} · <span style={{ color: '#ECECEC', fontWeight: 700 }}>{career.tier}</span>{' '}
-          <span style={{ color: '#CC785C' }}>L{career.level}</span>
-        </span>
+        <span style={{ flex: 1 }} />
+        {tidy && (tidy.queued || (tidy.contextPct ?? 0) >= 50) && <span style={{ pointerEvents: 'auto', fontSize: 13 }}><TidyMeter {...tidy} /></span>}
+        {!railShown && comms.rail.length > 0 && (
+          <button onClick={peek} title="Sessions (Y)" style={{
+            pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10, padding: '6px 12px', borderRadius: 999,
+            fontSize: 14, fontWeight: 600, cursor: 'pointer', border: '1px solid #2A2A2A', background: 'rgba(14,15,17,0.8)', color: C.text,
+          }}>
+            {counts['needs-you'] > 0 && <span style={{ color: C.amber }}>● {counts['needs-you']} need you</span>}
+            {counts['your-turn'] > 0 && <span style={{ color: C.clay }}>● {counts['your-turn']} your turn</span>}
+            {counts.working > 0 && <span style={{ color: C.green }}>● {counts.working} working</span>}
+            <Glyph b="Y" />
+          </button>
+        )}
         <button onClick={restart} style={hdrBtn} title="Restart">↺</button>
-        <button onClick={onClose} style={hdrBtn} title="Close cockpit">✕</button>
+        <button onClick={onClose} style={hdrBtn} title="Close (back to Home)">✕</button>
       </div>
+
+      {/* Claude's plan, when it has one: a thin strip under the bar. */}
+      {(sectors.length > 0 || checkpoints.length > 0) && (
+        <div style={{ position: 'absolute', top: 54, left: 14, right: railShown ? RAIL_W + 28 : 14, borderRadius: 8, overflow: 'hidden', opacity: 0.92, pointerEvents: 'none' }}>
+          <SectorStrip sectors={sectors} checkpoints={checkpoints} />
+        </div>
+      )}
+
+      {shownCard && !paused && (
+        <div style={{
+          position: 'absolute', top: 64, left: '50%', transform: 'translateX(-50%)', padding: '10px 16px', borderRadius: 10,
+          background: 'rgba(10,11,13,0.88)', border: '1px solid #CC785C', minWidth: 220,
+          display: 'flex', flexDirection: 'column', gap: 4, pointerEvents: 'none',
+        }}>
+          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', color: '#CC785C' }}>✅ CLAUDE FINISHED</span>
+          <span style={{ fontFamily: 'monospace', fontSize: 20, color: '#ECECEC' }}>
+            {shownCard.ms != null ? formatLapTime(shownCard.ms) : '—'}
+            <span style={{ fontSize: 14, color: '#FFD36A', marginLeft: 10 }}>+{shownCard.xp} XP</span>
+          </span>
+          {shownCard.checkpoints.length > 0 && (
+            <span style={{ fontSize: 12, color: '#9A9A9A' }}>
+              {shownCard.checkpoints.map((c) => (c.good ? '✓ ' : '✗ ') + c.label).join(' · ')}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* The sessions, over the right edge while they're wanted. */}
+      <div
+        onFocus={() => setRailFocus(true)}
+        onBlur={() => setRailFocus(false)}
+        style={{
+          position: 'absolute', top: 54, right: 14, bottom: 14, width: RAIL_W, borderRadius: 14, overflow: 'hidden',
+          boxShadow: '0 12px 40px rgba(0,0,0,0.55)', display: 'flex',
+          transform: railShown ? 'translateX(0)' : `translateX(${RAIL_W + 40}px)`, opacity: railShown ? 1 : 0,
+          transition: 'transform 220ms ease, opacity 220ms ease', pointerEvents: railShown ? 'auto' : 'none',
+        }}
+      >
+        <CommsRail {...comms} />
+      </div>
+
+      {over && !paused && (
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 34, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', padding: '10px 20px', borderRadius: 999, fontSize: 17, fontWeight: 600,
+            background: 'rgba(10,11,13,0.85)', border: '1px solid #2A2A2A', color: '#ECECEC',
+          }}>
+            <Glyph b="A" />Play again
+          </span>
+        </div>
+      )}
+
+      {/* The controls, for a moment at the start of each game. */}
+      <div style={{
+        position: 'absolute', left: 14, bottom: 14, padding: '8px 14px', borderRadius: 10, fontSize: 14, color: '#BDBDBD',
+        background: 'rgba(10,11,13,0.78)', pointerEvents: 'none',
+        opacity: hintShown && !over ? 1 : 0, transition: 'opacity 600ms ease',
+      }}>
+        <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 16px' }}>
+          {(mode.controls ?? 'Left stick: move · [R2] or [A] fire').split(' · ').map((c) => (
+            <span key={c}>{withGlyphs(c)}</span>
+          ))}
+          <span>{withGlyphs('[Menu] games')}</span>
+        </span>
+      </div>
+
+      {choice && !approvalPaused && <ShootChoice choice={choice} onPick={onChoose} />}
+      {approvalPaused && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+          justifyContent: 'center', background: 'rgba(10,11,13,0.7)', flexDirection: 'column', gap: 8,
+        }}>
+          <span style={{ color: '#CC785C', fontSize: 22, fontWeight: 700 }}>Paused</span>
+          <span style={{ color: '#9A9A9A', fontSize: 16 }}>Claude needs an answer: use the face buttons and you&apos;re straight back in.</span>
+        </div>
+      )}
 
       {menuOpen && (
         <GameMenu
@@ -201,106 +302,6 @@ export default function GameCanvas({
           onLeave={() => { onMenu(false); onClose(); }}
         />
       )}
-
-      {/* Claude's lap, live while you play. The row is reserved even while empty: the canvas
-          re-inits on resize, so a strip popping in mid-lap would wipe the race. */}
-      <div style={{ height: STRIP_H, flexShrink: 0, overflow: 'hidden', background: '#111', borderBottom: '1px solid #1E1E1E' }}>
-        {sectors.length || checkpoints.length
-          ? <SectorStrip sectors={sectors} checkpoints={checkpoints} />
-          : (
-            <div style={{ padding: '6px 16px', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: '#444' }}>
-              TASKS <span style={{ fontWeight: 400, letterSpacing: 0, color: '#4A4A4A' }}>· Claude&apos;s plan shows here as it works</span>
-            </div>
-          )}
-      </div>
-
-      {/* Blurb */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '6px 16px', fontSize: 12, color: '#6A6A6A',
-        borderBottom: '1px solid #141414', flexShrink: 0,
-      }}>
-        <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={mode.blurb}>
-          {mode.blurb}
-        </span>
-        {tidy && <TidyMeter {...tidy} />}
-      </div>
-
-      {/* Playfield + instruments. The panel gets its OWN strip rather than floating over the
-          canvas: an overlay was covering the bottom of the play area (in the car mode, the player's
-          own car sat underneath it). Chrome shouldn't sit on top of the thing it describes. */}
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
-        <div ref={containerRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          <canvas
-            ref={canvasRef}
-            width={dims?.w ?? 960}
-            height={dims?.h ?? 560}
-            style={{ width: '100%', height: '100%', display: 'block' }}
-          />
-          {modGame && <ModFrame game={modGame} />}
-          {shownCard && !paused && (
-            <div style={{
-              position: 'absolute', top: 12, right: 12, padding: '10px 14px', borderRadius: 8,
-              background: 'rgba(10,11,13,0.85)', border: '1px solid #CC785C', minWidth: 190,
-              display: 'flex', flexDirection: 'column', gap: 4, pointerEvents: 'none',
-            }}>
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#CC785C' }}>
-                ✅ CLAUDE FINISHED
-              </span>
-              <span style={{ fontFamily: 'monospace', fontSize: 18, color: '#ECECEC' }}>
-                {shownCard.ms != null ? formatLapTime(shownCard.ms) : '—'}
-                <span style={{ fontSize: 13, color: '#FFD36A', marginLeft: 10 }}>+{shownCard.xp} XP</span>
-              </span>
-              {shownCard.checkpoints.length > 0 && (
-                <span style={{ fontSize: 11, color: '#9A9A9A' }}>
-                  {shownCard.checkpoints.map((c) => (c.good ? '✓ ' : '✗ ') + c.label).join(' · ')}
-                </span>
-              )}
-            </div>
-          )}
-          {over && !paused && (
-            <div style={{
-              position: 'absolute', left: 0, right: 0, bottom: 28, display: 'flex', justifyContent: 'center', pointerEvents: 'none',
-            }}>
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', padding: '8px 16px', borderRadius: 999, fontSize: 15, fontWeight: 600,
-                background: 'rgba(10,11,13,0.85)', border: '1px solid #2A2A2A', color: '#ECECEC',
-              }}>
-                <Glyph b="A" />Play again
-              </span>
-            </div>
-          )}
-          {choice && !approvalPaused && <ShootChoice choice={choice} onPick={onChoose} />}
-          {approvalPaused && (
-            <div style={{
-              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-              justifyContent: 'center', background: 'rgba(10,11,13,0.7)', flexDirection: 'column', gap: 8,
-            }}>
-              <span style={{ color: '#CC785C', fontSize: 20, fontWeight: 700 }}>Paused</span>
-              <span style={{ color: '#9A9A9A', fontSize: 14 }}>Claude needs an answer: use the face buttons and you&apos;re straight back in.</span>
-            </div>
-          )}
-        </div>
-
-        {mode.kind === 'telemetry' && (
-          <div style={{ height: HUD_STRIP, position: 'relative', flexShrink: 0 }}>
-            <CockpitHud telemetry={telemetry} />
-          </div>
-        )}
-      </div>
-      {/* Always there, so the playfield never changes size mid-race (that re-inits the sim). */}
-      <CommsRail {...comms} />
-      </div>
-
-      {/* Controls hint */}
-      <div style={{ padding: '8px 16px', fontSize: 11, color: '#5A5A5A', borderTop: '1px solid #141414', flexShrink: 0 }}>
-        <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 14px' }}>
-          {(mode.controls ?? 'Left stick: move · [R2] or [A] fire').split(' · ').map((c) => (
-            <span key={c}>{withGlyphs(c)}</span>
-          ))}
-          <span>{withGlyphs('[Menu] games')}</span>
-        </span>
-      </div>
     </div>
   );
 }
@@ -416,11 +417,9 @@ const menuTag: React.CSSProperties = {
   border: '1px solid #CC785C', borderRadius: 3, padding: '0 4px',
 };
 
-// Height reserved for the sector / checkpoint strip under the header.
-const STRIP_H = 26;
-
-// Height reserved for the instrument strip below the playfield.
-const HUD_STRIP = 100;
+// How long the sessions panel stays after something in it changes, and the controls after a game starts.
+const PEEK_MS = 6000;
+const HINT_MS = 6000;
 
 const hdrBtn: React.CSSProperties = {
   background: '#1A1A1A', border: '1px solid #333', borderRadius: 6,

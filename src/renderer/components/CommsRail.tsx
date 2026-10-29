@@ -18,6 +18,7 @@ interface Props {
   draft: CommsDraft | null;
   listening: boolean;
   remoteLabel: string | null;
+  nudge?: number;                 // bumps on each Y: the game layer shows the panel (see GameCanvas)
   onSelect: (id: string) => void;
   onSend: (jobId: string, text: string) => void;
   onDiscard: () => void;

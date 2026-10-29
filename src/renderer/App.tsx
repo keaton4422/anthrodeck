@@ -231,6 +231,8 @@ export default function App() {
   const composerRef = useRef<ComposerHandle>(null);
   const [commsSel, setCommsSel] = useState<string | null>(null);
   const [commsDraft, setCommsDraft] = useState<CommsDraft | null>(null);
+  // Each Y in the game: brings the sessions panel up over it, whether or not the selection moved.
+  const [commsNudge, setCommsNudge] = useState(0);
   const [commsTalking, setCommsTalking] = useState(false);
   const inGame = useRef({ open: false, sel: null as string | null });
   inGame.current = { open: cockpitOpen, sel: commsSel };
@@ -713,6 +715,7 @@ export default function App() {
       if (homeOwnsPad) { homeNav.current?.switchMachine(); return; }
       // In the game: send the orders waiting, or move down the comms rail.
       if (commsOwnsPad) {
+        setCommsNudge((n) => n + 1);
         if (commsDraft) void sendOrders(commsDraft.jobId, commsDraft.text);
         else setCommsSel(nextSelection(rail, commsSel));
         return;
@@ -1042,11 +1045,9 @@ export default function App() {
           sectors={sectors}
           checkpoints={checkpoints}
           lapCard={lapCard}
-          career={{ level: season.level, tier: season.tier, progress: season.progress }}
-          driveMode={mode}
           jobs={jobs}
           comms={{
-            rail, selected: commsSel, draft: commsDraft, remoteLabel: remoteTarget?.label ?? null,
+            rail, selected: commsSel, draft: commsDraft, remoteLabel: remoteTarget?.label ?? null, nudge: commsNudge,
             listening: commsTalking || (localDict.transcribing && !!commsSel),
             onSelect: setCommsSel,
             onSend: (id, text) => void sendOrders(id, text),
