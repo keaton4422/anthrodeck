@@ -14,6 +14,10 @@
 // back. Both sessions consume every message they get, so Claude never reads one and no turn starts.
 
 export const MOD_VERSION = 2;
+
+// The link's own sessions (the hub's and the Deck's) run in folders under ~/.anthrodeck/rc. They're
+// plumbing: AnthroDeck never lists them as projects or live sessions.
+export const isLinkFolder = (cwd: string | null | undefined): boolean => !!cwd && /[\\/]\.anthrodeck[\\/]rc([\\/]|$)/.test(cwd);
 export const HUB_NAME = 'anthrodeck-hub';
 
 export const PLUGIN_JSON = JSON.stringify({

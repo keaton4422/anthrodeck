@@ -7,6 +7,7 @@
 
 import path from 'path';
 import type { SDKSessionInfo, SessionMessage } from '@anthropic-ai/claude-agent-sdk';
+import { isLinkFolder } from './rclink/mod';
 
 export interface SessionCard {
   id: string;
@@ -37,7 +38,7 @@ function shorten(s: string): string {
 // resumed, so they're left out rather than shown as dead ends.
 export function toSessionCards(infos: SDKSessionInfo[], exists: (dir: string) => boolean, limit = 30): SessionCard[] {
   return infos
-    .filter((s) => !!s.cwd && exists(s.cwd))
+    .filter((s) => !!s.cwd && !isLinkFolder(s.cwd) && exists(s.cwd))
     .sort((a, b) => b.lastModified - a.lastModified)
     .slice(0, limit)
     .map((s) => ({
