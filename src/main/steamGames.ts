@@ -159,11 +159,19 @@ while running(P['game']):
         finished = any(st != 'busy' and last['s'].get(sid) == 'busy' for sid, st in now['s'].items())
         if finished or now['asks'] > last['asks']: chime()
     if now: last = now
-time.sleep(2)
-steam(P['back'])
+# Steam takes a few seconds to let go of a game that was just quit, and drops a launch asked for
+# meanwhile: ask again until AnthroDeck is running (a minute at most).
+time.sleep(3)
+for _ in range(12):
+    steam(P['back'])
+    for _ in range(10):
+        time.sleep(0.5)
+        if running(P['backApp']): sys.exit(0)
+    time.sleep(1)
 `;
 
-export interface HandoffOpts { game: string; back: string; host: string | null; pid: number }
+// `back` is AnthroDeck's Steam game id (to launch it again), `backApp` its app id (to see it running).
+export interface HandoffOpts { game: string; back: string; backApp: string; host: string | null; pid: number }
 
 // Starts the hand-off helper as a user service (so it outlives AnthroDeck); the caller then quits.
 export function startHandoff(o: HandoffOpts): void {
@@ -172,7 +180,8 @@ export function startHandoff(o: HandoffOpts): void {
 }
 
 // Whether this AnthroDeck can hand off to a Steam game: launched by Steam on a systemd Linux.
-export function canHandoff(): { ok: boolean; back: string | null } {
+export function canHandoff(): { ok: boolean; back: string | null; backApp: string | null } {
   const back = process.env.SteamGameId ?? null;
-  return { ok: process.platform === 'linux' && !!back && fs.existsSync('/usr/bin/systemd-run'), back };
+  const backApp = process.env.SteamAppId ?? null;
+  return { ok: process.platform === 'linux' && !!back && !!backApp && fs.existsSync('/usr/bin/systemd-run'), back, backApp };
 }

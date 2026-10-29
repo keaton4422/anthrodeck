@@ -162,9 +162,9 @@ ipcMain.handle('steam:list', () => ({ games: canHandoff().ok ? listSteamGames() 
 ipcMain.handle('steam:art', (_, appid: string) => steamArt(appid));
 ipcMain.handle('steam:play', (_, appid: string) => {
   const h = canHandoff();
-  if (!h.ok || !h.back || !/^\d+$/.test(appid)) return { ok: false };
+  if (!h.ok || !h.back || !h.backApp || !/^\d+$/.test(appid)) return { ok: false };
   const remote = store.get('remote', null) as { host?: string } | null;
-  startHandoff({ game: appid, back: h.back, host: remote?.host ?? null, pid: process.pid });
+  startHandoff({ game: appid, back: h.back, backApp: h.backApp, host: remote?.host ?? null, pid: process.pid });
   setTimeout(() => app.quit(), 400);
   return { ok: true };
 });
