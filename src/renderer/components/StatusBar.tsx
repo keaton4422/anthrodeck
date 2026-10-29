@@ -27,7 +27,6 @@ interface Props {
   // On the live session screen: that session's own permission mode, shown instead of the Deck's
   // (undefined: not on that screen; null: not known yet).
   liveMode?: string | null;
-  career: { level: number; tier: string; progress: number };
   onDrawer: () => void;
   onSettings: () => void;
   onCockpit: () => void;
@@ -61,9 +60,9 @@ function TokenHUD({ usage, budget, contextPct, costUsd }: { usage: TokenUsage; b
           }}
         />
       </div>
-      <span style={{ fontSize: 11, color: '#8A8A8A', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+      <span style={{ fontSize: 14, color: '#9A9A9A', whiteSpace: 'nowrap' }}>
         {contextPct !== null ? (
-          <>ctx {Math.round(contextPct)}%</>
+          <>Context {Math.round(contextPct)}%</>
         ) : (
           <>{formatTokens(total)}<span style={{ color: '#555' }}> / {formatTokens(budget)}</span></>
         )}
@@ -118,13 +117,13 @@ function HudRow({ label, value, color, bold }: { label: string; value: number; c
 
 const MODE_COLORS: Record<DriveMode, string> = { plan: '#6A8CC7', default: '#52A77C', acceptEdits: '#E0A040' };
 
-// Drive-mode pill (R1 paddle cycles it) and the career badge.
+// Drive-mode pill (R1 paddle cycles it).
 function ModePill({ mode, onClick }: { mode: DriveMode; onClick: () => void }) {
   const c = MODE_COLORS[mode];
   return (
     <button onClick={onClick} title="Permission mode (R1)" style={{
-      background: 'none', border: `1px solid ${c}`, borderRadius: 12, padding: '3px 10px',
-      color: c, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', cursor: 'pointer', whiteSpace: 'nowrap',
+      background: 'none', border: `1px solid ${c}`, borderRadius: 14, padding: '4px 12px',
+      color: c, fontSize: 13, fontWeight: 700, letterSpacing: '0.06em', cursor: 'pointer', whiteSpace: 'nowrap',
     }}>
       {DRIVE_MODE_SHORT[mode].toUpperCase()}
     </button>
@@ -137,37 +136,24 @@ function LiveModePill({ mode }: { mode: string | null }) {
   const c = mode && mode in MODE_COLORS ? MODE_COLORS[mode as DriveMode] : mode === 'bypassPermissions' ? '#E05252' : '#8A8A8A';
   return (
     <span title="This session's permission mode, set where it runs" style={{
-      border: `1px solid ${c}`, borderRadius: 12, padding: '3px 10px',
-      color: c, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', whiteSpace: 'nowrap',
+      border: `1px solid ${c}`, borderRadius: 14, padding: '4px 12px',
+      color: c, fontSize: 13, fontWeight: 700, letterSpacing: '0.06em', whiteSpace: 'nowrap',
     }}>
       {(mode ? SESSION_MODE_SHORT[mode] ?? mode : 'Mode unknown').toUpperCase()}
     </span>
   );
 }
 
-function CareerBadge({ level, tier, progress }: { level: number; tier: string; progress: number }) {
-  return (
-    <div title={`${tier} · level ${level}`} style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 64 }}>
-      <span style={{ fontSize: 11, color: '#ECECEC', fontWeight: 700, whiteSpace: 'nowrap' }}>
-        {tier} <span style={{ color: '#CC785C' }}>L{level}</span>
-      </span>
-      <div style={{ height: 3, background: '#2A2A2A', borderRadius: 2, overflow: 'hidden' }}>
-        <div style={{ width: `${Math.round(progress * 100)}%`, height: '100%', background: '#CC785C', transition: 'width 0.4s ease' }} />
-      </div>
-    </div>
-  );
-}
-
 export function StatusBar({
   isListening, isTranscribing, isStreaming, engineReady, projectPath, projectHostLabel, usage, budget, contextPct, costUsd,
-  mode, onCycleMode, liveMode, career, onDrawer, onSettings, onCockpit, onHome,
+  mode, onCycleMode, liveMode, onDrawer, onSettings, onCockpit, onHome,
 }: Props) {
   const folderName = projectPath ? projectPath.split(/[\\/]/).pop() : null;
 
   return (
     <div
       style={{
-        height: 52,
+        height: 56,
         background: '#141414',
         borderBottom: '1px solid #2A2A2A',
         display: 'flex',
@@ -222,15 +208,14 @@ export function StatusBar({
           overflow: 'hidden',
         }}>
           <span style={{
-            fontSize: 12,
-            color: '#666',
-            fontFamily: 'monospace',
+            fontSize: 15,
+            color: '#8A8A8A',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
-            maxWidth: 300,
+            maxWidth: 360,
           }}>
-            {projectHostLabel ? `💻 ${projectHostLabel} · ` : '📁 '}{folderName}
+            {folderName}{projectHostLabel ? <span style={{ color: '#5E5E5E' }}> · on {projectHostLabel}</span> : null}
           </span>
         </div>
       )}
@@ -243,7 +228,7 @@ export function StatusBar({
               width: 8, height: 8, borderRadius: '50%', background: '#E05252',
               display: 'inline-block', animation: 'blink 0.8s step-end infinite',
             }} />
-            <span style={{ fontSize: 12, color: '#E05252', fontWeight: 600, letterSpacing: '0.08em' }}>
+            <span style={{ fontSize: 14, color: '#E05252', fontWeight: 600, letterSpacing: '0.08em' }}>
               LISTENING
             </span>
           </div>
@@ -258,15 +243,17 @@ export function StatusBar({
             <span className="streaming-dot-1" style={{ width: 5, height: 5, borderRadius: '50%', background: '#CC785C', display: 'inline-block' }} />
             <span className="streaming-dot-2" style={{ width: 5, height: 5, borderRadius: '50%', background: '#CC785C', display: 'inline-block' }} />
             <span className="streaming-dot-3" style={{ width: 5, height: 5, borderRadius: '50%', background: '#CC785C', display: 'inline-block' }} />
-            <span style={{ fontSize: 12, color: '#9A9A9A', marginLeft: 4, letterSpacing: '0.06em' }}>WORKING</span>
+            <span style={{ fontSize: 14, color: '#9A9A9A', marginLeft: 4, letterSpacing: '0.06em' }}>WORKING</span>
           </div>
         )}
         {!engineReady && !isListening && !isStreaming && (
           <span style={{ fontSize: 12, color: '#E05252' }}>⚠ Engine not installed</span>
         )}
         {liveMode !== undefined ? <LiveModePill mode={liveMode} /> : <ModePill mode={mode} onClick={onCycleMode} />}
-        {engineReady && <TokenHUD usage={usage} budget={budget} contextPct={contextPct} costUsd={costUsd} />}
-        <CareerBadge {...career} />
+        {/* Only once the open session has used some: an empty gauge is noise. The rank lives in the drawer. */}
+        {engineReady && (contextPct !== null || usage.inputTokens + usage.outputTokens > 0) && (
+          <TokenHUD usage={usage} budget={budget} contextPct={contextPct} costUsd={costUsd} />
+        )}
         <button
           onClick={onCockpit}
           title="Cockpit game layer"
