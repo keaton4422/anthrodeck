@@ -1,27 +1,25 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import type { LiveSession, Machine, PitWall, PlanUsage, ProjectTile, RemoteTarget, SessionCard } from '../types';
+import type { LiveSession, Machine, PitWall, ProjectTile, RemoteTarget, SessionCard } from '../types';
 import { timeAgo } from '../lib/timeAgo';
-import { dashboardStats, planHeadline, resetsIn, type DashboardStats } from '../lib/dashboard';
+import { buildQueue, type QueueEntry } from '../lib/queue';
 import { useLive } from '../hooks/useLive';
-import { Logo } from './Logo';
 import { Glyph } from './Glyph';
 import { C, folderName, liveSource } from '../lib/ui';
 
-// Home: the cockpit's landing screen. Across the top, the readout: what needs the pilot (Claude's
-// waiting questions), what's running, work not shipped yet, and how much of the plan's limits is
-// left. Below it, every way in: the session open right now, sessions running on the other
-// computer, and every project (the folders Claude Code has worked in) with its git state and its
-// sessions, to resume one or start a new one. Same schema as Claude Desktop, driven like a console.
+// Home: the cockpit's landing screen, a queue of what needs the pilot. On the left, every session
+// in the order it needs a thumb: waiting on an answer (with the question), then the pilot's turn
+// (Claude finished: what it last said), then the ones Claude is working in, and the session open
+// here. On the right, the way to start or resume work: the projects (the folders Claude Code has
+// worked in) with their git state, and A on one opens its sessions. Same schema as Claude Desktop,
+// driven like a console; no dashboard numbers, only things to act on.
 //
 // Built for the pad first: two columns, the D-pad moves (up/down within a column, left/right
 // between them), A goes. App forwards pad input through the `HomeNav` handle; arrow keys and Enter
 // work too.
 //
-// With a remote computer set up (Settings → Remote computer), Home switches between "This device"
-// and that computer (Y, or the tabs): its projects and sessions, run there over SSH. Its sessions
-// running right now (in the Claude app or a terminal) lead the list as LIVE, with what each is doing;
-// their approvals and questions pop up as cards wherever the pilot is (main/live.ts). A opens one on
-// the live session screen, to follow it and send it messages while it keeps running there.
+// The queue covers the other computer's running sessions (main/live.ts): their approvals and
+// questions also pop up as cards wherever the pilot is, and A opens one on the live session screen
+// to follow it and send it messages. The projects column shows one computer at a time: Y switches.
 
 export interface HomeNav {
   move(dx: number, dy: number): void;
@@ -43,9 +41,11 @@ interface Props {
 
 type Item =
   | { kind: 'continue' }
-  | { kind: 'live'; session: LiveSession; waiting: number }
+  | { kind: 'live'; entry: QueueEntry; group: 'needs' | 'turn' | 'working' }
+  | { kind: 'calm' }
   | { kind: 'project'; project: ProjectTile }
   | { kind: 'open' }
+  | { kind: 'back' }
   | { kind: 'new'; cwd: string; name: string }
   | { kind: 'session'; session: SessionCard };
 
@@ -63,35 +63,25 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     { local: wallCache.local?.wall ?? null, remote: wallCache.remote?.wall ?? null });
   const [col, setCol] = useState(0);
   const [row, setRow] = useState<[number, number]>([0, 0]);
-  const [selected, setSelected] = useState<string | null>(null);
   const [remote, setRemote] = useState<RemoteTarget | null>(null);
   // Start on the computer the open project is on.
   const [machine, setMachine] = useState<Machine>(projectHost ? 'remote' : 'local');
   const live = useLive();
-  const [plan, setPlan] = useState<PlanUsage | null>(null);
   const wall = walls[machine];
+  // The project whose sessions the right column shows (null: the list of projects).
+  const [drilled, setDrilled] = useState<string | null>(null);
 
   useEffect(() => {
     void window.electronAPI.remoteGet().then(setRemote);
-    void window.electronAPI.planUsage().then(setPlan);
   }, []);
   const load = useCallback((m: Machine) => window.electronAPI.sessionsList(m).then((w) => {
     wallCache[m] = { wall: w, at: Date.now() };
     setWalls((ws) => ({ ...ws, [m]: w }));
   }), []);
   useEffect(() => {
-    setRow([0, 0]); setCol(0); setSelected(null);
+    setRow([0, 0]); setCol(0); setDrilled(null);
     void load(machine);
   }, [machine, load]);
-  // The other computer too, once it's known, for the readout's totals.
-  useEffect(() => {
-    const other = machine === 'local' ? 'remote' : 'local';
-    if (remote && Date.now() - (wallCache[other]?.at ?? 0) > OTHER_FRESH_MS) void load(other);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remote]);
-  const stats = useMemo(() => dashboardStats([walls.local, remote ? walls.remote : null], live?.state ?? null),
-    [walls, remote, live]);
-
   // Is this path the open project, on the computer being shown?
   const isOpen = useCallback((cwd: string) =>
     cwd === projectPath && (machine === 'remote') === !!projectHost, [projectPath, projectHost, machine]);
@@ -106,37 +96,28 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     return list;
   }, [wall, projectPath, projectHost, machine]);
 
-  // Live now on the remote computer, apart from the session the Deck itself has open.
-  const liveItems = useMemo<Item[]>(() => {
-    if (machine !== 'remote' || !live?.state) return [];
-    const reqs = live.state.requests;
-    return live.state.live
-      .filter((s) => s.sessionId !== wall?.currentId)
-      .map((session) => ({ kind: 'live', session, waiting: reqs.filter((r) => r.sessionId === session.sessionId).length } as Item));
-  }, [machine, live, wall]);
+  // The queue: the other computer's running sessions, apart from the one the Deck has open.
+  const queue = useMemo(() => buildQueue(live?.state ?? null, projectHost ? wallCache.remote?.wall.currentId ?? null : null),
+    [live, projectHost]);
+  const left = useMemo<Item[]>(() => {
+    const items: Item[] = [
+      ...queue.needs.map((entry) => ({ kind: 'live', entry, group: 'needs' } as Item)),
+      ...(current ? [{ kind: 'continue' } as Item] : []),
+      ...queue.turn.map((entry) => ({ kind: 'live', entry, group: 'turn' } as Item)),
+      ...queue.working.map((entry) => ({ kind: 'live', entry, group: 'working' } as Item)),
+    ];
+    return items.length ? items : [{ kind: 'calm' }];
+  }, [queue, current]);
 
-  const left = useMemo<Item[]>(() => [
-    ...(current ? [{ kind: 'continue' } as Item] : []),
-    ...liveItems,
-    ...projects.map((project) => ({ kind: 'project', project } as Item)),
-    { kind: 'open' } as Item,
-  ], [current, liveItems, projects]);
-
-  // The right column shows the project under the cursor; otherwise the last one visited, then the
-  // open project (so the current session sits beside its own project's list), then the most recent.
-  const focusedLeft = left[Math.min(row[0], left.length - 1)];
-  const shownProject = useMemo(() => {
-    if (focusedLeft?.kind === 'project') return focusedLeft.project;
-    return projects.find((p) => p.cwd === selected)
-      ?? projects.find((p) => isOpen(p.cwd))
-      ?? projects[0] ?? null;
-  }, [focusedLeft, projects, selected, isOpen]);
-  useEffect(() => { if (focusedLeft?.kind === 'project') setSelected(focusedLeft.project.cwd); }, [focusedLeft]);
-
+  const shownProject = useMemo(() => projects.find((p) => p.cwd === drilled) ?? null, [projects, drilled]);
   const right = useMemo<Item[]>(() => shownProject ? [
+    { kind: 'back' } as Item,
     { kind: 'new', cwd: shownProject.cwd, name: shownProject.name } as Item,
     ...shownProject.sessions.map((session) => ({ kind: 'session', session } as Item)),
-  ] : [], [shownProject]);
+  ] : [
+    ...projects.map((project) => ({ kind: 'project', project } as Item)),
+    { kind: 'open' } as Item,
+  ], [shownProject, projects]);
 
   const columns = [left, right];
 
@@ -152,9 +133,14 @@ const Home = forwardRef<HomeNav, Props>(function Home(
       if (running) onOpenLive(running);
       else onResume(item.session, machine);
     }
-    else if (item.kind === 'live') onOpenLive(item.session);
-    else if (item.kind === 'project') { setCol(1); setRow((r) => [r[0], 0]); }
-  }, [onContinue, onOpenFolder, onNew, onResume, onOpenLive, machine, wall, live]);
+    else if (item.kind === 'live') onOpenLive(item.entry.session);
+    else if (item.kind === 'calm') { setCol(1); setRow((r) => [r[0], 0]); }
+    else if (item.kind === 'project') { setDrilled(item.project.cwd); setCol(1); setRow((r) => [r[0], 0]); }
+    else if (item.kind === 'back') {
+      const at = projects.findIndex((p) => p.cwd === drilled);
+      setDrilled(null); setCol(1); setRow((r) => [r[0], Math.max(0, at)]);
+    }
+  }, [onContinue, onOpenFolder, onNew, onResume, onOpenLive, machine, wall, live, projects, drilled]);
 
   const stateRef = useRef({ col, row, columns });
   stateRef.current = { col, row, columns };
@@ -197,134 +183,111 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     return () => window.removeEventListener('keydown', onKey);
   }, [nav]);
 
+  // Nothing in the queue: the cursor starts on the projects instead.
+  const calm = left[0]?.kind === 'calm';
+  useEffect(() => { if (calm && col === 0) setCol(1); }, [calm, col]);
   const isFocused = (c: number, i: number) => col === c && row[c] === i;
+  const other = remote ? (machine === 'local' ? remote.label : 'This Deck') : null;
+  const needs = queue.needs.length;
+  const headline = needs
+    ? `${needs} session${needs === 1 ? '' : 's'} need${needs === 1 ? 's' : ''} you`
+    : queue.turn.length || current
+      ? 'Nothing waiting on an answer'
+      : queue.working.length ? `Claude is working in ${queue.working.length} session${queue.working.length === 1 ? '' : 's'}` : 'All quiet';
 
   return (
-    <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '18px 28px 0', gap: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        <Logo height={32} />
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '0.18em', color: C.text }}>HOME</div>
-          <div style={{ fontSize: 13, color: C.dim, marginTop: 3 }}>
-            {stats.today.sessions
-              ? `Today: ${stats.today.sessions} session${stats.today.sessions === 1 ? '' : 's'} in ${stats.today.projects} project${stats.today.projects === 1 ? '' : 's'}`
-              : 'No sessions yet today'}
-          </div>
-        </div>
-        {remote && (
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Glyph b="Y" />
-            {(['local', 'remote'] as const).map((m) => (
-              <button key={m} onClick={() => setMachine(m)} style={{
-                padding: '8px 16px', borderRadius: 8, fontSize: 14, cursor: 'pointer', fontWeight: 600,
-                border: `1px solid ${machine === m ? C.clay : C.line}`,
-                background: machine === m ? C.clayBg : C.panel, color: machine === m ? C.clay : C.dim,
-              }}>
-                {m === 'local' ? 'This Deck' : remote.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+    <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '18px 28px 0', gap: 16 }}>
+      <div style={{ fontSize: 26, fontWeight: 700, color: needs ? C.amber : C.text }}>{headline}</div>
 
-      <Readout stats={stats} plan={plan} remoteLabel={remote?.label ?? null} />
-
-      {machine === 'remote' && !wall && (
-        <div style={{ fontSize: 14, color: C.dim }}>Connecting to {remote?.label ?? 'your other computer'}…</div>
-      )}
-
-      {/* Sessions live on the machine they ran on, so a fresh Deck has none: say so plainly. */}
-      {wall && !wall.error && !wall.projects.some((p) => p.sessions.length) && (
-        <div style={{
-          fontSize: 13, color: C.dim, lineHeight: 1.55, padding: '10px 12px', borderRadius: 8,
-          border: `1px solid ${C.line}`, background: C.panel,
-        }}>
-          {machine === 'remote'
-            ? <>No Claude Code sessions on {where} yet. Open one of its folders to start the first one.</>
-            : <>No Claude Code sessions on this device yet. Sessions stay on the machine they ran on, so ones
-              from your other computers won&apos;t show up here{remote ? <> (press Y for {remote.label})</> : null}.
-              Open a project folder to start the first one.</>}
-        </div>
-      )}
-
-      {wall?.error && (
-        <div style={{ fontSize: 12, color: C.amber }}>Couldn&apos;t read Claude Code&apos;s sessions on {where}: {wall.error}</div>
-      )}
-
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 5fr) minmax(0, 7fr)', gap: 18, minHeight: 0 }}>
-        {/* Projects */}
-        <Column title="PROJECTS">
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: calm ? 'minmax(0, 4fr) minmax(0, 8fr)' : 'minmax(0, 7fr) minmax(0, 5fr)', gap: 22, minHeight: 0 }}>
+        {/* The queue */}
+        <Column title={remote ? `YOUR SESSIONS · ${remote.label.toUpperCase()} AND THIS DECK` : 'YOUR SESSIONS'}>
           {left.map((item, i) => {
             const focused = isFocused(0, i);
+            const go = () => { setCol(0); setRow([i, row[1]]); activate(item); };
             if (item.kind === 'continue' && current) {
               return (
-                <Row key="continue" focused={focused} accent onClick={() => activate(item)}>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: C.clay }}>CURRENT SESSION</div>
-                  <div style={{ fontSize: 16, color: C.text, marginTop: 3 }}>{current.title}</div>
-                  <div style={{ fontSize: 13, color: C.dim, marginTop: 3 }}>
-                    {current.project ?? 'No project'}
-                  </div>
+                <Row key="continue" focused={focused} onClick={go}>
+                  <Kicker color={C.clay}>OPEN HERE · THIS DECK</Kicker>
+                  <Title>{current.title}</Title>
+                  <Sub>{current.project ?? 'No project'}</Sub>
                 </Row>
               );
             }
             if (item.kind === 'live') {
-              const s = item.session;
-              const busy = s.status === 'busy';
+              const s = item.entry.session;
+              const tone = item.group === 'needs' ? C.amber : item.group === 'working' ? C.green : C.clay;
+              const label = item.group === 'needs'
+                ? `NEEDS YOU${item.entry.waiting > 1 ? ` · ${item.entry.waiting} QUESTIONS` : ''}`
+                : item.group === 'turn' ? 'YOUR TURN' : 'WORKING';
+              const line = item.group === 'needs' ? item.entry.ask : item.group === 'working' ? (s.tool ?? s.said) : s.said;
               return (
-                <Row key={`live-${s.sessionId}`} focused={focused} accent onClick={() => { setCol(0); setRow([i, row[1]]); activate(item); }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                      width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                      background: item.waiting ? C.amber : busy ? C.green : C.faint,
-                    }} />
-                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: item.waiting ? C.amber : C.clay }}>
-                      {item.waiting ? 'NEEDS YOU' : busy ? 'LIVE · WORKING' : 'LIVE · IDLE'}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 16, color: C.text, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {s.name || folderName(s.cwd)}
-                  </div>
-                  <div style={{ fontSize: 13, color: C.dim, marginTop: 3 }}>
-                    {folderName(s.cwd)} · {liveSource(s.entrypoint)}
-                  </div>
+                <Row key={`live-${s.sessionId}`} focused={focused} accent={item.group === 'needs'} onClick={go}>
+                  <Kicker color={tone}>
+                    {label} <span style={{ color: C.faint, fontWeight: 600 }}>· {folderName(s.cwd)} · {timeAgo(s.updatedAt)}</span>
+                  </Kicker>
+                  <Title>{s.name || folderName(s.cwd)}</Title>
+                  {line && (
+                    <div style={{
+                      fontSize: 16, color: item.group === 'needs' ? C.text : C.dim, marginTop: 4, lineHeight: 1.4,
+                      fontFamily: item.group === 'needs' && line.startsWith('$ ') ? 'JetBrains Mono, Consolas, monospace' : undefined,
+                      overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                    }}>{line}</div>
+                  )}
                 </Row>
               );
             }
+            return (
+              <div key="calm" style={{ fontSize: 17, color: C.dim, lineHeight: 1.5, padding: '8px 4px' }}>
+                {remote
+                  ? live?.connected
+                    ? <>Nothing needs you. Start something on the right.</>
+                    : <>Connecting to {remote.label}…</>
+                  : <>Nothing needs you. Start something on the right, or add your Mac in Settings to see its sessions here.</>}
+                {queue.quiet > 0 && <div style={{ fontSize: 15, color: C.faint, marginTop: 6 }}>{queue.quiet} older idle session{queue.quiet === 1 ? '' : 's'} on {remote?.label}</div>}
+              </div>
+            );
+          })}
+        </Column>
+
+        {/* Start or resume */}
+        <Column title={shownProject ? shownProject.name.toUpperCase() : `START OR RESUME · ${machine === 'remote' && remote ? remote.label.toUpperCase() : 'THIS DECK'}`}>
+          {machine === 'remote' && !wall && <Sub>Connecting to {remote?.label ?? 'your other computer'}…</Sub>}
+          {wall?.error && <div style={{ fontSize: 15, color: C.amber }}>Couldn&apos;t read Claude Code&apos;s sessions on {where}: {wall.error}</div>}
+          {right.map((item, i) => {
+            const focused = isFocused(1, i);
+            const go = () => { setCol(1); setRow([row[0], i]); activate(item); };
             if (item.kind === 'project') {
               const p = item.project;
-              const open = p.cwd === shownProject?.cwd;
               return (
-                <Row key={p.cwd} focused={focused} selected={open && col === 1} onClick={() => { setCol(0); setRow([i, row[1]]); }}>
+                <Row key={p.cwd} focused={focused} onClick={go}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                    <span style={{ fontSize: 17, fontWeight: 600, color: C.text }}>{p.name}</span>
+                    <Title>{p.name}</Title>
                     {isOpen(p.cwd) && <Tag>open</Tag>}
                   </div>
                   <GitLine project={p} />
                 </Row>
               );
             }
-            return (
-              <Row key="open" focused={focused} onClick={() => activate(item)}>
-                <div style={{ fontSize: 14, color: C.dim }}>＋ Open another folder</div>
-              </Row>
-            );
-          })}
-        </Column>
-
-        {/* Sessions in the project under the cursor */}
-        <Column title={shownProject ? `SESSIONS · ${shownProject.name.toUpperCase()}` : 'SESSIONS'}>
-          {!shownProject && (
-            <div style={{ fontSize: 13, color: C.faint, padding: '10px 4px', lineHeight: 1.6 }}>
-              No projects on this device yet. Open a project folder to start the first session.
-            </div>
-          )}
-          {right.map((item, i) => {
-            const focused = isFocused(1, i);
+            if (item.kind === 'open') {
+              return (
+                <Row key="open" focused={focused} onClick={go}>
+                  <div style={{ fontSize: 17, color: C.dim }}>＋ Open another folder</div>
+                </Row>
+              );
+            }
+            if (item.kind === 'back') {
+              return (
+                <Row key="back" focused={focused} onClick={go}>
+                  <div style={{ fontSize: 17, color: C.dim }}>← All projects</div>
+                </Row>
+              );
+            }
             if (item.kind === 'new') {
               return (
-                <Row key="new" focused={focused} accent onClick={() => activate(item)}>
-                  <div style={{ fontSize: 16, color: C.text }}>＋ New session in {item.name}</div>
-                  <div style={{ fontSize: 13, color: C.dim, marginTop: 3 }}>A fresh Claude Code session in this folder</div>
+                <Row key="new" focused={focused} accent onClick={go}>
+                  <Title>＋ New session</Title>
+                  <Sub>A fresh Claude Code session in {item.name}</Sub>
                 </Row>
               );
             }
@@ -333,17 +296,13 @@ const Home = forwardRef<HomeNav, Props>(function Home(
               const isCurrent = s.id === wall?.currentId;
               const running = !isCurrent && machine === 'remote' && !!live?.state?.live.some((l) => l.sessionId === s.id);
               return (
-                <Row key={s.id} focused={focused} onClick={() => activate(item)}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                    <span style={{ fontSize: 16, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {s.title}
-                    </span>
-                    {isCurrent && <Tag>current</Tag>}
+                <Row key={s.id} focused={focused} onClick={go}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+                    <Title>{s.title}</Title>
+                    {isCurrent && <Tag>open</Tag>}
                     {running && <Tag>live</Tag>}
                   </div>
-                  <div style={{ fontSize: 13, color: C.dim, marginTop: 3 }}>
-                    {s.branch ? `⎇ ${s.branch} · ` : ''}{timeAgo(s.lastModified)}
-                  </div>
+                  <Sub>{s.branch ? `⎇ ${s.branch} · ` : ''}{timeAgo(s.lastModified)}</Sub>
                 </Row>
               );
             }
@@ -354,12 +313,12 @@ const Home = forwardRef<HomeNav, Props>(function Home(
 
       {/* The console's button legend. */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 22, padding: '10px 2px 12px', borderTop: `1px solid ${C.line}`,
-        fontSize: 13, color: C.dim,
+        display: 'flex', alignItems: 'center', gap: 24, padding: '10px 2px 12px', borderTop: `1px solid ${C.line}`,
+        fontSize: 16, color: C.dim,
       }}>
         <span><Glyph b="A" /> Open</span>
         {current && <span><Glyph b="B" /> Back to session</span>}
-        {remote && <span><Glyph b="Y" /> {machine === 'local' ? remote.label : 'This Deck'}</span>}
+        {other && <span><Glyph b="Y" /> Projects on {other}</span>}
         <span style={{ marginLeft: 'auto' }}><Glyph b="Menu" /> Settings</span>
       </div>
     </div>
@@ -368,74 +327,17 @@ const Home = forwardRef<HomeNav, Props>(function Home(
 
 export default Home;
 
-// The readout across the top of Home: four numbers, each pointing at something to do.
-function Readout({ stats, plan, remoteLabel }: { stats: DashboardStats; plan: PlanUsage | null; remoteLabel: string | null }) {
-  const head = plan && planHeadline(plan, Date.now());
-  const stale = plan && Date.now() - plan.at > 6 * 3600_000 ? ` · as of ${timeAgo(plan.at)}` : '';
-  const { files, projects, toPush } = stats.unshipped;
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
-      <Tile
-        label="NEEDS YOU"
-        value={String(stats.needsYou)}
-        tone={stats.needsYou ? C.amber : C.green}
-        sub={stats.needsYou ? `Claude is waiting${remoteLabel ? ` on ${remoteLabel}` : ''}` : 'Nothing waiting on you'}
-      />
-      <Tile
-        label="WORKING NOW"
-        value={stats.running ? String(stats.running.working) : '—'}
-        tone={stats.running?.working ? C.green : C.text}
-        sub={stats.running
-          ? `${stats.running.idle} idle · on ${remoteLabel}`
-          : 'Add your other computer in Settings'}
-      />
-      <Tile
-        label="UNSHIPPED"
-        value={String(files)}
-        tone={files || toPush ? C.amber : C.green}
-        sub={files || toPush
-          ? `${files ? `file${files === 1 ? '' : 's'} uncommitted` : 'all committed'}${toPush ? ` · ${toPush} to push` : ''} · ${projects} project${projects === 1 ? '' : 's'}`
-          : 'Everything committed and pushed'}
-      />
-      <Tile
-        label="PLAN USAGE"
-        value={head ? `${Math.round(head.used * 100)}%` : '—'}
-        tone={head?.limited || (head && head.used >= 0.9) ? C.red : head && head.used >= 0.7 ? C.amber : C.text}
-        meter={head ? head.used : null}
-        sub={head
-          ? [head.limited ? 'Limit reached' : head.label, resetsIn(head.resetsAt)].filter(Boolean).join(' · ') + stale
-          : 'Shows after your next session'}
-      />
-    </div>
-  );
-}
-
-function Tile({ label, value, sub, tone, meter = null }: { label: string; value: string; sub: string; tone: string; meter?: number | null }) {
-  return (
-    <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: '12px 16px', minWidth: 0 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.16em', color: C.faint }}>{label}</div>
-      <div style={{ fontSize: 30, fontWeight: 700, color: tone, marginTop: 4, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{value}</div>
-      {meter !== null && (
-        <div style={{ height: 4, borderRadius: 2, background: C.line, marginTop: 6, overflow: 'hidden' }}>
-          <div style={{ width: `${Math.min(100, meter * 100)}%`, height: '100%', background: tone === C.text ? C.clay : tone }} />
-        </div>
-      )}
-      <div style={{ fontSize: 13, color: C.dim, marginTop: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>
-    </div>
-  );
-}
-
 function Column({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.16em', color: C.faint, margin: '0 2px 8px' }}>{title}</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', padding: '2px 6px 12px 2px' }}>{children}</div>
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+      <div style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, letterSpacing: '0.14em', color: C.faint, margin: '0 2px 10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', padding: '2px 6px 12px 2px' }}>{children}</div>
     </div>
   );
 }
 
-function Row({ focused, selected, accent, onClick, children }: {
-  focused: boolean; selected?: boolean; accent?: boolean; onClick: () => void; children: React.ReactNode;
+function Row({ focused, accent, onClick, children }: {
+  focused: boolean; accent?: boolean; onClick: () => void; children: React.ReactNode;
 }) {
   const el = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (focused) el.current?.scrollIntoView({ block: 'nearest' }); }, [focused]);
@@ -444,9 +346,9 @@ function Row({ focused, selected, accent, onClick, children }: {
       ref={el}
       onClick={onClick}
       style={{
-        textAlign: 'left', width: '100%', cursor: 'pointer', borderRadius: 10, padding: '12px 16px',
+        textAlign: 'left', width: '100%', cursor: 'pointer', borderRadius: 12, padding: '14px 18px',
         background: focused ? C.clayBg : accent ? '#181512' : C.panel,
-        border: `1px solid ${focused ? C.clay : selected ? '#4A3A33' : C.line}`,
+        border: `1px solid ${focused ? C.clay : C.line}`,
         // The console's focus ring: unmistakable at arm's length.
         boxShadow: focused ? `0 0 0 2px ${C.clay}, 0 0 18px rgba(217,119,87,0.25)` : 'none',
         transition: 'box-shadow 120ms, background 120ms',
@@ -461,8 +363,8 @@ function Row({ focused, selected, accent, onClick, children }: {
 function Tag({ children }: { children: React.ReactNode }) {
   return (
     <span style={{
-      fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: C.clay,
-      border: `1px solid ${C.clay}`, borderRadius: 3, padding: '0 5px', flexShrink: 0,
+      fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: C.clay,
+      border: `1px solid ${C.clay}`, borderRadius: 4, padding: '0 6px', flexShrink: 0,
     }}>
       {children}
     </span>
@@ -486,8 +388,18 @@ function GitLine({ project }: { project: ProjectTile }) {
     ? `${project.sessions.length} session${project.sessions.length === 1 ? '' : 's'} · ${timeAgo(project.lastModified)}`
     : 'no sessions yet'}</span>);
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', fontSize: 13, color: C.dim, marginTop: 5 }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 14px', fontSize: 15, color: C.dim, marginTop: 5 }}>
       {bits}
     </div>
   );
 }
+
+const Kicker = ({ color, children }: { color: string; children: React.ReactNode }) => (
+  <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.12em', color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{children}</div>
+);
+const Title = ({ children }: { children: React.ReactNode }) => (
+  <div style={{ fontSize: 20, fontWeight: 600, color: C.text, marginTop: 3, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{children}</div>
+);
+const Sub = ({ children }: { children: React.ReactNode }) => (
+  <div style={{ fontSize: 15, color: C.dim, marginTop: 4 }}>{children}</div>
+);
