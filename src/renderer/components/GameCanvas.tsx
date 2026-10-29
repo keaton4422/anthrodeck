@@ -83,6 +83,7 @@ export default function GameCanvas({
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [gen, setGen] = useState(0);
   const [hud, setHud] = useState('');
+  const [over, setOver] = useState(false);
   const [scores, setScores] = useState<HighScores>({});
   const [isRecord, setIsRecord] = useState(false);
 
@@ -120,15 +121,16 @@ export default function GameCanvas({
 
   // The sim re-inits on a mode change, a resize or Restart, and otherwise resumes the parked race.
   const sizeKey = dims ? `${dims.w}x${dims.h}` : '';
-  const hudRef = useGameLoop(
+  const { hudRef, overRef } = useGameLoop(
     canvasRef, dims ? mode : undefined, telemetry, true, paused, `${gen}:${sizeKey}`, onIntents, handleGameOver,
+    () => setIsRecord(false),
   );
 
-  // Surface the sim's HUD string without re-rendering every frame.
+  // Surface the sim's HUD string (and whether the run is over) without re-rendering every frame.
   useEffect(() => {
-    const id = window.setInterval(() => setHud(hudRef.current), 150);
+    const id = window.setInterval(() => { setHud(hudRef.current); setOver(overRef.current); }, 150);
     return () => window.clearInterval(id);
-  }, [hudRef]);
+  }, [hudRef, overRef]);
 
   const telemetryModes = allModes.filter((m) => m.kind === 'telemetry');
   const freeplayModes = allModes.filter((m) => m.kind === 'freeplay');
@@ -157,7 +159,7 @@ export default function GameCanvas({
             border: '1px solid #CC785C', background: 'rgba(204,120,92,0.12)', color: '#CC785C', fontWeight: 600,
           }}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mode.name}</span>
-            <span style={{ color: '#9A9A9A', fontWeight: 400, whiteSpace: 'nowrap' }}>▾ · Start</span>
+            <span style={{ color: '#9A9A9A', fontWeight: 400 }}>▾</span>
           </button>
         </div>
 
@@ -175,8 +177,7 @@ export default function GameCanvas({
           </span>
         )}
         <span style={{
-          fontFamily: 'monospace', fontSize: 12, color: '#8A8A8A', width: 260, flexShrink: 0, textAlign: 'right',
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          fontFamily: 'monospace', fontSize: 12, color: '#8A8A8A', flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap',
         }}>
           {hud}
         </span>
@@ -204,7 +205,13 @@ export default function GameCanvas({
       {/* Claude's lap, live while you play. The row is reserved even while empty: the canvas
           re-inits on resize, so a strip popping in mid-lap would wipe the race. */}
       <div style={{ height: STRIP_H, flexShrink: 0, overflow: 'hidden', background: '#111', borderBottom: '1px solid #1E1E1E' }}>
-        <SectorStrip sectors={sectors} checkpoints={checkpoints} />
+        {sectors.length || checkpoints.length
+          ? <SectorStrip sectors={sectors} checkpoints={checkpoints} />
+          : (
+            <div style={{ padding: '6px 16px', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: '#444' }}>
+              TASKS <span style={{ fontWeight: 400, letterSpacing: 0, color: '#4A4A4A' }}>· Claude&apos;s plan shows here as it works</span>
+            </div>
+          )}
       </div>
 
       {/* Blurb */}
@@ -251,6 +258,18 @@ export default function GameCanvas({
               )}
             </div>
           )}
+          {over && !paused && (
+            <div style={{
+              position: 'absolute', left: 0, right: 0, bottom: 28, display: 'flex', justifyContent: 'center', pointerEvents: 'none',
+            }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', padding: '8px 16px', borderRadius: 999, fontSize: 15, fontWeight: 600,
+                background: 'rgba(10,11,13,0.85)', border: '1px solid #2A2A2A', color: '#ECECEC',
+              }}>
+                <Glyph b="A" />Play again
+              </span>
+            </div>
+          )}
           {choice && !approvalPaused && <ShootChoice choice={choice} onPick={onChoose} />}
           {approvalPaused && (
             <div style={{
@@ -276,11 +295,10 @@ export default function GameCanvas({
       {/* Controls hint */}
       <div style={{ padding: '8px 16px', fontSize: 11, color: '#5A5A5A', borderTop: '1px solid #141414', flexShrink: 0 }}>
         <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 14px' }}>
-          <span>Left stick or gyro: fly</span>
-          <span><Glyph b="R2" />or <Glyph b="A" />fire</span>
-          <span><Glyph b="B" />or <Glyph b="L1" />boost</span>
-          <span><Glyph b="D-pad" />move</span>
-          <span><Glyph b="Menu" />games</span>
+          {(mode.controls ?? 'Left stick: move · [R2] or [A] fire').split(' · ').map((c) => (
+            <span key={c}>{withGlyphs(c)}</span>
+          ))}
+          <span>{withGlyphs('[Menu] games')}</span>
         </span>
       </div>
     </div>
@@ -356,7 +374,7 @@ function GameMenu({
               </span>
               <span style={{
                 fontSize: 12, color: '#8A8A8A', lineHeight: 1.4,
-                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden',
               }}>
                 {m.blurb.replace(/^Mod by [^·]+·\s*/, '')}
               </span>

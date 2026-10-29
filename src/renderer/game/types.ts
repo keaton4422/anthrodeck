@@ -87,6 +87,9 @@ export interface GameMode<S = unknown> {
   name: string;
   kind: 'telemetry' | 'freeplay';
   blurb: string;
+  // The controls, shown along the bottom while it's played: buttons in [brackets] are drawn as the
+  // Deck's glyphs, e.g. 'Left stick: steer · [R2] throttle'. Without it the bar shows a generic set.
+  controls?: string;
   init(width: number, height: number): S;
   // Pure: given prior state + input + telemetry + elapsed seconds, return the next state.
   step(state: S, input: GameInput, tel: TelemetryFrame, dt: number): S;

@@ -44,6 +44,9 @@ export interface GridState extends IntentCarrier {
   moveAcc: number;
   collected: number;
   rivalsDown: number;
+  // Everyone waits on the grid until the pilot first moves the stick (or pulls the trigger): a run
+  // that set off by itself had the cycle in the wall before a thumb was on the pad.
+  launched: boolean;
   crashed: boolean;
   finished: boolean;
   boostT: number;
@@ -100,7 +103,8 @@ export function createMode(): GameMode<GridState> {
     id: 'freeplay-gridcycles',
     name: 'Grid Cycles',
     kind: 'freeplay',
-    blurb: 'Walled arena, 90° turns, rivals lay wall too · drive over data nodes to prune stale context · boost = a write you approved',
+    blurb: 'Lightcycles in a walled arena. Box your rivals in with your wall, and sweep up data nodes to prune stale context.',
+    controls: 'Left stick or [D-pad] turn · [R2] speed up',
 
     init(w, h): GridState {
       const cols = Math.max(20, Math.floor(w / CELL));
@@ -117,7 +121,7 @@ export function createMode(): GameMode<GridState> {
         w, h, cols, rows, player, rivals, nodes: [],
         occupied, speed: BASE_CPS, moveAcc: 0,
         collected: 0, rivalsDown: 0,
-        crashed: false, finished: false, boostT: 0,
+        launched: false, crashed: false, finished: false, boostT: 0,
         tick: 0, intents: [],
       };
     },
@@ -144,6 +148,13 @@ export function createMode(): GameMode<GridState> {
           const ny = 2 + ((s.tick * 53) % (s.rows - 4));
           if (!s.occupied.has(key(nx, ny))) s.nodes.push({ x: nx, y: ny });
         }
+      }
+
+      if (!s.launched) {
+        const moved = input.left || input.right || input.up || input.down || input.fire
+          || Math.abs(input.steer) > 0.5 || Math.abs(input.moveY) > 0.5 || input.throttle > 0.3;
+        if (!moved) return s;
+        s.launched = true;
       }
 
       // Free-play: the pilot's own throttle drives pace, with a small nudge from throughput so the
@@ -268,6 +279,14 @@ export function createMode(): GameMode<GridState> {
       for (const r of s.rivals) drawCycle(r);
       drawCycle(s.player);
       drawScanlines(ctx, w, h, 0.05);
+
+      if (!s.launched) {
+        ctx.textAlign = 'center';
+        ctx.fillStyle = VAPOR.cyan;
+        ctx.font = 'bold 22px system-ui, sans-serif';
+        ctx.fillText('Turn to launch', s.player.x * CELL + CELL / 2, s.player.y * CELL - 22);
+        ctx.textAlign = 'left';
+      }
 
       if (s.crashed || s.finished) {
         ctx.fillStyle = 'rgba(0,0,0,0.58)';

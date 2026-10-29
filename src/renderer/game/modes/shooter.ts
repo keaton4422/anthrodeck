@@ -53,8 +53,10 @@ function wrap(v: number, max: number): number { return v < 0 ? v + max : v > max
 
 function spawnRock(w: number, h: number, tick: number, i: number): Rock {
   const seed = (tick * 2654435761 + i * 40503) >>> 0;
-  const t = ((seed >> 8) % 1000) / 1000;
-  const edge = seed % 4;
+  // Spread a wave round the edges (each rock its own side in turn, golden-ratio spaced along it)
+  // rather than hashing each place: hashed spawns stacked two rocks on one spot.
+  const t = (((seed >> 8) % 1000) / 1000 * 0.25 + i * 0.618) % 1;
+  const edge = (seed + i) % 4;
   let x = 0, y = 0;
   if (edge === 0) { x = t * w; y = -30; }
   else if (edge === 1) { x = w + 30; y = t * h; }
@@ -75,7 +77,8 @@ export function createMode(): GameMode<ShooterState> {
     id: 'freeplay-belt',
     name: 'Belt Clearance',
     kind: 'freeplay',
-    blurb: 'Rocks split large → medium → small · clearing a rock to dust prunes stale context · left stick moves, right stick aims, RT fires',
+    blurb: 'Break up the rock belt: large rocks split to medium, then small. Every rock you clear to dust prunes stale context.',
+    controls: 'Left stick: move · Right stick: aim · [R2] or [A] fire',
 
     init(w, h): ShooterState {
       return {
