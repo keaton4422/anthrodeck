@@ -9,6 +9,7 @@ import Store from 'electron-store';
 import { autoUpdater } from 'electron-updater';
 import Anthropic from '@anthropic-ai/sdk';
 import { registerEngineIpc } from './engine/bridge';
+import { canHandoff, listSteamGames, startHandoff, steamArt } from './steamGames';
 import { updaterErrorMessage } from './updaterMessages';
 import { whatsNew, type RawReleaseNotes, type UpdateAvailable } from './releaseNotes';
 import { LATEST_RELEASE_API, parseLatestRelease } from './manualUpdate';
@@ -156,6 +157,17 @@ function createWindow() {
 }
 
 // ─── Store IPC ────────────────────────────────────────────────────────────────
+// The Deck's own Steam games, played by handing off to them (main/steamGames.ts).
+ipcMain.handle('steam:list', () => ({ games: canHandoff().ok ? listSteamGames() : [], canPlay: canHandoff().ok }));
+ipcMain.handle('steam:art', (_, appid: string) => steamArt(appid));
+ipcMain.handle('steam:play', (_, appid: string) => {
+  const h = canHandoff();
+  if (!h.ok || !h.back || !/^\d+$/.test(appid)) return { ok: false };
+  const remote = store.get('remote', null) as { host?: string } | null;
+  startHandoff({ game: appid, back: h.back, host: remote?.host ?? null, pid: process.pid });
+  setTimeout(() => app.quit(), 400);
+  return { ok: true };
+});
 ipcMain.handle('store:get', (_, key: string) => store.get(key));
 ipcMain.handle('store:set', (_, key: string, value: unknown) => { store.set(key, value); });
 

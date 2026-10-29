@@ -59,11 +59,13 @@ interface Props {
   tidy: { hits: number; needed: number; queued: boolean; contextPct: number | null } | null;
   choice: ShotChoice | null;
   onChoose: (id: string) => void;
+  // Play one of the Deck's own Steam games: AnthroDeck hands off to it and comes back after.
+  onPlaySteam?: (appid: string, name: string) => void;
 }
 
 export default function GameCanvas({
   onClose, selectedId, onSelect, telemetry, paused: approvalPaused, onIntents, sectors, checkpoints, lapCard,
-  menuOpen, onMenu, menuNav, jobs, comms, tidy, choice, onChoose,
+  menuOpen, onMenu, menuNav, jobs, comms, tidy, choice, onChoose, onPlaySteam,
 }: Props) {
   // The sim stops for an approval card and while the game menu is up; never for news.
   const paused = approvalPaused || menuOpen;
@@ -165,7 +167,7 @@ export default function GameCanvas({
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 70, background: '#0A0B0D', overflow: 'hidden' }}>
       {/* The playfield is the whole screen; everything else floats over it. */}
-      <div ref={containerRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0, top: mode.fullBleed ? 0 : BAR_H, overflow: 'hidden' }}>
         <canvas
           ref={canvasRef}
           width={dims?.w ?? 1280}
@@ -298,6 +300,7 @@ export default function GameCanvas({
           selectedId={mode.id}
           nav={menuNav}
           onPick={(id) => { onSelect(id); onMenu(false); }}
+          onPlaySteam={onPlaySteam}
           onClose={() => onMenu(false)}
           onLeave={() => { onMenu(false); onClose(); }}
         />
@@ -333,12 +336,30 @@ function TidyMeter({ hits, needed, queued, contextPct }: { hits: number; needed:
 // fits any number of games and mods, and it's driven by the pad: D-pad to move, A to pick,
 // B or Start to close.
 function GameMenu({
-  telemetry, freeplay, modIds, selectedId, nav, onPick, onClose, onLeave,
+  telemetry, freeplay, modIds, selectedId, nav, onPick, onPlaySteam, onClose, onLeave,
 }: {
   telemetry: GameMode[]; freeplay: GameMode[]; modIds: Set<string>; selectedId: string;
   nav: React.MutableRefObject<PadFocus | null>; onPick: (id: string) => void; onClose: () => void;
+  onPlaySteam?: (appid: string, name: string) => void;
   onLeave: () => void;
 }) {
+  // The Deck's installed Steam games, with their covers (loaded one by one, they're files).
+  const [steam, setSteam] = useState<{ appid: string; name: string }[]>([]);
+  const [art, setArt] = useState<Record<string, string | null>>({});
+  useEffect(() => {
+    if (!onPlaySteam) return;
+    let live = true;
+    void window.electronAPI.steamList().then(async (r) => {
+      if (!live || !r.canPlay) return;
+      setSteam(r.games);
+      for (const g of r.games) {
+        const a = await window.electronAPI.steamArt(g.appid);
+        if (!live) return;
+        setArt((m) => ({ ...m, [g.appid]: a }));
+      }
+    });
+    return () => { live = false; };
+  }, [onPlaySteam]);
   const rootRef = useRef<HTMLDivElement>(null);
   // The ring starts on the game being played.
   const pad = usePadFocus(rootRef, undefined, () =>
@@ -407,6 +428,29 @@ function GameMenu({
         }}>← Leave the game · back to your sessions</button>
         {section('REACTS TO CLAUDE', 'what Claude does shows up in the game', telemetry)}
         {section('FREE PLAY', 'something to do while you wait', freeplay)}
+        {steam.length > 0 && onPlaySteam && (
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', color: '#6A6A6A', margin: '0 2px 8px' }}>
+              YOUR STEAM GAMES <span style={{ fontWeight: 400, letterSpacing: 0 }}>· Claude keeps working on your Mac; a chime when a session finishes, and AnthroDeck comes back when you quit</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
+              {steam.map((g) => (
+                <button key={g.appid} data-game={`steam-${g.appid}`} onClick={() => onPlaySteam(g.appid, g.name)} title={g.name} style={{
+                  padding: 0, borderRadius: 10, overflow: 'hidden', cursor: 'pointer', border: '1px solid #2A2A2A',
+                  background: '#151515', color: '#ECECEC', textAlign: 'left', display: 'flex', flexDirection: 'column',
+                }}>
+                  <div style={{
+                    aspectRatio: '2 / 3', width: '100%', background: art[g.appid] ? `center / cover no-repeat url("${art[g.appid]}")` : '#202020',
+                    display: 'flex', alignItems: 'flex-end', padding: 8, boxSizing: 'border-box',
+                  }}>
+                    {!art[g.appid] && <span style={{ fontSize: 14, fontWeight: 600 }}>{g.name}</span>}
+                  </div>
+                  <span style={{ fontSize: 13, padding: '6px 8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -419,6 +463,8 @@ const menuTag: React.CSSProperties = {
 
 // How long the sessions panel stays after something in it changes, and the controls after a game starts.
 const PEEK_MS = 6000;
+// The bar's height: a game that isn't full-bleed starts below it.
+const BAR_H = 56;
 const HINT_MS = 6000;
 
 const hdrBtn: React.CSSProperties = {

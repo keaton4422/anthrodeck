@@ -173,6 +173,9 @@ declare global {
       remoteTest: () => Promise<{ ok: boolean; claudePath?: string; version?: string; via?: string; error?: string }>;
       liveGet: () => Promise<LiveStatus>;
       liveRelay: (op: 'install' | 'remove') => Promise<{ ok: boolean; error?: string }>;
+      steamList: () => Promise<{ games: { appid: string; name: string; lastPlayed: number }[]; canPlay: boolean }>;
+      steamArt: (appid: string) => Promise<string | null>;
+      steamPlay: (appid: string) => Promise<{ ok: boolean }>;
       rcGet: () => Promise<RcStatus>;
       rcSet: (on: boolean) => Promise<RcStatus>;
       rcSetup: () => Promise<RcStatus>;
