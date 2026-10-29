@@ -59,7 +59,9 @@ function fakeMod(env: NodeJS.ProcessEnv, hub: (to: string, body: Record<string, 
   return () => { on = false; };
 }
 
-describe('the Deck\'s link session', () => {
+// The link is off on Windows (no pty for Remote Control's terminal session), and HOME stands in for
+// the home folder only on macOS and Linux.
+describe.skipIf(process.platform === 'win32')('the Deck\'s link session', () => {
   let home: string;
   let prevHome: string | undefined;
   let rc: DeckRc;
