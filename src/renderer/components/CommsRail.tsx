@@ -30,7 +30,7 @@ const TURN: Record<Turn, { label: string; color: string }> = {
   working: { label: 'WORKING', color: C.green },
 };
 
-export const RAIL_W = 320;
+export const RAIL_W = 380;
 
 export function CommsRail({ rail, selected, draft, listening, remoteLabel, onSelect, onSend, onDiscard }: Props) {
   const [typed, setTyped] = useState('');
@@ -43,8 +43,8 @@ export function CommsRail({ rail, selected, draft, listening, remoteLabel, onSel
       display: 'flex', flexDirection: 'column', minHeight: 0,
     }}>
       <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${C.line}` }}>
-        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.16em', color: C.text }}>SESSIONS</div>
-        <div style={{ fontSize: 12, color: C.dim, marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
+        <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.16em', color: C.text }}>SESSIONS</div>
+        <div style={{ fontSize: 15, color: C.dim, marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
           <span><Glyph b="Y" />{draft ? 'Send' : 'Next'}</span>
           <span><Glyph b="X" />Hold to talk</span>
 
@@ -53,7 +53,7 @@ export function CommsRail({ rail, selected, draft, listening, remoteLabel, onSel
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 8px 0' }}>
         {!rail.length && (
-          <div style={{ fontSize: 13, color: C.faint, padding: '8px 6px', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 15, color: C.faint, padding: '8px 6px', lineHeight: 1.5 }}>
             No sessions in flight. Start one from Home, or from Claude on {remoteLabel ?? 'your other computer'}.
           </div>
         )}
@@ -72,22 +72,22 @@ export function CommsRail({ rail, selected, draft, listening, remoteLabel, onSel
                   width: 7, height: 7, borderRadius: '50%', background: t.color, flexShrink: 0,
                   animation: j.working || j.needs ? 'commsPulse 1.4s ease-in-out infinite' : undefined,
                 }} />
-                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', color: t.color }}>
+                <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.12em', color: t.color }}>
                   {t.label}{j.needs && j.needs > 1 ? ` · ${j.needs}` : ''}
                 </span>
-                <span style={{ marginLeft: 'auto', fontSize: 10, color: C.faint }}>{j.remote ? remoteLabel ?? 'remote' : 'this Deck'}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: C.faint }}>{j.remote ? remoteLabel ?? 'remote' : 'this Deck'}</span>
               </div>
-              <div style={{ fontSize: 14, color: C.text, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 17, fontWeight: 600, color: C.text, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {j.label}
               </div>
               {j.working && j.tool && (
-                <div style={{ fontSize: 12, color: C.green, marginTop: 4, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 14, color: C.green, marginTop: 4, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   ▸ {j.tool}
                 </div>
               )}
               {j.said && (
                 <div style={{
-                  fontSize: 12.5, color: on ? '#C9C9C9' : C.dim, marginTop: 4, lineHeight: 1.45,
+                  fontSize: 15, color: on ? '#C9C9C9' : C.dim, marginTop: 4, lineHeight: 1.45,
                   display: '-webkit-box', WebkitLineClamp: on ? 5 : 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
                 }}>
                   {j.said}
@@ -98,12 +98,12 @@ export function CommsRail({ rail, selected, draft, listening, remoteLabel, onSel
                   marginTop: 8, padding: '8px 10px', borderRadius: 8, background: '#1A1714',
                   border: `1px solid ${listening ? C.red : '#2E2620'}`,
                 }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', color: listening ? C.red : C.clay }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.12em', color: listening ? C.red : C.clay }}>
                     {listening ? 'LISTENING…' : 'YOUR ORDERS'}
                   </div>
-                  {mine && <div style={{ fontSize: 14, color: C.text, marginTop: 4, whiteSpace: 'pre-wrap' }}>{mine.text}</div>}
+                  {mine && <div style={{ fontSize: 16, color: C.text, marginTop: 4, whiteSpace: 'pre-wrap' }}>{mine.text}</div>}
                   {mine && !listening && (
-                    <div style={{ fontSize: 12, color: C.dim, marginTop: 6, display: 'flex', gap: 12 }}>
+                    <div style={{ fontSize: 14, color: C.dim, marginTop: 6, display: 'flex', gap: 12 }}>
                       <span><Glyph b="Y" />Send</span>
                       <span><Glyph b="X" />Add more</span>
                       <span><Glyph b="View" />Drop</span>
@@ -136,7 +136,7 @@ export function CommsRail({ rail, selected, draft, listening, remoteLabel, onSel
           disabled={!sel}
           placeholder={sel ? `Message ${sel.label}` : 'Pick a session'}
           style={{
-            width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, fontSize: 14,
+            width: '100%', boxSizing: 'border-box', padding: '12px 14px', borderRadius: 8, fontSize: 16,
             background: '#17181B', border: `1px solid ${C.line}`, color: C.text, outline: 'none', fontFamily: 'inherit',
           }}
         />

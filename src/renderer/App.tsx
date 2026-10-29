@@ -855,7 +855,6 @@ export default function App() {
         mode={mode}
         liveMode={liveShown ? liveChat.mode : undefined}
         onCycleMode={cycleMode}
-        career={{ level: season.level, tier: season.tier, progress: season.progress }}
         onDrawer={() => setDrawerOpen((s) => !s)}
         onSettings={() => setShowSettings((s) => !s)}
         onCockpit={() => setCockpitOpen((s) => !s)}
