@@ -123,6 +123,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
 
   const activate = useCallback((item: Item | undefined) => {
     if (!item) return;
+    touched.current = true;
     if (item.kind === 'continue') onContinue();
     else if (item.kind === 'open') onOpenFolder(machine);
     else if (item.kind === 'new') onNew(item.cwd, machine);
@@ -142,12 +143,14 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     }
   }, [onContinue, onOpenFolder, onNew, onResume, onOpenLive, machine, wall, live, projects, drilled]);
 
+  const touched = useRef(false);
   const stateRef = useRef({ col, row, columns });
   stateRef.current = { col, row, columns };
 
   // One set of moves for the pad (through the HomeNav handle) and the keyboard.
   const nav = useMemo<HomeNav>(() => ({
     move(dx, dy) {
+      touched.current = true;
       const { col: c, row: r, columns: cols } = stateRef.current;
       if (dx) {
         const next = Math.max(0, Math.min(1, c + dx));
@@ -183,9 +186,14 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     return () => window.removeEventListener('keydown', onKey);
   }, [nav]);
 
-  // Nothing in the queue: the cursor starts on the projects instead.
+  // Nothing in the queue: the cursor starts on the projects instead, and comes back to the queue
+  // when something arrives in it (the live sessions load a moment after Home), unless the pilot has
+  // moved it since.
   const calm = left[0]?.kind === 'calm';
-  useEffect(() => { if (calm && col === 0) setCol(1); }, [calm, col]);
+  useEffect(() => {
+    if (calm && col === 0) setCol(1);
+    else if (!calm && !touched.current) { setCol(0); setRow((r) => [0, r[1]]); }
+  }, [calm, col]);
   const isFocused = (c: number, i: number) => col === c && row[c] === i;
   const other = remote ? (machine === 'local' ? remote.label : 'This Deck') : null;
   const needs = queue.needs.length;
