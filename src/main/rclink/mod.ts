@@ -13,7 +13,7 @@
 // Messages are Claude Code's own cross-session messages: "ADK1 {json}" one way, "ADK1R {json}"
 // back. Both sessions consume every message they get, so Claude never reads one and no turn starts.
 
-export const MOD_VERSION = 1;
+export const MOD_VERSION = 2;
 export const HUB_NAME = 'anthrodeck-hub';
 
 export const PLUGIN_JSON = JSON.stringify({

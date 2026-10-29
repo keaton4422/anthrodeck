@@ -274,7 +274,9 @@ Home then switches between this device and the Mac (**Y**). On the Mac side you 
   [Remote Control](https://code.claude.com/docs/en/remote-control): the Mac's sessions, following
   and messaging them, and their approvals keep working. Nothing to install: whenever the Deck reaches
   the Mac at home it sets up a small Claude Code session there named `anthrodeck-hub` (with the
-  `anthrodeck-link` mod, `~/.anthrodeck/rc/`), and runs one of its own when it needs it. It needs a
+  `anthrodeck-link` mod, `~/.anthrodeck/rc/`; a LaunchAgent, `com.anthrodeck.hub`, runs it in your
+  login session so it's signed in, and starts it again after a restart), and runs one of its own
+  when it needs it. It needs a
   claude.ai sign-in on both, Claude Code 2.1.308 or later, and the Mac awake (**System Settings →
   Energy → Prevent automatic sleeping**). Turn it off in **Settings → Remote computer**. Sessions
   started from the Deck on the Mac still run over SSH: they keep running while it's away, and the
