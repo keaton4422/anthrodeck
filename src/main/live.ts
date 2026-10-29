@@ -25,6 +25,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import type { ChoiceKind, ChoiceOption } from './engine/session';
 import { toolLabel } from './engine/tools';
 import { addressFailed, addressWorked, remotePython, shq, sshArgs, sshProblem, unreachable } from './remote';
+import { isLinkFolder } from './rclink/mod';
 
 export const RELAY_VERSION = 1;
 
@@ -719,7 +720,8 @@ export class LiveLink {
     this.deps.onStatus(s);
   }
 
-  private onState(state: LiveState): void {
+  private onState(raw: LiveState): void {
+    const state = { ...raw, live: raw.live.filter((s) => !isLinkFolder(s.cwd)) };
     this.backoff = 2000;
     addressWorked(this.host);
     // First report on a fresh connection: pick the open session back up.

@@ -6,7 +6,8 @@ import path from 'path';
 import { PassThrough } from 'stream';
 import type { ChildProcess } from 'child_process';
 import { DeckRc, RcChannel, linkSpawner, parsePeers, pickHub, writeMod } from '../rclink';
-import { MOD_FILES, REGISTER_JS } from '../rclink/mod';
+import { MOD_FILES, REGISTER_JS, isLinkFolder } from '../rclink/mod';
+import { toSessionCards } from '../sessions';
 
 const LISTING = `This session is anthrodeck-deck [d96df7] — the name other sessions use to message it.
 
@@ -26,6 +27,17 @@ describe('the Remote Control listing', () => {
   it('picks the hub that is online, addressed the way SendMessage names it', () => {
     expect(pickHub(parsePeers(LISTING))).toBe('anthrodeck-hub [fa1763]');
     expect(pickHub(parsePeers(LISTING.replace('idle', 'offline')))).toBeNull();
+  });
+});
+
+describe('the link\'s own sessions', () => {
+  it('are never listed as projects', () => {
+    expect(isLinkFolder('/Users/a/.anthrodeck/rc/hub/home')).toBe(true);
+    expect(isLinkFolder('/home/deck/.anthrodeck/rc/deck/home')).toBe(true);
+    expect(isLinkFolder('/Users/a/code/rc')).toBe(false);
+    const info = (cwd: string) => ({ sessionId: cwd, cwd, summary: 'x', lastModified: 1 }) as never;
+    const cards = toSessionCards([info('/Users/a/.anthrodeck/rc/hub/home'), info('/Users/a/app')], () => true);
+    expect(cards.map((c) => c.cwd)).toEqual(['/Users/a/app']);
   });
 });
 
