@@ -318,6 +318,7 @@ export function createMode(): GameMode<FlightState> {
     name: 'Trench Run',
     kind: 'telemetry',
     blurb: 'Fly a starfighter down Claude\'s trench. Shoot turrets to prune stale context, and hit the core at the end of each section.',
+    fullBleed: true,
     controls: 'Left stick: fly · Right stick: aim · [R2] or [A] fire · [B] or [L1] boost · [D-pad] up: chase view',
 
     init(w, h): FlightState {
@@ -1448,7 +1449,7 @@ function lamp(ctx: CanvasRenderingContext2D, x: number, y: number, lw: number, l
   ctx.fillStyle = on ? col : '#26262B';
   ctx.fillRect(x, y, lw, lh);
   ctx.fillStyle = on ? INK : '#6A6A70';
-  ctx.font = `bold ${Math.round(9 * k)}px ${MONO}`;
+  ctx.font = `bold ${Math.round(12 * k)}px ${MONO}`;
   ctx.textAlign = 'center';
   ctx.fillText(label, x + lw / 2, y + lh * 0.7);
 }
@@ -1479,7 +1480,7 @@ function drawConsole(ctx: CanvasRenderingContext2D, s: FlightState, w: number, h
   const pad = 14 * k;
   const py0 = top + 22 * k;
   const ph = h - py0 - pad;
-  const lab = `${Math.round(10 * k)}px ${MONO}`;
+  const lab = `${Math.round(13 * k)}px ${MONO}`;
   const val = `bold ${Math.round(17 * k)}px ${MONO}`;
   const row = ph / 4;
 
@@ -1573,7 +1574,7 @@ function drawConsole(ctx: CanvasRenderingContext2D, s: FlightState, w: number, h
   const lampW = (w * 0.28) / lamps.length;
   const lampY = hood + 3 * k;
   for (let i = 0; i < lamps.length; i++) {
-    lamp(ctx, w * 0.36 + i * lampW + 2, lampY, lampW - 4, 11 * k, lamps[i][0], lamps[i][1], lamps[i][2], k);
+    lamp(ctx, w * 0.36 + i * lampW + 2, lampY, lampW - 4, 15 * k, lamps[i][0], lamps[i][1], lamps[i][2], k);
   }
 
   // Right screen: the run.

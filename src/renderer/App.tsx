@@ -318,6 +318,23 @@ export default function App() {
     viaRef.current = via;
   }, [live?.connected, live?.via, live?.label, showToast]);
 
+  // One of the Deck's own Steam games: AnthroDeck hands off to it and comes back when it's quit
+  // (main/steamGames.ts). A session working here on the Deck would stop with AnthroDeck, so that
+  // takes a second pick to confirm.
+  const steamConfirm = useRef<{ appid: string; at: number } | null>(null);
+  const playSteam = useCallback((appid: string, name: string) => {
+    const c = steamConfirm.current;
+    if (isStreaming && !(c && c.appid === appid && Date.now() - c.at < 8000)) {
+      steamConfirm.current = { appid, at: Date.now() };
+      showToast(`Claude is working here on the Deck: playing ${name} stops it. Pick it again to play anyway.`);
+      return;
+    }
+    steamConfirm.current = null;
+    void window.electronAPI.steamPlay(appid).then((r) => {
+      showToast(r.ok ? `Starting ${name}… AnthroDeck comes back when you quit it.` : `Can't start ${name} from here.`);
+    });
+  }, [isStreaming, showToast]);
+
   // Games act on the session here. Only non-destructive intents exist (see game/types.ts): a stray
   // flick of the stick must never approve a write. Clearing stale context in a game is the pilot
   // tidying up: enough of it, with the context filling up, queues a compaction that runs when
@@ -1055,6 +1072,7 @@ export default function App() {
           tidy={tidyUp ? { hits: tidy.hits, needed: TIDY_HITS, queued: tidy.queued, contextPct: context?.percentage ?? null } : null}
           choice={doneChoice}
           onChoose={onDoneChoice}
+          onPlaySteam={playSteam}
         />
       )}
 

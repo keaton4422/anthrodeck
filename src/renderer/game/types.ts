@@ -90,6 +90,9 @@ export interface GameMode<S = unknown> {
   // The controls, shown along the bottom while it's played: buttons in [brackets] are drawn as the
   // Deck's glyphs, e.g. 'Left stick: steer · [R2] throttle'. Without it the bar shows a generic set.
   controls?: string;
+  // True for a game that draws a scene to the very top (a sky, a trench): the cockpit's bar floats
+  // over it. Otherwise the playfield starts below the bar, so nothing the player needs sits under it.
+  fullBleed?: boolean;
   init(width: number, height: number): S;
   // Pure: given prior state + input + telemetry + elapsed seconds, return the next state.
   step(state: S, input: GameInput, tel: TelemetryFrame, dt: number): S;

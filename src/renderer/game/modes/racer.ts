@@ -270,6 +270,7 @@ export function createMode(): GameMode<RacerState> {
     name: 'Engine Runner',
     kind: 'telemetry',
     blurb: 'A night highway run. Smash red hunters for a boost and miss the civilians. Every time Claude finishes is a lap.',
+    fullBleed: true,
     controls: 'Left stick: steer · [R2] throttle · [L2] brake',
 
     init(w, h): RacerState {
@@ -604,26 +605,27 @@ export function createMode(): GameMode<RacerState> {
 
       // Region banner, and a heads-up as the next country approaches.
       ctx.textAlign = 'center';
-      ctx.font = '11px system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(204,120,92,0.85)';
-      ctx.fillText(reg.name, w / 2, 22);
+      // Below the cockpit's bar, which floats over the sky.
+      ctx.font = 'bold 14px system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(204,120,92,0.9)';
+      ctx.fillText(reg.name, w / 2, 78);
       if (fade > 0) {
         const nxt = REGIONS[(REGIONS.indexOf(reg) + 1) % REGIONS.length];
         ctx.fillStyle = `rgba(236,236,236,${fade})`;
-        ctx.fillText(`→ ${nxt.name}`, w / 2, 40);
+        ctx.fillText(`→ ${nxt.name}`, w / 2, 98);
       }
       ctx.textAlign = 'left';
 
       if (s.flagT > 0 && !s.crashed) {
-        drawChequers(ctx, w, 54, Math.min(1, s.flagT));
+        drawChequers(ctx, w, 112, Math.min(1, s.flagT));
         ctx.textAlign = 'center';
         ctx.globalAlpha = Math.min(1, s.flagT);
         ctx.fillStyle = '#ECECEC';
         ctx.font = 'bold 26px system-ui, sans-serif';
-        ctx.fillText(`LAP ${s.laps}`, w / 2, 112);
+        ctx.fillText(`LAP ${s.laps}`, w / 2, 170);
         ctx.font = '13px system-ui, sans-serif';
         ctx.fillStyle = '#FFD36A';
-        ctx.fillText(`+${s.lapBonus} pts · repairs in the pits · keep driving`, w / 2, 132);
+        ctx.fillText(`+${s.lapBonus} pts · repairs in the pits · keep driving`, w / 2, 190);
         ctx.globalAlpha = 1;
         ctx.textAlign = 'left';
       }
