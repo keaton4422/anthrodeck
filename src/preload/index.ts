@@ -27,6 +27,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   remoteTest: () => ipcRenderer.invoke('remote:test'),
   liveGet: () => ipcRenderer.invoke('live:get'),
   liveRelay: (op: 'install' | 'remove') => ipcRenderer.invoke('live:relay', op),
+  rcGet: () => ipcRenderer.invoke('rc:get'),
+  rcSet: (on: boolean) => ipcRenderer.invoke('rc:set', on),
+  rcSetup: () => ipcRenderer.invoke('rc:setup'),
+  onRcState: (cb: (s: unknown) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, s: unknown) => cb(s);
+    ipcRenderer.on('rc:state', handler);
+    return () => ipcRenderer.removeListener('rc:state', handler);
+  },
   onLiveState: (cb: (s: unknown) => void) => {
     const handler = (_: Electron.IpcRendererEvent, s: unknown) => cb(s);
     ipcRenderer.on('live:state', handler);

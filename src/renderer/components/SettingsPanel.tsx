@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
 import { useUpdater } from '../hooks/useUpdater';
 import { useLive } from '../hooks/useLive';
-import { LocalVoiceStatus } from '../types';
+import { LocalVoiceStatus, type RcStatus } from '../types';
 import { withGlyphs } from './Glyph';
 import { PairKeyPanel } from './PairKeyPanel';
 import { EnginePanel } from './EnginePanel';
@@ -118,6 +118,16 @@ export function SettingsPanel({
     setRelayBusy(false);
     if (!r.ok) setRelayError(r.error ?? 'That didn\'t work.');
   };
+
+  // The Remote Control link: reaching that computer through Anthropic's servers when SSH can't.
+  const [rcState, setRcState] = useState<RcStatus | null>(null);
+  const [rcBusy, setRcBusy] = useState(false);
+  useEffect(() => {
+    void window.electronAPI.rcGet().then(setRcState);
+    return window.electronAPI.onRcState(setRcState);
+  }, []);
+  const rcToggle = async () => { setRcBusy(true); setRcState(await window.electronAPI.rcSet(!rcState?.enabled)); setRcBusy(false); };
+  const rcSetup = async () => { setRcBusy(true); setRcState(await window.electronAPI.rcSetup()); setRcBusy(false); };
 
   const { status, checkForUpdates, downloadUpdate, installUpdate } = useUpdater();
 
@@ -283,6 +293,41 @@ export function SettingsPanel({
                 </>
               )}
               {relayError && <p style={{ ...hintStyle, marginTop: 6, color: '#D9A35B' }}>{relayError}</p>}
+            </div>
+          )}
+
+          {live && rcState && (
+            <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid #2E2E2E', background: '#151515' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ fontSize: 13, color: '#ECECEC', fontWeight: 600, flex: 1 }}>Reach {live.label} through Remote Control</div>
+                <button onClick={() => void rcToggle()} disabled={rcBusy} style={{ ...linkBtn, color: rcState.enabled ? '#9AC9A8' : '#9A9A9A' }}>
+                  {rcState.enabled ? 'On' : 'Off'}
+                </button>
+              </div>
+              <p style={{ ...hintStyle, marginTop: 4 }}>
+                When the Deck can&apos;t reach {live.label} over SSH (away from home, on a hotspot), it connects through
+                Anthropic&apos;s servers instead, the way the Claude app on your phone does: its sessions, messages and
+                approvals all keep working. It runs a small Claude Code session on {live.label} named {'"'}anthrodeck-hub{'"'},
+                set up here whenever the Deck reaches {live.label} at home, and one on this Deck. Keep {live.label} awake.
+              </p>
+              {rcState.enabled && (
+                <p style={{ ...hintStyle, marginTop: 4, color: rcState.via === 'rc' ? '#9AC9A8' : rcState.hub?.error ? '#D9A35B' : '#9A9A9A' }}>
+                  {rcState.via === 'rc'
+                    ? `✓ Connected to ${live.label} through Remote Control.`
+                    : rcState.hub?.error
+                      ? `The hub on ${live.label} isn't set up: ${rcState.hub.error}`
+                      : rcState.hub?.result?.status.state === 'connected'
+                        ? `✓ Ready: the hub on ${live.label} is connected to Remote Control.`
+                        : rcState.hub?.result?.status.state === 'needs-consent'
+                          ? `Remote Control needs turning on once on ${live.label}: run "claude remote-control" there and accept.`
+                          : `The hub on ${live.label} is set up when the Deck next reaches it over SSH.`}
+                </p>
+              )}
+              {rcState.enabled && live.connected && rcState.via === 'ssh' && (
+                <button onClick={() => void rcSetup()} disabled={rcBusy} style={{ ...linkBtn, marginTop: 6 }}>
+                  {rcBusy ? 'Setting up…' : `Restart the hub on ${live.label}`}
+                </button>
+              )}
             </div>
           )}
         </section>

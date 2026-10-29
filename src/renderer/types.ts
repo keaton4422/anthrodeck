@@ -14,7 +14,15 @@ export type Machine = 'local' | 'remote';
 export type { RemoteTarget, LiveSession, LiveEntry, LiveTail, LiveSent, PlanUsage, Commit };
 
 // The remote computer's live sessions, as the Deck sees them (null: no remote computer set up).
-export type LiveStatus = (LiveLinkStatus & { label: string }) | null;
+export type LiveStatus = (LiveLinkStatus & { label: string; via?: 'ssh' | 'rc' }) | null;
+
+// The Remote Control link (main/rclink): the way to the other computer when SSH can't get there.
+export interface RcStatus {
+  enabled: boolean;
+  via: 'ssh' | 'rc';
+  deck: { state: 'off' | 'starting' | 'connected' | 'needs-consent' | 'exited'; session?: string };
+  hub: { result: { hub: 'running' | 'started'; status: { state: string; session?: string } } | null; error: string | null; at: number } | null;
+}
 
 // The engine's event vocabulary is defined once, in the main process, and shared here as types only.
 export type { EngineEvent, Sector, Milestone, DriveMode, UpdateAvailable, WhatsNew, ProjectTile, SessionCard, GitState, FolderListing, FolderEntry };
@@ -165,6 +173,10 @@ declare global {
       remoteTest: () => Promise<{ ok: boolean; claudePath?: string; version?: string; via?: string; error?: string }>;
       liveGet: () => Promise<LiveStatus>;
       liveRelay: (op: 'install' | 'remove') => Promise<{ ok: boolean; error?: string }>;
+      rcGet: () => Promise<RcStatus>;
+      rcSet: (on: boolean) => Promise<RcStatus>;
+      rcSetup: () => Promise<RcStatus>;
+      onRcState: (cb: (s: RcStatus) => void) => () => void;
       onLiveState: (cb: (s: LiveStatus) => void) => () => void;
       planUsage: () => Promise<PlanUsage | null>;
       liveWatch: (sessionId: string | null) => void;

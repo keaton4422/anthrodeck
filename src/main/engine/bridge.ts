@@ -31,7 +31,8 @@ import {
   type RemoteTarget,
 } from '../remote';
 import type { SDKSessionInfo, SessionMessage } from '@anthropic-ai/claude-agent-sdk';
-import { LiveLink, setupRelay, type LiveLinkStatus } from '../live';
+import { LiveLink, setupRelay, WATCH_PY, type LiveLinkStatus } from '../live';
+import { DeckRc, linkSpawner, setupHub, stopHub, type HubResult, type LinkSpawner } from '../rclink';
 import { reconnectHeld } from '../held';
 
 interface Pending<T> { resolve: (v: T) => void; fallback: T }
@@ -100,24 +101,82 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
   // While a remote computer is set up, one SSH link watches its running Claude Code sessions and
   // brings their permission prompts and questions here, as the same cards local sessions use. The
   // live session screen follows one session's conversation over it and sends that session messages.
+  //
+  // When SSH can't reach that computer at any of its addresses, the same link runs over Remote
+  // Control instead (main/rclink): the Deck's own Remote Control session talks to a hub session on
+  // that computer, set up from here whenever SSH reaches it.
   let live: LiveLink | null = null;
+  let spawner: LinkSpawner | null = null;
+  const rcEnabled = () => process.platform !== 'win32' && store.get('rcLink', true) !== false;
+  let rc: DeckRc | null = null;
+  const deckRc = () => {
+    if (!rcEnabled()) return null;
+    rc ??= new DeckRc({ claudePath: () => locate()?.path ?? null });
+    return rc;
+  };
+  // The hub on the other computer: put in place (or checked) once a run, the first time SSH gets there.
+  let hub: { host: string; result: HubResult | null; error: string | null; at: number } | null = null;
+  const ensureHub = async (restart = false) => {
+    const t = remoteTarget();
+    if (!t || !rcEnabled()) return null;
+    try {
+      const result = await setupHub(t.host, await locateRemoteClaude(t.host), restart);
+      hub = { host: t.host, result, error: null, at: Date.now() };
+    } catch (e) {
+      hub = { host: t.host, result: null, error: (e as Error).message, at: Date.now() };
+    }
+    send('rc:state', rcStatus());
+    return hub;
+  };
+  const rcStatus = () => ({
+    enabled: rcEnabled(),
+    via: spawner?.via() ?? 'ssh',
+    deck: rc?.state() ?? { state: 'off' as const },
+    hub: hub && hub.host === remoteTarget()?.host ? { result: hub.result, error: hub.error, at: hub.at } : null,
+  });
   const liveStatus = () => {
     const t = remoteTarget();
     const st: LiveLinkStatus = live?.current ?? { connected: false, error: null, state: null };
-    return t ? { ...st, label: t.label } : null;
+    return t ? { ...st, label: t.label, via: spawner?.via() ?? 'ssh' } : null;
   };
   const relink = () => {
     const t = remoteTarget();
     if (live && live.host === t?.host) return;
     live?.stop();
-    live = t ? new LiveLink(t.host, t.label, {
+    spawner?.stop();
+    spawner = t ? linkSpawner({
+      host: t.host, label: t.label, script: WATCH_PY,
+      addresses: () => (remoteTarget()?.away ? 2 : 1),
+      rc: deckRc,
+      onVia: () => { send('live:state', liveStatus()); send('rc:state', rcStatus()); },
+    }) : null;
+    live = t && spawner ? new LiveLink(t.host, t.label, {
       ask: (card, signal) => ask('claude:ask-user', card, '', signal),
-      onStatus: () => send('live:state', liveStatus()),
+      onStatus: (st) => {
+        send('live:state', liveStatus());
+        if (st.connected && spawner?.via() === 'ssh' && rcEnabled() && hub?.host !== t.host) void ensureHub();
+      },
       onTail: (tail) => send('live:tail', tail),
+      spawnSsh: spawner.spawn,
     }) : null;
     send('live:state', liveStatus());
   };
   relink();
+  ipcMain.handle('rc:get', () => rcStatus());
+  ipcMain.handle('rc:set', async (_e, on: boolean) => {
+    store.set('rcLink', !!on);
+    if (!on) {
+      rc?.stop();
+      rc = null;
+      spawner?.preferSsh();
+      const t = remoteTarget();
+      if (t) await stopHub(t.host).catch(() => null);
+      hub = null;
+    }
+    live?.reconnectNow();
+    return rcStatus();
+  });
+  ipcMain.handle('rc:setup', () => ensureHub(true).then(() => rcStatus()));
   ipcMain.handle('live:get', () => liveStatus());
   // The Claude plan's usage, as last reported by a session run from here (Home's dashboard).
   ipcMain.handle('usage:plan', () => store.get('planUsage', null));
@@ -363,12 +422,15 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
   return {
     // The Deck woke up or came back online: every link to the other computer reconnects now.
     reconnect() {
+      spawner?.preferSsh();
       live?.reconnectNow();
       reconnectHeld();
     },
     shutdown() {
       cancelAllPrompts();
       live?.stop();
+      spawner?.stop();
+      rc?.stop();
       session?.close();
       session = null;
     },
