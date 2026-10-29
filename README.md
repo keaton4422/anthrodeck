@@ -268,12 +268,21 @@ Home then switches between this device and the Mac (**Y**). On the Mac side you 
 
 ### Taking the Deck out
 
-- **Away address.** `your-mac.local` only works on the same network. For a phone's hotspot or
-  another Wi-Fi, put [Tailscale](https://tailscale.com) (or another private network) on the Mac and
-  the Deck, and enter the Mac's name there (e.g. `your-mac.tail1234.ts.net`) under **Away address**
-  in **Settings → Remote computer**. The Deck tries the home address first, then the away one, and
-  stays on whichever works. Leave the Mac awake (**System Settings → Energy → Prevent automatic
-  sleeping**).
+- **Remote Control.** `your-mac.local` only works on the same network. When SSH can't reach the Mac
+  (a phone's hotspot, another Wi-Fi), the Deck reaches it through Anthropic's servers instead, the
+  way the Claude app on a phone does, with Claude Code's
+  [Remote Control](https://code.claude.com/docs/en/remote-control): the Mac's sessions, following
+  and messaging them, and their approvals keep working. Nothing to install: whenever the Deck reaches
+  the Mac at home it sets up a small Claude Code session there named `anthrodeck-hub` (with the
+  `anthrodeck-link` mod, `~/.anthrodeck/rc/`), and runs one of its own when it needs it. It needs a
+  claude.ai sign-in on both, Claude Code 2.1.308 or later, and the Mac awake (**System Settings →
+  Energy → Prevent automatic sleeping**). Turn it off in **Settings → Remote computer**. Sessions
+  started from the Deck on the Mac still run over SSH: they keep running while it's away, and the
+  Deck picks them back up when it can reach the Mac again.
+- **Away address.** Or give SSH a way there from anywhere: put [Tailscale](https://tailscale.com)
+  (or another private network) on the Mac and the Deck, and enter the Mac's name there (e.g.
+  `your-mac.tail1234.ts.net`) under **Away address** in **Settings → Remote computer**. The Deck
+  tries the home address first, then the away one, then Remote Control.
 - **Dropped connections and sleep.** A session started from the Deck runs on the Mac under a small
   holder that doesn't depend on the connection (`~/.anthrodeck/held/`), so a hotspot dropping out
   or putting the Deck to sleep doesn't stop Claude. The Deck reattaches as soon as it can, right

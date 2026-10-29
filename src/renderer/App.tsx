@@ -305,6 +305,17 @@ export default function App() {
     return () => { unsubTool(); unsubErr(); unsubDone(); unsubWritten(); unsubEngine(); };
   }, [fireFeedback, showToast]);
 
+  // The link to the other computer moved between SSH and Remote Control: say so, once each way.
+  const viaRef = useRef<'ssh' | 'rc' | null>(null);
+  useEffect(() => {
+    if (!live?.connected) return;
+    const via = live.via ?? 'ssh';
+    if (viaRef.current && viaRef.current !== via) {
+      showToast(via === 'rc' ? `Reached ${live.label} through Remote Control` : `Back on the direct link to ${live.label}`);
+    }
+    viaRef.current = via;
+  }, [live?.connected, live?.via, live?.label, showToast]);
+
   // Games act on the session here. Only non-destructive intents exist (see game/types.ts): a stray
   // flick of the stick must never approve a write. Clearing stale context in a game is the pilot
   // tidying up: enough of it, with the context filling up, queues a compaction that runs when
