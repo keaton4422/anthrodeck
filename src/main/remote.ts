@@ -148,8 +148,8 @@ export async function remotePython<T>(host: string, script: string, args: string
 export function sshProblem(stderr: string): string | null {
   if (/Connection refused/i.test(stderr)) return 'The computer refused SSH. Turn on Remote Login (System Settings → General → Sharing).';
   if (/Permission denied/i.test(stderr)) return 'SSH needs this Deck\'s key on that computer (key login isn\'t set up yet).';
-  if (/Could not resolve hostname|Name or service not known/i.test(stderr)) return 'Can\'t find that computer from this network. Away from home it needs an away address (Settings → Remote computer).';
-  if (/timed out|No route to host|Network is unreachable/i.test(stderr)) return 'Can\'t reach that computer. Is it awake? Away from home it needs an away address (Settings → Remote computer).';
+  if (/Could not resolve hostname|Name or service not known/i.test(stderr)) return 'Can\'t find that computer from this network. Away from home the Deck reaches it through Remote Control (Settings → Reach it from anywhere).';
+  if (/timed out|No route to host|Network is unreachable/i.test(stderr)) return 'Can\'t reach that computer. Is it awake? Away from home the Deck reaches it through Remote Control (Settings → Reach it from anywhere).';
   if (/Host key verification failed/i.test(stderr)) return 'That computer\'s identity changed or isn\'t known yet. Connect once from a terminal to confirm it.';
   return null;
 }
