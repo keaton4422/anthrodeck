@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { holdFires, type HoldState } from '../lib/padRepeat';
+import { isShown } from '../lib/shown';
 
 interface GamepadActions {
   onL2Press?: () => void;
@@ -81,7 +82,10 @@ export function useGamepad(actions: GamepadActions) {
 
     const poll = () => {
       const gp = navigator.getGamepads()[0];
-      if (gp) {
+      // Hidden behind a Steam game: that game has the pad. Keep the buttons' state so nothing held
+      // while playing fires when AnthroDeck comes back.
+      if (gp && !isShown()) prevRef.current = { ...prevRef.current, buttons: gp.buttons.map((b) => b.pressed) };
+      else if (gp) {
         const { buttons: prevButtons, l2Active: prevL2, r2Active: prevR2, radialOpen: prevRadial } = prevRef.current;
         const acts = actionsRef.current;
 

@@ -59,16 +59,22 @@ interface Props {
   tidy: { hits: number; needed: number; queued: boolean; contextPct: number | null } | null;
   choice: ShotChoice | null;
   onChoose: (id: string) => void;
-  // Play one of the Deck's own Steam games: AnthroDeck hands off to it and comes back after.
+  // Play one of the Deck's own Steam games (beside AnthroDeck in Game Mode, else a hand-off).
   onPlaySteam?: (appid: string, name: string) => void;
+  // A Steam game is on screen instead of AnthroDeck: the game here pauses.
+  hidden?: boolean;
+  // The Steam game running beside AnthroDeck, and switching back to it.
+  steamRunning?: { appid: string; name: string } | null;
+  onResumeSteam?: () => void;
 }
 
 export default function GameCanvas({
   onClose, selectedId, onSelect, telemetry, paused: approvalPaused, onIntents, sectors, checkpoints, lapCard,
-  menuOpen, onMenu, menuNav, jobs, comms, tidy, choice, onChoose, onPlaySteam,
+  menuOpen, onMenu, menuNav, jobs, comms, tidy, choice, onChoose, onPlaySteam, hidden, steamRunning, onResumeSteam,
 }: Props) {
-  // The sim stops for an approval card and while the game menu is up; never for news.
-  const paused = approvalPaused || menuOpen;
+  // The sim stops for an approval card, while the game menu is up, and while a Steam game is on
+  // screen instead; never for news.
+  const paused = approvalPaused || menuOpen || !!hidden;
   // The lap card shows for a few seconds after each chequered flag, then gets out of the way.
   const [shownCard, setShownCard] = useState<LapCard | null>(null);
   useEffect(() => {
@@ -301,6 +307,8 @@ export default function GameCanvas({
           nav={menuNav}
           onPick={(id) => { onSelect(id); onMenu(false); }}
           onPlaySteam={onPlaySteam}
+          running={steamRunning ?? null}
+          onResume={onResumeSteam ? () => { onMenu(false); onResumeSteam(); } : undefined}
           onClose={() => onMenu(false)}
           onLeave={() => { onMenu(false); onClose(); }}
         />
@@ -336,15 +344,17 @@ function TidyMeter({ hits, needed, queued, contextPct }: { hits: number; needed:
 // fits any number of games and mods, and it's driven by the pad: D-pad to move, A to pick,
 // B or Start to close.
 function GameMenu({
-  telemetry, freeplay, modIds, selectedId, nav, onPick, onPlaySteam, onClose, onLeave,
+  telemetry, freeplay, modIds, selectedId, nav, onPick, onPlaySteam, running, onResume, onClose, onLeave,
 }: {
   telemetry: GameMode[]; freeplay: GameMode[]; modIds: Set<string>; selectedId: string;
   nav: React.MutableRefObject<PadFocus | null>; onPick: (id: string) => void; onClose: () => void;
   onPlaySteam?: (appid: string, name: string) => void;
+  running: { appid: string; name: string } | null; onResume?: () => void;
   onLeave: () => void;
 }) {
   // The Deck's installed Steam games, with their covers (loaded one by one, they're files).
   const [steam, setSteam] = useState<{ appid: string; name: string }[]>([]);
+  const [beside, setBeside] = useState(false);
   const [art, setArt] = useState<Record<string, string | null>>({});
   useEffect(() => {
     if (!onPlaySteam) return;
@@ -352,6 +362,7 @@ function GameMenu({
     void window.electronAPI.steamList().then(async (r) => {
       if (!live || !r.canPlay) return;
       setSteam(r.games);
+      setBeside(r.beside);
       for (const g of r.games) {
         const a = await window.electronAPI.steamArt(g.appid);
         if (!live) return;
@@ -361,9 +372,9 @@ function GameMenu({
     return () => { live = false; };
   }, [onPlaySteam]);
   const rootRef = useRef<HTMLDivElement>(null);
-  // The ring starts on the game being played.
+  // The ring starts on the way back to a Steam game that's running, else on the game being played.
   const pad = usePadFocus(rootRef, undefined, () =>
-    rootRef.current?.querySelector<HTMLElement>(`[data-game="${CSS.escape(selectedId)}"]`));
+    rootRef.current?.querySelector<HTMLElement>(running ? '[data-resume]' : `[data-game="${CSS.escape(selectedId)}"]`));
   useEffect(() => {
     nav.current = pad;
     return () => { nav.current = null; };
@@ -422,16 +433,26 @@ function GameMenu({
           <button onClick={onClose} style={hdrBtn} title="Close (B)">✕</button>
         </div>
         {/* The way out with the pad alone: the game may have come up by itself. */}
-        <button onClick={onLeave} style={{
-          alignSelf: 'flex-start', padding: '10px 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
-          border: '1px solid #2A2A2A', background: '#151515', color: '#ECECEC',
-        }}>← Leave the game · back to your sessions</button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button onClick={onLeave} style={{
+            padding: '10px 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+            border: '1px solid #2A2A2A', background: '#151515', color: '#ECECEC',
+          }}>← Leave the game · back to your sessions</button>
+          {running && onResume && (
+            <button data-resume onClick={onResume} style={{
+              padding: '10px 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              border: '1px solid #CC785C', background: '#2A1A14', color: '#ECECEC',
+            }}>▶ Back to {running.name}</button>
+          )}
+        </div>
         {section('REACTS TO CLAUDE', 'what Claude does shows up in the game', telemetry)}
         {section('FREE PLAY', 'something to do while you wait', freeplay)}
         {steam.length > 0 && onPlaySteam && (
           <div>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', color: '#6A6A6A', margin: '0 2px 8px' }}>
-              YOUR STEAM GAMES <span style={{ fontWeight: 400, letterSpacing: 0 }}>· Claude keeps working on your Mac; a chime when a session finishes, and AnthroDeck comes back when you quit</span>
+              YOUR STEAM GAMES <span style={{ fontWeight: 400, letterSpacing: 0 }}>· {beside
+                ? 'Claude keeps working while you play; a chime when a session needs you. The Steam menu switches back here'
+                : 'Claude keeps working on your Mac; a chime when a session finishes, and AnthroDeck comes back when you quit'}</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
               {steam.map((g) => (
@@ -444,6 +465,7 @@ function GameMenu({
                     display: 'flex', alignItems: 'flex-end', padding: 8, boxSizing: 'border-box',
                   }}>
                     {!art[g.appid] && <span style={{ fontSize: 14, fontWeight: 600 }}>{g.name}</span>}
+                    {running?.appid === g.appid && <span style={{ ...menuTag, background: '#141414', fontSize: 11, padding: '1px 6px' }}>Running</span>}
                   </div>
                   <span style={{ fontSize: 13, padding: '6px 8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</span>
                 </button>

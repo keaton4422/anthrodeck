@@ -8,10 +8,11 @@ import type { FolderListing, FolderEntry } from '../main/folders';
 import type { Commit } from '../main/gitLog';
 import type { RemoteTarget } from '../main/remote';
 import type { LiveLinkStatus, LiveSession, LiveEntry, LiveTail, LiveSent } from '../main/live';
+import type { BesideState } from '../main/beside';
 
 // Which computer something is on: this one, or the remote computer set up in Settings.
 export type Machine = 'local' | 'remote';
-export type { RemoteTarget, LiveSession, LiveEntry, LiveTail, LiveSent, PlanUsage, Commit };
+export type { RemoteTarget, LiveSession, LiveEntry, LiveTail, LiveSent, PlanUsage, Commit, BesideState };
 
 // The remote computer's live sessions, as the Deck sees them (null: no remote computer set up).
 export type LiveStatus = (LiveLinkStatus & { label: string; via?: 'ssh' | 'rc' }) | null;
@@ -173,9 +174,12 @@ declare global {
       remoteTest: () => Promise<{ ok: boolean; claudePath?: string; version?: string; via?: string; error?: string }>;
       liveGet: () => Promise<LiveStatus>;
       liveRelay: (op: 'install' | 'remove') => Promise<{ ok: boolean; error?: string }>;
-      steamList: () => Promise<{ games: { appid: string; name: string; lastPlayed: number }[]; canPlay: boolean }>;
+      steamList: () => Promise<{ games: { appid: string; name: string; lastPlayed: number }[]; canPlay: boolean; beside: boolean }>;
       steamArt: (appid: string) => Promise<string | null>;
-      steamPlay: (appid: string) => Promise<{ ok: boolean }>;
+      steamPlay: (appid: string, name: string) => Promise<{ ok: boolean; beside: boolean }>;
+      steamShow: (which: 'deck' | 'game') => Promise<void>;
+      steamState: () => Promise<BesideState | null>;
+      onSteamState: (cb: (st: BesideState) => void) => () => void;
       rcGet: () => Promise<RcStatus>;
       rcSet: (on: boolean) => Promise<RcStatus>;
       rcSetup: () => Promise<RcStatus>;
