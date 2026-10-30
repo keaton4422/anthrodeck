@@ -373,9 +373,11 @@ export function GameMenu({
     return () => { live = false; };
   }, [onPlaySteam]);
   const rootRef = useRef<HTMLDivElement>(null);
-  // The ring starts on the way back to a Steam game that's running, else on the game being played.
+  // The ring starts on the way back to a Steam game that's running, else on the game being played,
+  // else (the Steam library on its own) on the first game.
   const pad = usePadFocus(rootRef, undefined, () =>
-    rootRef.current?.querySelector<HTMLElement>(running ? '[data-resume]' : `[data-game="${CSS.escape(selectedId)}"]`));
+    rootRef.current?.querySelector<HTMLElement>(running ? '[data-resume]' : `[data-game="${CSS.escape(selectedId)}"]`)
+      ?? rootRef.current?.querySelector<HTMLElement>('[data-game]'));
   useEffect(() => {
     nav.current = pad;
     return () => { nav.current = null; };

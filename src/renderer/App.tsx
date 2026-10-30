@@ -744,6 +744,8 @@ export default function App() {
       }
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'X')) return;
+      // X on Home: Games (the Steam library, or the built-in games).
+      if (homeOwnsPad) { setCockpitOpen(true); return; }
       if (pendingWrite) handleWriteReject();
       else if (pendingQuestion) answerOption(2);
       else if (liveOwnsPad || (!showHome && !showSettings && !drawerOpen && !cockpitOpen && !folderPick)) typeInBox();

@@ -259,13 +259,13 @@ export function StatusBar({
           title="Games"
           style={{
             background: 'none', border: '1px solid #3A3A3A', borderRadius: 6,
-            padding: '4px 10px', color: '#9A9A9A', cursor: 'pointer', fontSize: 15,
+            padding: '5px 10px', color: '#9A9A9A', cursor: 'pointer', fontSize: 13, fontWeight: 600,
             transition: 'all 0.15s', lineHeight: 1,
           }}
           onMouseEnter={(e) => { (e.currentTarget).style.color = '#CC785C'; (e.currentTarget).style.borderColor = '#CC785C'; }}
           onMouseLeave={(e) => { (e.currentTarget).style.color = '#9A9A9A'; (e.currentTarget).style.borderColor = '#3A3A3A'; }}
         >
-          🎮
+          Games
         </button>
         <button
           onClick={onSettings}
