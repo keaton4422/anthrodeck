@@ -134,7 +134,7 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
   }
   // Every Remote Control session on the account, on any computer (main/rcSessions.ts).
   let rcKnown: RcSession[] = [];
-  const rcChats = new RcChats((ref, entries) => send('rc:chat', ref, entries));
+  const rcChats = new RcChats(() => {});
   // What each Remote Control session last said at the end of a turn (from the plugin), for Home.
   const rcSaid = new Map<string, string>();
   const remoteAsks = new RemoteAsks({
@@ -160,14 +160,6 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
     } catch (e) {
       return { sessions: rcKnown, error: (e as Error).message };
     }
-  });
-  ipcMain.handle('rc:chat:get', (_e, ref: string) => rcChats.get(ref));
-  ipcMain.handle('rc:chat:send', (_e, ref: string, text: string) => {
-    const s = rcKnown.find((x) => x.ref === ref);
-    const link = deckRc();
-    if (!s || !link || typeof text !== 'string' || !text.trim()) return { ok: false };
-    link.sendText(`${s.name} [${s.ref}]`, text, rcChats.sent(ref, text));
-    return { ok: true };
   });
   // The hub on the other computer: put in place (or checked) once a run, the first time SSH gets there.
   let hub: { host: string; result: HubResult | null; error: string | null; at: number } | null = null;

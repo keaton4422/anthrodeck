@@ -31,6 +31,17 @@ describe.skipIf(process.platform === 'win32')('linux launcher', () => {
     expect(launch(`/usr/lib/libfoo.so ${STEAM_PRELOAD}`)).toBe('preload=/usr/lib/libfoo.so args=');
   });
 
+  it('drops Steam\'s input module, which makes every key arrive twice, and keeps any other', () => {
+    const im = (value: string) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ad-launch-'));
+      fs.copyFileSync(LAUNCHER, path.join(dir, 'anthrodeck-launch'));
+      fs.writeFileSync(path.join(dir, 'anthrodeck'), '#!/bin/sh\necho "im=${GTK_IM_MODULE-<unset>}"\n', { mode: 0o755 });
+      return execFileSync('sh', [path.join(dir, 'anthrodeck-launch')], { env: { PATH: process.env.PATH, GTK_IM_MODULE: value }, encoding: 'utf8' }).trim();
+    };
+    expect(im('Steam')).toBe('im=<unset>');
+    expect(im('ibus')).toBe('im=ibus');
+  });
+
   // Process groups via setsid: Linux only (the Deck, and Ubuntu CI).
   it.skipIf(process.platform !== 'linux')('on a signal, ends the app and everything it started at once', async () => {
     // A stand-in app that starts a child of its own (like Chromium's helpers or a Claude Code

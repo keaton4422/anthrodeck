@@ -19,7 +19,7 @@ import Home, { type HomeNav } from './components/Home';
 import { LiveSessionView } from './components/LiveSessionView';
 import FolderPicker from './components/FolderPicker';
 import type { PadFocus } from './hooks/usePadFocus';
-import type { LiveSession, Machine, RemoteTarget } from './types';
+import type { LiveSession, Machine, RcSession, RemoteTarget } from './types';
 import { SectorStrip } from './components/SectorStrip';
 import { useFeedback } from './hooks/useFeedback';
 import {
@@ -36,7 +36,7 @@ import { useSeason } from './hooks/useSeason';
 import { DRIVE_MODE_LABELS, nextDriveMode, normalizeModel } from '../main/engine/config';
 import { useVoice } from './hooks/useVoice';
 import { useLive } from './hooks/useLive';
-import { useRcChat } from './hooks/useRcChat';
+import { ClaudePage } from './components/ClaudePage';
 import { useLiveSession } from './hooks/useLiveSession';
 import { useLocalVoice } from './hooks/useLocalVoice';
 import { useGamepad } from './hooks/useGamepad';
@@ -76,11 +76,15 @@ export default function App() {
   // A session running on the remote computer, open on the live session screen (from Home's LIVE rows).
   const [liveOpen, setLiveOpen] = useState<LiveSession | null>(null);
   const live = useLive();
-  // A Remote Control session on another computer opens on the same screen ("rc:<ref>"): its
-  // conversation is what the pilot sent and what came back (hooks/useRcChat.ts).
-  const rcRef = liveOpen?.sessionId.startsWith('rc:') ? liveOpen.sessionId.slice(3) : null;
-  const rcChat = useRcChat(rcRef);
-  const liveChat = useLiveSession(rcRef ? null : liveOpen?.sessionId ?? null);
+  // A Remote Control session on another computer opens on its own claude.ai page (ClaudePage).
+  const [rcOpen, setRcOpen] = useState<RcSession | null>(null);
+  // Signing in to claude.ai from Settings: the same page, with no session; back to Settings after.
+  const closeRc = useCallback(() => {
+    setRcOpen((open) => { if (open?.ref === '') setShowSettings(true); return null; });
+  }, []);
+  // B or Escape in the page itself, or signed in, comes back the same way B here does.
+  useEffect(() => window.electronAPI.onClaudeClosed(closeRc), [closeRc]);
+  const liveChat = useLiveSession(liveOpen?.sessionId ?? null);
   const liveScrollRef = useRef<HTMLDivElement>(null);
   // Its latest state from the watcher (the one Home opened stays on screen if the session ends).
   const liveShown = (liveOpen && live?.state?.live.find((s) => s.sessionId === liveOpen.sessionId)) || liveOpen;
@@ -673,9 +677,10 @@ export default function App() {
   // Home takes the D-pad and A/B while it's up and nothing else is asking.
   // The folder picker sits over everything else, so it comes first.
   const pickerOwnsPad = !!folderPick && !modalActive;
-  const homeOwnsPad = showHome && !liveOpen && !cockpitOpen && !modalActive && !showSettings && !drawerOpen && !folderPick;
+  const homeOwnsPad = showHome && !liveOpen && !rcOpen && !cockpitOpen && !modalActive && !showSettings && !drawerOpen && !folderPick;
   // The live session screen: B back to Home, A to the message box, D-pad and right stick scroll.
   const liveOwnsPad = !!liveOpen && !cockpitOpen && !modalActive && !showSettings && !drawerOpen && !folderPick;
+  const rcOwnsPad = !!rcOpen && !cockpitOpen && !modalActive && !showSettings && !drawerOpen && !folderPick;
   const scrollLive = (px: number) => { if (liveScrollRef.current) liveScrollRef.current.scrollTop += px; };
   // Settings takes the D-pad and A while it's open (B already closes it).
   const settingsOwnsPad = showSettings && !cockpitOpen && !modalActive && !drawerOpen && !folderPick;
@@ -727,6 +732,7 @@ export default function App() {
       if (pickerOwnsPad) { pickerNav.current?.activate(); return; }
       if (homeOwnsPad) { homeNav.current?.activate(); return; }
       if (liveOwnsPad) { sendOrWrite(); return; }
+      if (rcOwnsPad) return;   // the touchscreen works the page
       if (settingsOwnsPad) { settingsNav.current?.activate(); return; }
       if (pendingTeach) teachContinue();
       else if (pendingWrite) handleWriteAccept();
@@ -747,6 +753,7 @@ export default function App() {
       if (!cockpitOpen && tryChord(mod, 'X')) return;
       // X on Home: Games (the Steam library, or the built-in games).
       if (homeOwnsPad) { setCockpitOpen(true); return; }
+      if (rcOwnsPad) { void window.electronAPI.claudeBox(); return; }
       if (pendingWrite) handleWriteReject();
       else if (pendingQuestion) answerOption(2);
       else if (liveOwnsPad || (!showHome && !showSettings && !drawerOpen && !cockpitOpen && !folderPick)) typeInBox();
@@ -765,6 +772,7 @@ export default function App() {
       if (pickerOwnsPad) { setFolderPick(null); return; }
       if (homeOwnsPad) { if (messages.length) setShowHome(false); return; }
       if (liveOwnsPad) { setLiveOpen(null); return; }
+      if (rcOwnsPad) { closeRc(); return; }
       if (pendingTeach) { setTeachRedirectSignal((s) => s + 1); return; }
       if (pendingWrite) {
         // Toggle spoken-rejection push-to-talk.
@@ -820,6 +828,7 @@ export default function App() {
       else if (settingsOwnsPad) settingsNav.current?.move('up');
       else if (homeOwnsPad) homeNav.current?.move(0, -1);
       else if (liveOwnsPad) scrollLive(-160);
+      else if (rcOwnsPad) window.electronAPI.claudeScroll(-160);
       else if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop -= 48;
     },
     onDpadDown: () => {
@@ -828,6 +837,7 @@ export default function App() {
       else if (settingsOwnsPad) settingsNav.current?.move('down');
       else if (homeOwnsPad) homeNav.current?.move(0, 1);
       else if (liveOwnsPad) scrollLive(160);
+      else if (rcOwnsPad) window.electronAPI.claudeScroll(160);
       else if (pendingWrite && writeDiffRef.current) writeDiffRef.current.scrollTop += 48;
     },
     onDpadLeft: () => {
@@ -864,6 +874,7 @@ export default function App() {
       if (pickerOwnsPad) pickerNav.current?.scroll(d * 18);
       else if (settingsOwnsPad) settingsNav.current?.scroll(d * 18);
       else if (liveOwnsPad) scrollLive(d * 18);
+      else if (rcOwnsPad) window.electronAPI.claudeScroll(d * 18);
       else if (!cockpitOpen) scrollChat(d);
     },
   });
@@ -922,7 +933,7 @@ export default function App() {
         contextPct={context?.percentage ?? null}
         costUsd={costUsd}
         mode={mode}
-        liveMode={rcRef ? '' : liveShown ? liveChat.mode : undefined}
+        liveMode={rcOpen ? '' : liveShown ? liveChat.mode : undefined}
         onCycleMode={cycleMode}
         onDrawer={() => setDrawerOpen((s) => !s)}
         onSettings={() => setShowSettings((s) => !s)}
@@ -950,6 +961,7 @@ export default function App() {
           }}
           onClear={handleClear}
           onClose={() => setShowSettings(false)}
+          onClaudeSignIn={() => { setShowSettings(false); setRcOpen({ ref: '', name: 'Sign in to claude.ai', status: 'idle' }); }}
           model={model}
           onModelChange={setModel}
           extendedThinking={extendedThinking}
@@ -974,22 +986,28 @@ export default function App() {
           sound={sound}
           onSoundChange={setSound}
         />
+      ) : rcOpen ? (
+        <ClaudePage
+          session={rcOpen}
+          covered={modalActive || drawerOpen || cockpitOpen || radialOpen || shareOpen || !!folderPick}
+          onBack={closeRc}
+        />
       ) : liveShown ? (
         <LiveSessionView
           session={liveShown}
-          label={rcRef ? 'Remote Control' : live?.label ?? remoteTarget?.label ?? 'your other computer'}
-          waiting={rcRef ? 0 : live?.state?.requests.filter((r) => r.sessionId === liveShown.sessionId).length ?? 0}
-          connected={rcRef ? true : !!live?.connected}
-          entries={rcRef ? rcChat : liveChat.entries}
-          mode={rcRef ? null : liveChat.mode}
-          outgoing={rcRef ? [] : liveChat.outgoing}
+          label={live?.label ?? remoteTarget?.label ?? 'your other computer'}
+          waiting={live?.state?.requests.filter((r) => r.sessionId === liveShown.sessionId).length ?? 0}
+          connected={!!live?.connected}
+          entries={liveChat.entries}
+          mode={liveChat.mode}
+          outgoing={liveChat.outgoing}
           onDismiss={liveChat.dismiss}
           scrollRef={liveScrollRef}
           onBack={() => setLiveOpen(null)}
           composer={
             <InputBar
               ref={composerRef}
-              onSend={(text) => void (rcRef ? window.electronAPI.rcChatSend(rcRef, text) : sendLive(text))}
+              onSend={(text) => void sendLive(text)}
               isStreaming={false}
               isListening={dictationListening}
               transcript={useLocal ? '' : transcript}
@@ -1010,6 +1028,7 @@ export default function App() {
           onNew={(cwd, machine) => void startSession(cwd, machine)}
           onOpenFolder={(machine) => setFolderPick({ machine, onPick: (p) => { setFolderPick(null); void startSession(p, machine); } })}
           onOpenLive={setLiveOpen}
+          onOpenRc={setRcOpen}
         />
       ) : (
         <>
