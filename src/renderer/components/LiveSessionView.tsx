@@ -128,6 +128,12 @@ export function LiveSessionView({ session, label, waiting, connected, entries, m
               {b.text}
             </div>
           ))}
+        {rc && entries?.length && entries[entries.length - 1].role === 'user' ? (
+          <div style={{ ...column, fontSize: 13, color: C.faint }}>
+            Sent. Claude answers here when it replies. A session in the Claude desktop app may hold messages
+            from other sessions until you look at it on that computer; one in a terminal answers straight away.
+          </div>
+        ) : null}
         {outgoing.map((m) => (
           <div key={m.id} style={{ ...column, background: '#1A1714', border: '1px solid #2E2620', borderRadius: 12, marginTop: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.14em', color: C.clay, marginBottom: 8 }}>YOU</div>
