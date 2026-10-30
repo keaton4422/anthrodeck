@@ -29,7 +29,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   liveRelay: (op: 'install' | 'remove') => ipcRenderer.invoke('live:relay', op),
   steamList: () => ipcRenderer.invoke('steam:list'),
   steamArt: (appid: string) => ipcRenderer.invoke('steam:art', appid),
-  steamPlay: (appid: string) => ipcRenderer.invoke('steam:play', appid),
+  steamPlay: (appid: string, name: string) => ipcRenderer.invoke('steam:play', appid, name),
+  steamShow: (which: 'deck' | 'game') => ipcRenderer.invoke('steam:show', which),
+  steamState: () => ipcRenderer.invoke('steam:state'),
+  onSteamState: (cb: (st: unknown) => void) => {
+    const h = (_: unknown, st: unknown) => cb(st);
+    ipcRenderer.on('steam:state', h);
+    return () => { ipcRenderer.removeListener('steam:state', h); };
+  },
   rcGet: () => ipcRenderer.invoke('rc:get'),
   rcSet: (on: boolean) => ipcRenderer.invoke('rc:set', on),
   rcSetup: () => ipcRenderer.invoke('rc:setup'),

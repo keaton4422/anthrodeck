@@ -10,6 +10,7 @@ import { autoUpdater } from 'electron-updater';
 import Anthropic from '@anthropic-ai/sdk';
 import { registerEngineIpc } from './engine/bridge';
 import { canHandoff, listSteamGames, startHandoff, steamArt } from './steamGames';
+import { Beside, canBeside, realDeps } from './beside';
 import { updaterErrorMessage } from './updaterMessages';
 import { whatsNew, type RawReleaseNotes, type UpdateAvailable } from './releaseNotes';
 import { LATEST_RELEASE_API, parseLatestRelease } from './manualUpdate';
@@ -157,17 +158,29 @@ function createWindow() {
 }
 
 // ─── Store IPC ────────────────────────────────────────────────────────────────
-// The Deck's own Steam games, played by handing off to them (main/steamGames.ts).
-ipcMain.handle('steam:list', () => ({ games: canHandoff().ok ? listSteamGames() : [], canPlay: canHandoff().ok }));
+// The Deck's own Steam games. In Game Mode they play beside AnthroDeck (main/beside.ts); otherwise
+// AnthroDeck hands off to them and comes back after (main/steamGames.ts).
+const beside = canBeside() ? new Beside(process.env.SteamAppId!, realDeps()) : null;
+beside?.on('state', (st) => mainWindow?.webContents.send('steam:state', st));
+beside?.start();
+const canPlaySteam = () => !!beside || canHandoff().ok;
+ipcMain.handle('steam:list', () => ({ games: canPlaySteam() ? listSteamGames() : [], canPlay: canPlaySteam(), beside: !!beside }));
 ipcMain.handle('steam:art', (_, appid: string) => steamArt(appid));
-ipcMain.handle('steam:play', (_, appid: string) => {
+ipcMain.handle('steam:state', () => beside?.state() ?? null);
+ipcMain.handle('steam:play', (_, appid: string, name: string) => {
+  if (!/^\d+$/.test(appid)) return { ok: false, beside: false };
+  if (beside) {
+    beside.play(appid, typeof name === 'string' ? name : appid);
+    return { ok: true, beside: true };
+  }
   const h = canHandoff();
-  if (!h.ok || !h.back || !h.backApp || !/^\d+$/.test(appid)) return { ok: false };
+  if (!h.ok || !h.back || !h.backApp) return { ok: false, beside: false };
   const remote = store.get('remote', null) as { host?: string } | null;
   startHandoff({ game: appid, back: h.back, backApp: h.backApp, host: remote?.host ?? null, pid: process.pid });
   setTimeout(() => app.quit(), 400);
-  return { ok: true };
+  return { ok: true, beside: false };
 });
+ipcMain.handle('steam:show', (_, which: 'deck' | 'game') => beside?.show(which === 'game' ? 'game' : 'deck'));
 ipcMain.handle('store:get', (_, key: string) => store.get(key));
 ipcMain.handle('store:set', (_, key: string, value: unknown) => { store.set(key, value); });
 
@@ -541,7 +554,15 @@ ipcMain.on('updater:install', () => { autoUpdater.quitAndInstall(false, true); }
 if (process.argv.includes('--version') || process.argv.includes('-v')) {
   console.log(app.getVersion());
   app.exit(0);
+} else if (!app.requestSingleInstanceLock()) {
+  // Only one AnthroDeck: Steam starts a second copy when AnthroDeck is picked while it's running
+  // (from the library, or the Steam menu during a game). The first one comes forward instead.
+  app.exit(0);
 } else {
+  app.on('second-instance', () => {
+    if (beside?.state().game) { void beside.show('deck'); return; }
+    if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); }
+  });
   app.whenReady().then(() => {
     handleModProtocol();
     createWindow();
@@ -573,7 +594,7 @@ const armQuitWatchdog = quitWatchdog({
   log: (msg) => console.error(msg),
 });
 
-app.on('before-quit', () => { armQuitWatchdog(); engine.shutdown(); void stopPreview(); void stopPairing(); });
+app.on('before-quit', () => { armQuitWatchdog(); beside?.stop(); engine.shutdown(); void stopPreview(); void stopPairing(); });
 app.on('window-all-closed', () => { void stopPreview(); if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) { createWindow(); setupAutoUpdater(); }

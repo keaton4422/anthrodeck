@@ -327,6 +327,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
         <span><Glyph b="A" /> Open</span>
         {current && <span><Glyph b="B" /> Back to session</span>}
         {other && <span><Glyph b="Y" /> Projects on {other}</span>}
+        <span><Glyph b="X" /> Games</span>
         <span style={{ marginLeft: 'auto' }}><Glyph b="Menu" /> Settings</span>
       </div>
     </div>

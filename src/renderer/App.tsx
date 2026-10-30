@@ -6,7 +6,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import ProjectDrawer from './components/ProjectDrawer';
 import AskUserModal from './components/AskUserModal';
 import ShareModal from './components/ShareModal';
-import GameCanvas, { formatLapTime, type LapCard } from './components/GameCanvas';
+import GameCanvas, { GameMenu, formatLapTime, type LapCard } from './components/GameCanvas';
 import { finished, lastWords, nextSelection, railOrder, shouldStart, stillDismissed, tidyHit, TIDY_COMPACT, TIDY_HITS, type Job, type Tidy } from './lib/intermission';
 import type { CommsDraft } from './components/CommsRail';
 import type { ShotChoice } from './components/ShootChoice';
@@ -42,7 +42,9 @@ import { useGamepad } from './hooks/useGamepad';
 import { useStore } from './hooks/useStore';
 import { useProject } from './hooks/useProject';
 import { useTelemetry } from './hooks/useTelemetry';
-import { EngineSettingsPayload, PendingWrite, PendingQuestion, TeachRequest } from './types';
+import { EngineSettingsPayload, PendingWrite, PendingQuestion, TeachRequest, type BesideState } from './types';
+import { setShown } from './lib/shown';
+import { chime } from './lib/chime';
 
 
 const MILESTONE_TOAST: Record<string, string> = {
@@ -318,22 +320,55 @@ export default function App() {
     viaRef.current = via;
   }, [live?.connected, live?.via, live?.label, showToast]);
 
-  // One of the Deck's own Steam games: AnthroDeck hands off to it and comes back when it's quit
-  // (main/steamGames.ts). A session working here on the Deck would stop with AnthroDeck, so that
-  // takes a second pick to confirm.
+  // One of the Deck's own Steam games. In Game Mode it plays beside AnthroDeck (main/beside.ts),
+  // which keeps running behind it; elsewhere AnthroDeck hands off to it and comes back when it's
+  // quit (main/steamGames.ts), and a session working here on the Deck would stop with AnthroDeck,
+  // so that takes a second pick to confirm.
+  const [beside, setBeside] = useState<BesideState | null>(null);
+  const besideOk = useRef(false);
+  useEffect(() => {
+    void window.electronAPI.steamState().then((st) => { besideOk.current = !!st; if (st) setBeside(st); });
+    return window.electronAPI.onSteamState((st) => setBeside(st));
+  }, []);
+  const besideShown = beside?.shown ?? true;
+  useEffect(() => { setShown(besideShown); }, [besideShown]);
+  const lastBeside = useRef<string | null>(null);
+  useEffect(() => {
+    const name = beside?.game?.name ?? null;
+    if (lastBeside.current && !name) showToast(`Back from ${lastBeside.current}.`);
+    lastBeside.current = name;
+  }, [beside?.game?.name, showToast]);
   const steamConfirm = useRef<{ appid: string; at: number } | null>(null);
   const playSteam = useCallback((appid: string, name: string) => {
+    if (beside?.game?.appid === appid) { void window.electronAPI.steamShow('game'); return; }
+    if (beside?.game) { showToast(`${beside.game.name} is still running. Quit it first.`); return; }
     const c = steamConfirm.current;
-    if (isStreaming && !(c && c.appid === appid && Date.now() - c.at < 8000)) {
+    if (!besideOk.current && isStreaming && !(c && c.appid === appid && Date.now() - c.at < 8000)) {
       steamConfirm.current = { appid, at: Date.now() };
       showToast(`Claude is working here on the Deck: playing ${name} stops it. Pick it again to play anyway.`);
       return;
     }
     steamConfirm.current = null;
-    void window.electronAPI.steamPlay(appid).then((r) => {
-      showToast(r.ok ? `Starting ${name}… AnthroDeck comes back when you quit it.` : `Can't start ${name} from here.`);
+    void window.electronAPI.steamPlay(appid, name).then((r) => {
+      if (!r.ok) showToast(`Can't start ${name} from here.`);
+      else showToast(r.beside
+        ? `Starting ${name}… AnthroDeck keeps running: open the Steam menu to switch back.`
+        : `Starting ${name}… AnthroDeck comes back when you quit it.`);
     });
-  }, [isStreaming, showToast]);
+  }, [beside, isStreaming, showToast]);
+
+  // While a Steam game is on screen, a chime when a session starts waiting on the pilot or finishes.
+  const heard = useRef<{ asks: number; busy: Set<string> } | null>(null);
+  useEffect(() => {
+    const st = live?.state;
+    if (!st) return;
+    const now = { asks: st.requests.length, busy: new Set(st.live.filter((x) => x.status === 'busy').map((x) => x.sessionId)) };
+    const before = heard.current;
+    heard.current = now;
+    if (besideShown || !before) return;
+    const finished = [...before.busy].some((id) => !now.busy.has(id) && st.live.some((x) => x.sessionId === id));
+    if (now.asks > before.asks || finished) chime();
+  }, [live?.state, besideShown]);
 
   // Games act on the session here. Only non-destructive intents exist (see game/types.ts): a stray
   // flick of the stick must never approve a write. Clearing stale context in a game is the pilot
@@ -467,6 +502,12 @@ export default function App() {
   // ─── Intermission: play while Claude works (lib/intermission.ts) ─────────────
   // Every session the Deck flies: its own, and the ones live on the remote computer.
   const [intermission, setIntermission] = useStore<boolean>('intermission', true);
+  // The built-in games are mothballed where the Deck's own Steam games can be played instead: Games
+  // opens the Steam library, and nothing comes up by itself. Settings → Advanced brings them back.
+  const [builtInGames, setBuiltInGames] = useStore<boolean>('builtInGames', false);
+  const [steamCanPlay, setSteamCanPlay] = useState(false);
+  useEffect(() => { void window.electronAPI.steamList().then((r) => setSteamCanPlay(r.canPlay && r.games.length > 0)); }, []);
+  const steamOnly = steamCanPlay && !builtInGames;
   const jobs = useMemo<Job[]>(() => {
     const out: Job[] = [];
     if (currentSession || isStreaming) {
@@ -514,10 +555,18 @@ export default function App() {
     dismissed.current = new Set(jobs.filter((j) => j.working).map((j) => j.id));
     setCockpitOpen(false);
   }, [jobs]);
+  // The Steam library is the games menu on its own: open with Games, closing it closes Games.
+  const libraryWasOpen = useRef(false);
+  useEffect(() => {
+    if (!steamOnly || !cockpitOpen) { libraryWasOpen.current = false; return; }
+    if (gameMenuOpen) libraryWasOpen.current = true;
+    else if (libraryWasOpen.current) closeGame();
+    else setGameMenuOpen(true);
+  }, [steamOnly, cockpitOpen, gameMenuOpen, closeGame]);
   // The game comes up by itself once Claude is working and the controls have been put down.
   const startCheck = useRef<() => boolean>(() => false);
   startCheck.current = () => shouldStart({
-    enabled: intermission,
+    enabled: intermission && !steamOnly,
     jobs,
     needsYou: modalActive,
     idleMs: Date.now() - lastInput.current,
@@ -695,6 +744,8 @@ export default function App() {
       }
       if (gameOwnsPad) return;
       if (!cockpitOpen && tryChord(mod, 'X')) return;
+      // X on Home: Games (the Steam library, or the built-in games).
+      if (homeOwnsPad) { setCockpitOpen(true); return; }
       if (pendingWrite) handleWriteReject();
       else if (pendingQuestion) answerOption(2);
       else if (liveOwnsPad || (!showHome && !showSettings && !drawerOpen && !cockpitOpen && !folderPick)) typeInBox();
@@ -932,6 +983,8 @@ export default function App() {
           onHapticsChange={setHaptics}
           intermission={intermission}
           onIntermissionChange={setIntermission}
+          builtInGames={builtInGames}
+          onBuiltInGamesChange={setBuiltInGames}
           tidyUp={tidyUp}
           onTidyUpChange={setTidyUp}
           sound={sound}
@@ -1047,7 +1100,27 @@ export default function App() {
       )}
 
       {/* Cockpit game layer — pauses when an approval modal is up */}
-      {cockpitOpen && (
+      {cockpitOpen && steamOnly && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 70, background: '#0A0B0D' }}>
+          {gameMenuOpen && (
+            <GameMenu
+              telemetry={[]}
+              freeplay={[]}
+              modIds={new Set()}
+              selectedId=""
+              nav={gameMenuNav}
+              onPick={() => {}}
+              onPlaySteam={(appid, name) => { playSteam(appid, name); if (beside?.game?.appid !== appid) closeGame(); }}
+              running={beside?.game ?? null}
+              onResume={() => { closeGame(); void window.electronAPI.steamShow('game'); }}
+              onClose={closeGame}
+              onLeave={closeGame}
+              leaveLabel="← Back to your sessions"
+            />
+          )}
+        </div>
+      )}
+      {cockpitOpen && !steamOnly && (
         <GameCanvas
           onClose={closeGame}
           selectedId={cockpitMode}
@@ -1073,6 +1146,9 @@ export default function App() {
           choice={doneChoice}
           onChoose={onDoneChoice}
           onPlaySteam={playSteam}
+          hidden={!besideShown}
+          steamRunning={beside?.game ?? null}
+          onResumeSteam={() => void window.electronAPI.steamShow('game')}
         />
       )}
 
