@@ -32,6 +32,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   steamPlay: (appid: string, name: string) => ipcRenderer.invoke('steam:play', appid, name),
   steamShow: (which: 'deck' | 'game') => ipcRenderer.invoke('steam:show', which),
   steamState: () => ipcRenderer.invoke('steam:state'),
+  onSteamPing: (cb: (why: string) => void) => {
+    const h = (_: unknown, why: string) => cb(why);
+    ipcRenderer.on('steam:ping', h);
+    return () => { ipcRenderer.removeListener('steam:ping', h); };
+  },
   onSteamState: (cb: (st: unknown) => void) => {
     const h = (_: unknown, st: unknown) => cb(st);
     ipcRenderer.on('steam:state', h);
@@ -80,6 +85,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   claudeReset: () => ipcRenderer.send('claude:reset'),
   claudeRewind: (anchor: string | null) => ipcRenderer.send('claude:rewind', anchor),
   sessionsList: (machine?: Machine) => ipcRenderer.invoke('sessions:list', machine ?? 'local'),
+  activityGet: (machine: Machine, cwds: string[]) => ipcRenderer.invoke('activity:get', machine, cwds),
   sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>, machine?: Machine) =>
     ipcRenderer.invoke('sessions:resume', { id, cwd, settings, machine: machine ?? 'local' }),
   claudeSetMode: (mode: string) => ipcRenderer.invoke('claude:set-mode', mode),

@@ -8,7 +8,9 @@ import fs from 'fs';
 import Store from 'electron-store';
 import { autoUpdater } from 'electron-updater';
 import Anthropic from '@anthropic-ai/sdk';
-import { registerEngineIpc } from './engine/bridge';
+import { liveEvents, registerEngineIpc } from './engine/bridge';
+import { chime, news, type Heard } from './pings';
+import type { LiveStatus } from '../renderer/types';
 import { canHandoff, listSteamGames, startHandoff, steamArt } from './steamGames';
 import { Beside, canBeside, realDeps } from './beside';
 import { updaterErrorMessage } from './updaterMessages';
@@ -163,6 +165,17 @@ function createWindow() {
 const beside = canBeside() ? new Beside(process.env.SteamAppId!, realDeps()) : null;
 beside?.on('state', (st) => mainWindow?.webContents.send('steam:state', st));
 beside?.start();
+// While a Steam game is on screen: a chime, and the reason as a toast for when AnthroDeck is back.
+let heard: Heard | null = null;
+liveEvents.on('state', (st: LiveStatus) => {
+  if (!st?.state) return;
+  const n = news(heard, st.state);
+  heard = n.heard;
+  if (n.ping && beside && !beside.state().shown) {
+    chime();
+    mainWindow?.webContents.send('steam:ping', n.ping);
+  }
+});
 const canPlaySteam = () => !!beside || canHandoff().ok;
 ipcMain.handle('steam:list', () => ({ games: canPlaySteam() ? listSteamGames() : [], canPlay: canPlaySteam(), beside: !!beside }));
 ipcMain.handle('steam:art', (_, appid: string) => steamArt(appid));

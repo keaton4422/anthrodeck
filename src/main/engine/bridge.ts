@@ -10,6 +10,7 @@
 //     drive mode, context gauge) subscribe there instead of growing a channel each.
 
 import { exec, execFile } from 'child_process';
+import { EventEmitter } from 'events';
 import { app, BrowserWindow, ipcMain, IpcMainEvent } from 'electron';
 import os from 'os';
 import Anthropic from '@anthropic-ai/sdk';
@@ -34,8 +35,12 @@ import type { SDKSessionInfo, SessionMessage } from '@anthropic-ai/claude-agent-
 import { LiveLink, setupRelay, WATCH_PY, type LiveLinkStatus } from '../live';
 import { DeckRc, linkSpawner, setupHub, stopHub, type HubResult, type LinkSpawner } from '../rclink';
 import { reconnectHeld } from '../held';
+import { ACTIVITY_PY, toActivity, type RawActivity } from '../activity';
 
 interface Pending<T> { resolve: (v: T) => void; fallback: T }
+
+// The other computer's sessions as they change, for the main process too (main/pings.ts).
+export const liveEvents = new EventEmitter();
 
 export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow | null): { shutdown(): void; reconnect(): void } {
   let session: EngineSession | null = null;
@@ -69,6 +74,7 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
   const send = (channel: string, ...args: unknown[]) => {
     const win = getWindow();
     if (win && !win.isDestroyed()) win.webContents.send(channel, ...args);
+    if (channel === 'live:state') liveEvents.emit('state', args[0]);
   };
 
   // ─── request/response with the renderer, cancellable by the engine's AbortSignal ──
@@ -317,6 +323,24 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
       return { projects: toProjects(cards, git), currentId: session && !session.remoteHost ? session.currentSessionId : null };
     } catch (e) {
       return { projects: [], currentId: null, error: (e as Error).message };
+    }
+  });
+
+  // The drawer: what's been happening in these projects (main/activity.ts), on whichever computer.
+  ipcMain.handle('activity:get', async (_e, machine: 'local' | 'remote', cwds: string[]) => {
+    const list = JSON.stringify((Array.isArray(cwds) ? cwds : []).filter((c) => typeof c === 'string').slice(0, 10));
+    try {
+      if (machine === 'remote') {
+        const t = remoteTarget();
+        if (!t) return { projects: [], error: 'No remote computer set up.' };
+        return { projects: toActivity(await remotePython<RawActivity[]>(t.host, ACTIVITY_PY, [list])), error: null };
+      }
+      const raw = await new Promise<string>((resolve, reject) => {
+        execFile('python3', ['-c', ACTIVITY_PY, list], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }, (err, out) => (err ? reject(err) : resolve(out)));
+      });
+      return { projects: toActivity(JSON.parse(raw) as RawActivity[]), error: null };
+    } catch (e) {
+      return { projects: [], error: (e as Error).message };
     }
   });
 
