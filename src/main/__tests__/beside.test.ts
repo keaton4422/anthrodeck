@@ -11,7 +11,7 @@ function deck() {
     run: async (cmd, args) => {
       if (cmd === 'pgrep') return d.running ? '123\n' : '';
       if (args.includes('-set')) { d.base.push(args[args.length - 1]); return ''; }
-      return `GAMESCOPE_FOCUSED_APP(CARDINAL) = ${d.focused}\n`;
+      return `GAMESCOPE_FOCUSED_APP_GFX(CARDINAL) = ${d.focused}\n`;
     },
     launch: (appid) => { d.launched.push(appid); },
     now: () => d.now,
@@ -21,8 +21,8 @@ function deck() {
 
 describe('playing a Steam game beside AnthroDeck', () => {
   it('reads what gamescope shows, and orders what it falls back to', () => {
-    expect(parseFocused('GAMESCOPE_FOCUSED_APP(CARDINAL) = 413150\n')).toBe('413150');
-    expect(parseFocused('GAMESCOPE_FOCUSED_APP:  not found.\n')).toBeNull();
+    expect(parseFocused('GAMESCOPE_FOCUSED_APP_GFX(CARDINAL) = 413150\n')).toBe('413150');
+    expect(parseFocused('GAMESCOPE_FOCUSED_APP_GFX:  not found.\n')).toBeNull();
     expect(baseLayer(GAME, ADK)).toBe(`${GAME}, ${ADK}, 769`);
     expect(baseLayer(ADK, null)).toBe(`${ADK}, 769`);
   });

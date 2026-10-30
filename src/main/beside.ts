@@ -19,6 +19,9 @@ export const STEAM_UI = '769';
 // How long a game gets to start (an update or a shader compile can come first).
 export const START_MS = 5 * 60_000;
 const POLL_MS = 1000;
+// Gamescope keeps its focus properties on its first X display, Steam's own. Games, AnthroDeck
+// among them, get the next one (:1), so a plain `xprop -root` from here sees none of them.
+const GS_DISPLAY = ':0';
 
 export interface BesideState {
   game: { appid: string; name: string } | null;
@@ -37,8 +40,10 @@ export function baseLayer(front: string, ...rest: (string | null)[]): string {
   return [front, ...rest, STEAM_UI].filter((x, i, a): x is string => !!x && a.indexOf(x) === i).join(', ');
 }
 
+// The app gamescope is drawing (GAMESCOPE_FOCUSED_APP is where input goes, which stays on Steam's
+// own interface for a while after one of its prompts even with AnthroDeck on screen).
 export function parseFocused(xpropOut: string): string | null {
-  const m = /GAMESCOPE_FOCUSED_APP\(CARDINAL\) = (\d+)/.exec(xpropOut);
+  const m = /GAMESCOPE_FOCUSED_APP_GFX\(CARDINAL\) = (\d+)/.exec(xpropOut);
   return m ? m[1] : null;
 }
 
@@ -75,7 +80,7 @@ export class Beside extends EventEmitter {
   async poll(): Promise<void> {
     if (!this.game) return;
     const [focused, running] = await Promise.all([
-      this.deps.run('xprop', ['-root', 'GAMESCOPE_FOCUSED_APP']).then(parseFocused),
+      this.deps.run('xprop', ['-display', GS_DISPLAY, '-root', 'GAMESCOPE_FOCUSED_APP_GFX']).then(parseFocused),
       this.deps.run('pgrep', ['-f', `reaper SteamLaunch AppId=${this.game.appid}( |$)`]).then((o) => o.trim() !== ''),
     ]);
     if (!running && (this.seen || this.deps.now() - this.askedAt > START_MS)) return this.end();
@@ -96,7 +101,7 @@ export class Beside extends EventEmitter {
   }
 
   private setBase(order: string): Promise<string> {
-    return this.deps.run('xprop', ['-root', '-f', 'GAMESCOPECTRL_BASELAYER_APPID', '32c', '-set', 'GAMESCOPECTRL_BASELAYER_APPID', order]);
+    return this.deps.run('xprop', ['-display', GS_DISPLAY, '-root', '-f', 'GAMESCOPECTRL_BASELAYER_APPID', '32c', '-set', 'GAMESCOPECTRL_BASELAYER_APPID', order]);
   }
 
   stop(): void { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
