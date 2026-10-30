@@ -33,6 +33,8 @@ interface Props {
   onHapticsChange: (v: boolean) => void;
   intermission: boolean;
   onIntermissionChange: (v: boolean) => void;
+  builtInGames: boolean;
+  onBuiltInGamesChange: (v: boolean) => void;
   tidyUp: boolean;
   onTidyUpChange: (v: boolean) => void;
   sound: boolean;
@@ -72,6 +74,8 @@ export function SettingsPanel({
   onHapticsChange,
   intermission,
   onIntermissionChange,
+  builtInGames,
+  onBuiltInGamesChange,
   tidyUp,
   onTidyUpChange,
   sound,
@@ -384,6 +388,12 @@ export function SettingsPanel({
             <section style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <label style={labelStyle}>Voice &amp; play</label>
               <LocalVoiceRow onChanged={onVoiceChanged} />
+              <ToggleRow
+                label="Built-in games"
+                hint="Trench Run, Engine Runner and the rest. Off, Games opens your Steam library instead (on a Deck with Steam games)."
+                value={builtInGames}
+                onChange={() => onBuiltInGamesChange(!builtInGames)}
+              />
               <ToggleRow
                 label="Play while Claude works"
                 hint="Put the controls down while Claude works and a game comes up. Cards from any session pause it."

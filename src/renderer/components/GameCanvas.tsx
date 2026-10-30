@@ -343,13 +343,14 @@ function TidyMeter({ hits, needed, queued, contextPct }: { hits: number; needed:
 // Every game as a card, in two groups. A modal over the cockpit (the game pauses underneath), so it
 // fits any number of games and mods, and it's driven by the pad: D-pad to move, A to pick,
 // B or Start to close.
-function GameMenu({
-  telemetry, freeplay, modIds, selectedId, nav, onPick, onPlaySteam, running, onResume, onClose, onLeave,
+export function GameMenu({
+  telemetry, freeplay, modIds, selectedId, nav, onPick, onPlaySteam, running, onResume, onClose, onLeave, leaveLabel,
 }: {
   telemetry: GameMode[]; freeplay: GameMode[]; modIds: Set<string>; selectedId: string;
   nav: React.MutableRefObject<PadFocus | null>; onPick: (id: string) => void; onClose: () => void;
   onPlaySteam?: (appid: string, name: string) => void;
   running: { appid: string; name: string } | null; onResume?: () => void;
+  leaveLabel?: string;
   onLeave: () => void;
 }) {
   // The Deck's installed Steam games, with their covers (loaded one by one, they're files).
@@ -437,7 +438,7 @@ function GameMenu({
           <button onClick={onLeave} style={{
             padding: '10px 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
             border: '1px solid #2A2A2A', background: '#151515', color: '#ECECEC',
-          }}>← Leave the game · back to your sessions</button>
+          }}>{leaveLabel ?? '← Leave the game · back to your sessions'}</button>
           {running && onResume && (
             <button data-resume onClick={onResume} style={{
               padding: '10px 16px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',

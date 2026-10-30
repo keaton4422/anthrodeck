@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Beside, START_MS, baseLayer, parseFocused, type BesideDeps } from '../beside';
+import { Beside, GONE_MS, START_MS, baseLayer, parseFocused, type BesideDeps } from '../beside';
 
 const ADK = '3275856054';
 const GAME = '413150';
@@ -46,7 +46,15 @@ describe('playing a Steam game beside AnthroDeck', () => {
     await b.show('game');
     expect(d.base.pop()).toBe(`${GAME}, ${ADK}, 769`);
 
+    // Steam swaps the launch process while a game starts: a moment without it isn't a quit.
+    d.running = false;
+    await b.poll();
+    expect(b.state().game).not.toBeNull();
+    d.running = true;
+    await b.poll();
     d.running = false; d.focused = '';
+    await b.poll();
+    d.now += GONE_MS;
     await b.poll();
     expect(d.base.pop()).toBe(`${ADK}, 769`);   // gamescope would otherwise keep the quit game's last frame
     expect(b.state()).toEqual({ game: null, starting: false, shown: true });
@@ -64,5 +72,13 @@ describe('playing a Steam game beside AnthroDeck', () => {
     d.now = START_MS + 1;
     await b.poll();
     expect(b.state().game).toBeNull();
+  });
+
+  it('notices a game started from Steam\'s own library covering AnthroDeck', async () => {
+    const { d, deps } = deck();
+    const b = new Beside(ADK, deps);
+    d.focused = GAME;
+    await b.poll();
+    expect(b.state()).toEqual({ game: null, starting: false, shown: false });
   });
 });

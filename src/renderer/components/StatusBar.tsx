@@ -256,7 +256,7 @@ export function StatusBar({
         )}
         <button
           onClick={onCockpit}
-          title="Cockpit game layer"
+          title="Games"
           style={{
             background: 'none', border: '1px solid #3A3A3A', borderRadius: 6,
             padding: '4px 10px', color: '#9A9A9A', cursor: 'pointer', fontSize: 15,

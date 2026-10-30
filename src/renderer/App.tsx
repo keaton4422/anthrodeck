@@ -6,7 +6,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import ProjectDrawer from './components/ProjectDrawer';
 import AskUserModal from './components/AskUserModal';
 import ShareModal from './components/ShareModal';
-import GameCanvas, { formatLapTime, type LapCard } from './components/GameCanvas';
+import GameCanvas, { GameMenu, formatLapTime, type LapCard } from './components/GameCanvas';
 import { finished, lastWords, nextSelection, railOrder, shouldStart, stillDismissed, tidyHit, TIDY_COMPACT, TIDY_HITS, type Job, type Tidy } from './lib/intermission';
 import type { CommsDraft } from './components/CommsRail';
 import type { ShotChoice } from './components/ShootChoice';
@@ -502,6 +502,12 @@ export default function App() {
   // ─── Intermission: play while Claude works (lib/intermission.ts) ─────────────
   // Every session the Deck flies: its own, and the ones live on the remote computer.
   const [intermission, setIntermission] = useStore<boolean>('intermission', true);
+  // The built-in games are mothballed where the Deck's own Steam games can be played instead: Games
+  // opens the Steam library, and nothing comes up by itself. Settings → Advanced brings them back.
+  const [builtInGames, setBuiltInGames] = useStore<boolean>('builtInGames', false);
+  const [steamCanPlay, setSteamCanPlay] = useState(false);
+  useEffect(() => { void window.electronAPI.steamList().then((r) => setSteamCanPlay(r.canPlay && r.games.length > 0)); }, []);
+  const steamOnly = steamCanPlay && !builtInGames;
   const jobs = useMemo<Job[]>(() => {
     const out: Job[] = [];
     if (currentSession || isStreaming) {
@@ -549,10 +555,18 @@ export default function App() {
     dismissed.current = new Set(jobs.filter((j) => j.working).map((j) => j.id));
     setCockpitOpen(false);
   }, [jobs]);
+  // The Steam library is the games menu on its own: open with Games, closing it closes Games.
+  const libraryWasOpen = useRef(false);
+  useEffect(() => {
+    if (!steamOnly || !cockpitOpen) { libraryWasOpen.current = false; return; }
+    if (gameMenuOpen) libraryWasOpen.current = true;
+    else if (libraryWasOpen.current) closeGame();
+    else setGameMenuOpen(true);
+  }, [steamOnly, cockpitOpen, gameMenuOpen, closeGame]);
   // The game comes up by itself once Claude is working and the controls have been put down.
   const startCheck = useRef<() => boolean>(() => false);
   startCheck.current = () => shouldStart({
-    enabled: intermission,
+    enabled: intermission && !steamOnly,
     jobs,
     needsYou: modalActive,
     idleMs: Date.now() - lastInput.current,
@@ -967,6 +981,8 @@ export default function App() {
           onHapticsChange={setHaptics}
           intermission={intermission}
           onIntermissionChange={setIntermission}
+          builtInGames={builtInGames}
+          onBuiltInGamesChange={setBuiltInGames}
           tidyUp={tidyUp}
           onTidyUpChange={setTidyUp}
           sound={sound}
@@ -1082,7 +1098,27 @@ export default function App() {
       )}
 
       {/* Cockpit game layer — pauses when an approval modal is up */}
-      {cockpitOpen && (
+      {cockpitOpen && steamOnly && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 70, background: '#0A0B0D' }}>
+          {gameMenuOpen && (
+            <GameMenu
+              telemetry={[]}
+              freeplay={[]}
+              modIds={new Set()}
+              selectedId=""
+              nav={gameMenuNav}
+              onPick={() => {}}
+              onPlaySteam={(appid, name) => { playSteam(appid, name); if (beside?.game?.appid !== appid) closeGame(); }}
+              running={beside?.game ?? null}
+              onResume={() => { closeGame(); void window.electronAPI.steamShow('game'); }}
+              onClose={closeGame}
+              onLeave={closeGame}
+              leaveLabel="← Back to your sessions"
+            />
+          )}
+        </div>
+      )}
+      {cockpitOpen && !steamOnly && (
         <GameCanvas
           onClose={closeGame}
           selectedId={cockpitMode}

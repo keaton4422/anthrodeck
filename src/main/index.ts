@@ -162,6 +162,7 @@ function createWindow() {
 // AnthroDeck hands off to them and comes back after (main/steamGames.ts).
 const beside = canBeside() ? new Beside(process.env.SteamAppId!, realDeps()) : null;
 beside?.on('state', (st) => mainWindow?.webContents.send('steam:state', st));
+beside?.start();
 const canPlaySteam = () => !!beside || canHandoff().ok;
 ipcMain.handle('steam:list', () => ({ games: canPlaySteam() ? listSteamGames() : [], canPlay: canPlaySteam(), beside: !!beside }));
 ipcMain.handle('steam:art', (_, appid: string) => steamArt(appid));

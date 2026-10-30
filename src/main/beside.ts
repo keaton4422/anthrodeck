@@ -19,6 +19,7 @@ export const STEAM_UI = '769';
 // How long a game gets to start (an update or a shader compile can come first).
 export const START_MS = 5 * 60_000;
 const POLL_MS = 1000;
+export const GONE_MS = 10_000;
 // Gamescope keeps its focus properties on its first X display, Steam's own. Games, AnthroDeck
 // among them, get the next one (:1), so a plain `xprop -root` from here sees none of them.
 const GS_DISPLAY = ':0';
@@ -51,6 +52,7 @@ export class Beside extends EventEmitter {
   private game: { appid: string; name: string } | null = null;
   private askedAt = 0;
   private seen = false;
+  private goneAt: number | null = null;
   private shown = true;
   private timer: NodeJS.Timeout | null = null;
 
@@ -60,13 +62,19 @@ export class Beside extends EventEmitter {
     return { game: this.game, starting: !!this.game && !this.seen, shown: this.shown };
   }
 
+  // Watch what's on screen from now on: a game started from Steam's own library hides AnthroDeck too.
+  start(): void {
+    if (!this.timer) this.timer = setInterval(() => { void this.poll(); }, POLL_MS);
+  }
+
   play(appid: string, name: string): void {
     this.game = { appid, name };
     this.askedAt = this.deps.now();
     this.seen = false;
+    this.goneAt = null;
     this.deps.launch(appid);
     this.emit('state', this.state());
-    if (!this.timer) this.timer = setInterval(() => { void this.poll(); }, POLL_MS);
+    this.start();
   }
 
   // Put AnthroDeck or the game on screen.
@@ -78,23 +86,26 @@ export class Beside extends EventEmitter {
   }
 
   async poll(): Promise<void> {
-    if (!this.game) return;
+    const game = this.game;
     const [focused, running] = await Promise.all([
       this.deps.run('xprop', ['-display', GS_DISPLAY, '-root', 'GAMESCOPE_FOCUSED_APP_GFX']).then(parseFocused),
-      this.deps.run('pgrep', ['-f', `reaper SteamLaunch AppId=${this.game.appid}( |$)`]).then((o) => o.trim() !== ''),
+      game ? this.deps.run('pgrep', ['-f', `reaper SteamLaunch AppId=${game.appid}( |$)`]).then((o) => o.trim() !== '') : false,
     ]);
-    if (!running && (this.seen || this.deps.now() - this.askedAt > START_MS)) return this.end();
-    const shown = focused === null || focused === this.self;
-    if (shown === this.shown && running === this.seen) return;
-    this.seen = this.seen || running;
-    this.shown = shown;
-    this.emit('state', this.state());
+    const before = JSON.stringify(this.state());
+    if (game) {
+      const now = this.deps.now();
+      if (running) { this.seen = true; this.goneAt = null; }
+      // Steam can swap a game's launch process while it starts, so it's only gone after a while.
+      else if (this.seen) { this.goneAt ??= now; if (now - this.goneAt >= GONE_MS) return this.end(); }
+      else if (now - this.askedAt > START_MS) return this.end();
+    }
+    this.shown = focused === null || focused === this.self;
+    if (JSON.stringify(this.state()) !== before) this.emit('state', this.state());
   }
 
-  // The game quit (or never started): AnthroDeck back on screen, and stop watching.
+  // The game quit (or never started): AnthroDeck back on screen.
   private async end(): Promise<void> {
     this.game = null;
-    if (this.timer) { clearInterval(this.timer); this.timer = null; }
     await this.setBase(baseLayer(this.self));
     this.shown = true;
     this.emit('state', this.state());
