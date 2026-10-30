@@ -156,6 +156,9 @@ export interface PreviewStatus {
 }
 
 // Extend Window with our Electron bridge
+// Where on the window something goes, in CSS pixels.
+export interface Bounds { x: number; y: number; width: number; height: number }
+
 declare global {
   interface Window {
     electronAPI: {
@@ -212,9 +215,13 @@ declare global {
       sessionsList: (machine?: Machine) => Promise<PitWall>;
       activityGet: (machine: Machine, cwds: string[]) => Promise<{ projects: ProjectActivity[]; error: string | null }>;
       rcSessions: () => Promise<{ sessions: RcSession[]; error: string | null }>;
-      rcChatGet: (ref: string) => Promise<RcEntry[]>;
-      rcChatSend: (ref: string, text: string) => Promise<{ ok: boolean }>;
-      onRcChat: (cb: (ref: string, entries: RcEntry[]) => void) => () => void;
+      claudeOpen: (ref: string, name: string, bounds: Bounds) => Promise<void>;
+      claudePlace: (bounds: Bounds) => void;
+      claudeHide: () => void;
+      claudeShown: (shown: boolean) => void;
+      claudeScroll: (dy: number) => void;
+      claudeBox: () => Promise<boolean>;
+      onClaudeClosed: (cb: () => void) => () => void;
       onRcDone: (cb: (name: string) => void) => () => void;
       sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>, machine?: Machine) =>
         Promise<{ cwd?: string; history?: RestoredMessage[]; error?: string }>;

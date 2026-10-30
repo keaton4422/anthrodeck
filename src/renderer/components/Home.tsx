@@ -37,6 +37,7 @@ interface Props {
   onNew: (cwd: string, machine: Machine) => void;
   onOpenFolder: (machine: Machine) => void;
   onOpenLive: (s: LiveSession) => void;
+  onOpenRc: (s: RcSession) => void;     // its own claude.ai page
 }
 
 type Item =
@@ -59,12 +60,8 @@ const OTHER_FRESH_MS = 60_000;
 let rcCache: RcSession[] = [];
 const RC_EVERY_MS = 30_000;
 
-// A Remote Control session opens on the live session screen, as "rc:<ref>".
-const asLive = (s: RcSession): LiveSession =>
-  ({ sessionId: `rc:${s.ref}`, name: s.name, cwd: '', status: s.status, entrypoint: 'remote-control', updatedAt: Date.now() });
-
 const Home = forwardRef<HomeNav, Props>(function Home(
-  { projectPath, projectHost, current, onContinue, onResume, onNew, onOpenFolder, onOpenLive }, ref,
+  { projectPath, projectHost, current, onContinue, onResume, onNew, onOpenFolder, onOpenLive, onOpenRc }, ref,
 ) {
   // Both computers' projects: the shown one drives the columns, both feed the readout.
   const [walls, setWalls] = useState<Record<Machine, PitWall | null>>(
@@ -163,14 +160,14 @@ const Home = forwardRef<HomeNav, Props>(function Home(
       else onResume(item.session, machine);
     }
     else if (item.kind === 'live') onOpenLive(item.entry.session);
-    else if (item.kind === 'rc') onOpenLive(asLive(item.session));
+    else if (item.kind === 'rc') onOpenRc(item.session);
     else if (item.kind === 'calm') { setCol(1); setRow((r) => [r[0], 0]); }
     else if (item.kind === 'project') { setDrilled(item.project.cwd); setCol(1); setRow((r) => [r[0], 0]); }
     else if (item.kind === 'back') {
       const at = projects.findIndex((p) => p.cwd === drilled);
       setDrilled(null); setCol(1); setRow((r) => [r[0], Math.max(0, at)]);
     }
-  }, [onContinue, onOpenFolder, onNew, onResume, onOpenLive, machine, wall, live, projects, drilled]);
+  }, [onContinue, onOpenFolder, onNew, onResume, onOpenLive, onOpenRc, machine, wall, live, projects, drilled]);
 
   const touched = useRef(false);
   const stateRef = useRef({ col, row, columns });

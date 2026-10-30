@@ -42,6 +42,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('steam:state', h);
     return () => { ipcRenderer.removeListener('steam:state', h); };
   },
+  claudeOpen: (ref: string, name: string, bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke('claude:open', ref, name, bounds),
+  claudePlace: (bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.send('claude:place', bounds),
+  claudeHide: () => ipcRenderer.send('claude:hide'),
+  claudeShown: (shown: boolean) => ipcRenderer.send('claude:shown', shown),
+  claudeScroll: (dy: number) => ipcRenderer.send('claude:scroll', dy),
+  claudeBox: () => ipcRenderer.invoke('claude:box'),
+  onClaudeClosed: (cb: () => void) => {
+    const h = () => cb();
+    ipcRenderer.on('claude:closed', h);
+    return () => { ipcRenderer.removeListener('claude:closed', h); };
+  },
   rcGet: () => ipcRenderer.invoke('rc:get'),
   rcSet: (on: boolean) => ipcRenderer.invoke('rc:set', on),
   rcSetup: () => ipcRenderer.invoke('rc:setup'),
@@ -87,17 +98,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sessionsList: (machine?: Machine) => ipcRenderer.invoke('sessions:list', machine ?? 'local'),
   activityGet: (machine: Machine, cwds: string[]) => ipcRenderer.invoke('activity:get', machine, cwds),
   rcSessions: () => ipcRenderer.invoke('rc:sessions'),
-  rcChatGet: (ref: string) => ipcRenderer.invoke('rc:chat:get', ref),
-  rcChatSend: (ref: string, text: string) => ipcRenderer.invoke('rc:chat:send', ref, text),
   onRcDone: (cb: (name: string) => void) => {
     const h = (_: unknown, name: string) => cb(name);
     ipcRenderer.on('rc:done', h);
     return () => { ipcRenderer.removeListener('rc:done', h); };
-  },
-  onRcChat: (cb: (ref: string, entries: unknown[]) => void) => {
-    const h = (_: unknown, ref: string, entries: unknown[]) => cb(ref, entries);
-    ipcRenderer.on('rc:chat', h);
-    return () => { ipcRenderer.removeListener('rc:chat', h); };
   },
   sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>, machine?: Machine) =>
     ipcRenderer.invoke('sessions:resume', { id, cwd, settings, machine: machine ?? 'local' }),

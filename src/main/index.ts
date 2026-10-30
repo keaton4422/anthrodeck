@@ -13,6 +13,7 @@ import { chime, news, type Heard } from './pings';
 import type { LiveStatus } from '../renderer/types';
 import { canHandoff, listSteamGames, startHandoff, steamArt } from './steamGames';
 import { Beside, canBeside, realDeps } from './beside';
+import { ClaudePage } from './claudePage';
 import { updaterErrorMessage } from './updaterMessages';
 import { whatsNew, type RawReleaseNotes, type UpdateAvailable } from './releaseNotes';
 import { LATEST_RELEASE_API, parseLatestRelease } from './manualUpdate';
@@ -199,6 +200,29 @@ ipcMain.handle('steam:play', (_, appid: string, name: string) => {
 });
 ipcMain.handle('steam:show', (_, which: 'deck' | 'game') => beside?.show(which === 'game' ? 'game' : 'deck'));
 ipcMain.handle('store:get', (_, key: string) => store.get(key));
+
+// ─── A session's claude.ai page (main/claudePage.ts) ────────────────────────────
+let claudePage: ClaudePage | null = null;
+function page(): ClaudePage | null {
+  if (!claudePage && mainWindow) {
+    const win = mainWindow;
+    claudePage = new ClaudePage(win, {
+      remembered: () => store.get('claudePages', {}) as Record<string, string>,
+      remember: (ref, url) => store.set('claudePages', { ...(store.get('claudePages', {}) as Record<string, string>), [ref]: url }),
+      onClose: () => win.webContents.send('claude:closed'),
+    });
+    win.on('closed', () => { claudePage = null; });
+  }
+  return claudePage;
+}
+type Bounds = { x: number; y: number; width: number; height: number };
+const whole = (b: Bounds) => ({ x: Math.round(b.x), y: Math.round(b.y), width: Math.max(1, Math.round(b.width)), height: Math.max(1, Math.round(b.height)) });
+ipcMain.handle('claude:open', (_, ref: string, name: string, b: Bounds) => page()?.open(String(ref), String(name), whole(b)));
+ipcMain.on('claude:place', (_, b: Bounds) => claudePage?.place(whole(b)));
+ipcMain.on('claude:hide', () => claudePage?.hide());
+ipcMain.on('claude:shown', (_, shown: boolean) => claudePage?.shown(!!shown));
+ipcMain.on('claude:scroll', (_, dy: number) => claudePage?.scroll(Number(dy) || 0));
+ipcMain.handle('claude:box', () => claudePage?.focusBox() ?? false);
 ipcMain.handle('store:set', (_, key: string, value: unknown) => { store.set(key, value); });
 
 // ─── Cockpit mods IPC ─────────────────────────────────────────────────────────

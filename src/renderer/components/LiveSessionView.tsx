@@ -58,8 +58,6 @@ function toBlocks(entries: LiveEntry[]): Block[] {
 }
 
 export function LiveSessionView({ session, label, waiting, connected, entries, mode, outgoing, onDismiss, scrollRef, composer, onBack }: Props) {
-  // A Remote Control session on another computer (Home lists them): only messages, no transcript.
-  const rc = session.entrypoint === 'remote-control';
   const busy = session.status === 'busy';
   const blocks = useMemo(() => toBlocks(entries ?? []), [entries]);
   const [now, setNow] = useState(Date.now());
@@ -99,8 +97,7 @@ export function LiveSessionView({ session, label, waiting, connected, entries, m
             {session.name || folderName(session.cwd)}
           </div>
           <div style={{ fontSize: 12, color: C.dim, marginTop: 2 }}>
-            {rc ? `Remote Control · ${session.status === 'offline' ? 'offline' : session.status === 'busy' ? 'working' : 'idle'} · on another computer`
-              : <>{folderName(session.cwd)} · {liveSource(session.entrypoint)} on {label}</>}
+            {folderName(session.cwd)} · {liveSource(session.entrypoint)} on {label}
             {connected ? '' : ' · reconnecting…'}
           </div>
         </div>
@@ -116,9 +113,7 @@ export function LiveSessionView({ session, label, waiting, connected, entries, m
           <div style={{ ...column, fontSize: 15, color: C.dim }}>Reading the conversation on {label}…</div>
         )}
         {entries !== null && !blocks.length && (
-          <div style={{ ...column, fontSize: 15, color: C.dim }}>{rc
-            ? 'Its conversation stays on that computer. Send it a message: Claude gets it there, and its answers to you show up here.'
-            : 'Nothing said in this session yet.'}</div>
+          <div style={{ ...column, fontSize: 15, color: C.dim }}>Nothing said in this session yet.</div>
         )}
         {blocks.map((b) => b.kind === 'message'
           ? <MessageBubble key={b.message.id} message={b.message} collapseTools={false} />
@@ -128,12 +123,6 @@ export function LiveSessionView({ session, label, waiting, connected, entries, m
               {b.text}
             </div>
           ))}
-        {rc && entries?.length && entries[entries.length - 1].role === 'user' ? (
-          <div style={{ ...column, fontSize: 13, color: C.faint }}>
-            Sent. Claude answers here when it replies. A session in the Claude desktop app may hold messages
-            from other sessions until you look at it on that computer; one in a terminal answers straight away.
-          </div>
-        ) : null}
         {outgoing.map((m) => (
           <div key={m.id} style={{ ...column, background: '#1A1714', border: '1px solid #2E2620', borderRadius: 12, marginTop: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.14em', color: C.clay, marginBottom: 8 }}>YOU</div>
