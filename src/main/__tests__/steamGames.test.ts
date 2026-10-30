@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { listSteamGames, parseManifest, steamArt } from '../steamGames';
+import { execFileSync } from 'child_process';
+import { HANDOFF_PY, SNAP_PY, listSteamGames, parseManifest, steamArt } from '../steamGames';
 
 const manifest = (appid: string, name: string, flags = 4, lastPlayed = 0) => `"AppState"
 {
@@ -46,5 +47,20 @@ describe('the Deck\'s Steam games', () => {
     expect(steamArt('../etc', root)).toBeNull();
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(sd, { recursive: true, force: true });
+  });
+
+  it.skipIf(process.platform === 'win32')('reads the other computer\'s sessions for the chime, without the link\'s own', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'adk-snap-'));
+    fs.mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
+    fs.mkdirSync(path.join(home, '.anthrodeck', 'relay', 'req'), { recursive: true });
+    const put = (f: string, e: object) => fs.writeFileSync(path.join(home, '.claude', 'sessions', f), JSON.stringify(e));
+    put('1.json', { sessionId: 'work', cwd: '/repo', status: 'busy' });
+    put('2.json', { sessionId: 'hub', cwd: path.join(home, '.anthrodeck', 'rc', 'hub'), status: 'busy' });
+    fs.writeFileSync(path.join(home, '.anthrodeck', 'relay', 'req', 'a.json'), '{}');
+    // Sent on stdin, the way the hand-off sends it over SSH.
+    const out = execFileSync('python3', ['-'], { input: SNAP_PY, env: { ...process.env, HOME: home } }).toString();
+    expect(JSON.parse(out)).toEqual({ s: { work: 'busy' }, asks: 1 });
+    execFileSync('python3', ['-c', 'import sys; compile(sys.stdin.read(), "handoff", "exec")'], { input: HANDOFF_PY });
+    fs.rmSync(home, { recursive: true, force: true });
   });
 });

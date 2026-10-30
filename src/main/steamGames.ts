@@ -96,6 +96,22 @@ export function steamArt(appid: string, root = steamRoot()): string | null {
 
 // ─── the hand-off ──────────────────────────────────────────────────────────────
 
+// What the other computer's sessions are doing: each one's status, and how many approvals wait
+// (AnthroDeck's own Remote Control link sessions left out, they aren't the pilot's work).
+export const SNAP_PY = String.raw`
+import glob, json, os
+reg = os.path.expanduser('~/.claude/sessions'); rel = os.path.expanduser('~/.anthrodeck/relay/req')
+link = os.path.join(os.path.expanduser('~'), '.anthrodeck', 'rc')
+out = {}
+for f in glob.glob(os.path.join(reg, '*.json')):
+    try: e = json.load(open(f))
+    except Exception: continue
+    cwd = e.get('cwd') or ''
+    if cwd == link or cwd.startswith(link + os.sep): continue
+    if e.get('sessionId'): out[e['sessionId']] = e.get('status') or 'idle'
+print(json.dumps({'s': out, 'asks': len(glob.glob(os.path.join(rel, '*.json')))}))
+`;
+
 export const HANDOFF_PY = String.raw`
 import json, math, os, struct, subprocess, sys, time, wave
 P = json.loads(sys.argv[1])
@@ -123,22 +139,14 @@ if not os.path.exists(CHIME):
         w.writeframes(frames)
 def chime(): subprocess.run(['pw-play', CHIME], capture_output=True)
 
-# What the other computer's sessions are doing, over SSH (at home; away, nothing to hear).
-SNAP = r'''
-import glob, json, os
-reg = os.path.expanduser('~/.claude/sessions'); rel = os.path.expanduser('~/.anthrodeck/relay/req')
-out = {}
-for f in glob.glob(os.path.join(reg, '*.json')):
-    try: e = json.load(open(f))
-    except Exception: continue
-    if e.get('sessionId'): out[e['sessionId']] = e.get('status') or 'idle'
-print(json.dumps({'s': out, 'asks': len(glob.glob(os.path.join(rel, '*.json')))}))
-'''
+# What the other computer's sessions are doing, over SSH (at home; away, nothing to hear). The
+# script goes on stdin: as an argument the remote shell would have to keep its line breaks intact.
+SNAP = ${JSON.stringify(SNAP_PY)}
 def snapshot():
     if not P.get('host'): return None
     try:
-        r = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', P['host'], 'python3 -c ' + json.dumps(SNAP)],
-                           capture_output=True, text=True, timeout=20)
+        r = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', P['host'], 'python3', '-'],
+                           input=SNAP, capture_output=True, text=True, timeout=20)
         return json.loads(r.stdout) if r.returncode == 0 else None
     except Exception: return None
 
@@ -148,7 +156,8 @@ for _ in range(60):
     time.sleep(0.5)
 time.sleep(1.5)
 steam(P['game'])
-for _ in range(120):
+# A game can take minutes to really start (an update, or Steam compiling its shaders first).
+for _ in range(300):
     if running(P['game']): break
     time.sleep(1)
 last = snapshot()
