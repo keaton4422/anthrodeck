@@ -7,7 +7,7 @@
 // page opens claude.ai's own session list and goes to the session with that name; once found, the
 // address is remembered. If the name isn't found the list stays up for the pilot to tap.
 
-import { BrowserWindow, WebContentsView, session, type Rectangle } from 'electron';
+import { BrowserWindow, WebContentsView, session, type Rectangle, type WebContents } from 'electron';
 
 export const CLAUDE_CODE_URL = 'https://claude.ai/code';
 const PARTITION = 'persist:claude';
@@ -49,6 +49,54 @@ const FOCUS_BOX_JS = `(() => {
   return !!box;
 })()`;
 
+// The controller inside the page and its sign-in windows. Chromium hands the pad only to the page
+// that has focus, so AnthroDeck's own interface doesn't see B while claude.ai does. This runs in
+// its own isolated world there (the page can't see or change it) and reports presses on the
+// console, where main reads them: B, X, and the D-pad and right stick for scrolling.
+export const PAD_MARK = '__anthrodeck_pad:';
+const PAD_JS = `(() => {
+  if (window.__anthrodeckPad) return;
+  window.__anthrodeckPad = true;
+  let held = {}, wheel = 0, last = 0;
+  const tell = (what) => console.log('${PAD_MARK}' + what);
+  const loop = (t) => {
+    const pad = [...(navigator.getGamepads ? navigator.getGamepads() : [])].find(Boolean);
+    if (pad && document.hasFocus()) {
+      for (const [i, name] of [[1, 'B'], [2, 'X'], [12, 'up'], [13, 'down']]) {
+        const down = !!pad.buttons[i]?.pressed;
+        if (down && !held[i]) tell(name);
+        held[i] = down;
+      }
+      const y = pad.axes[3] ?? 0;
+      if (Math.abs(y) > 0.2) wheel += y * 18;
+      if (wheel && t - last > 50) { tell('scroll:' + Math.round(wheel)); wheel = 0; last = t; }
+    }
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+})()`;
+
+export type PadPress = 'B' | 'X' | 'up' | 'down' | { scroll: number };
+
+export function padPress(message: string): PadPress | null {
+  if (!message.startsWith(PAD_MARK)) return null;
+  const what = message.slice(PAD_MARK.length);
+  if (what === 'B' || what === 'X' || what === 'up' || what === 'down') return what;
+  const m = /^scroll:(-?\d+)$/.exec(what);
+  return m ? { scroll: Number(m[1]) } : null;
+}
+
+// Watch the controller in `wc` from now on, through every page it loads.
+function watchPad(wc: WebContents, onPress: (p: PadPress) => void): void {
+  const inject = () => { void wc.executeJavaScriptInIsolatedWorld(PAD_WORLD, [{ code: PAD_JS }]).catch(() => {}); };
+  wc.on('dom-ready', inject);
+  wc.on('console-message', (e) => {
+    const p = padPress(e.message);
+    if (p) onPress(p);
+  });
+}
+const PAD_WORLD = 1077;
+
 export interface ClaudePageDeps {
   remembered: () => Record<string, string>;          // session ref → its claude.ai address
   remember: (ref: string, url: string) => void;
@@ -86,6 +134,21 @@ export class ClaudePage {
         this.deps.onClose();
       }
     });
+    watchPad(wc, (p) => {
+      if (p === 'B') this.deps.onClose();
+      else if (p === 'X') void this.focusBox();
+      else if (p === 'up') this.scroll(-160);
+      else if (p === 'down') this.scroll(160);
+      else this.scroll(p.scroll);
+    });
+    // A sign-in window: B or Escape closes it, back to the page (it has no other way out in Game Mode).
+    wc.on('did-create-window', (popup) => {
+      const close = () => { if (!popup.isDestroyed()) popup.close(); };
+      watchPad(popup.webContents, (p) => { if (p === 'B') close(); });
+      popup.webContents.on('before-input-event', (e, input) => {
+        if (input.type === 'keyDown' && input.key === 'Escape') { e.preventDefault(); close(); }
+      });
+    });
     view.setBackgroundColor('#262624');
     return view;
   }
@@ -119,6 +182,7 @@ export class ClaudePage {
   hide(): void {
     this.finding++;
     if (!this.view) return;
+    for (const w of this.win.getChildWindows()) if (!w.isDestroyed()) w.close();
     this.view.setVisible(false);
     this.win.contentView.removeChildView(this.view);
     this.win.webContents.focus();

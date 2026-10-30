@@ -42,3 +42,15 @@ describe('a session\'s claude.ai page', () => {
     expect(opensWindow('not a url')).toBe(false);
   });
 });
+
+describe('the controller inside the page', () => {
+  it('reads the presses the page reports, and nothing else on its console', async () => {
+    const { padPress, PAD_MARK } = await import('../claudePage');
+    expect(padPress(`${PAD_MARK}B`)).toBe('B');
+    expect(padPress(`${PAD_MARK}down`)).toBe('down');
+    expect(padPress(`${PAD_MARK}scroll:-36`)).toEqual({ scroll: -36 });
+    expect(padPress(`${PAD_MARK}scroll:lots`)).toBeNull();
+    expect(padPress('B')).toBeNull();
+    expect(padPress('Uncaught TypeError')).toBeNull();
+  });
+});
