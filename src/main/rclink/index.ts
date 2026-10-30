@@ -51,7 +51,7 @@ export function pickHub(peers: RcPeer[]): string | null {
 // ─── the Deck's link session ───────────────────────────────────────────────────
 
 interface Waiter<T> { resolve: (v: T) => void; timer: ReturnType<typeof setTimeout> }
-interface Outgoing { to: string; body: Record<string, unknown> }
+interface Outgoing { to: string; body?: Record<string, unknown>; text?: string; id?: string }
 
 export interface DeckRcDeps {
   claudePath: () => string | null;
@@ -73,6 +73,9 @@ export class DeckRc {
   private peerWaiters: Waiter<string | null>[] = [];
   readonly channels = new Map<string, RcChannel>();
   private stopped = false;
+  // A session answering the pilot (main/rcSessions.ts), and a message of theirs that didn't arrive.
+  onChat: ((from: string | null, text: string) => void) | null = null;
+  onUndelivered: ((id: string, reason: string) => void) | null = null;
 
   constructor(private deps: DeckRcDeps) {}
 
@@ -135,6 +138,12 @@ export class DeckRc {
     this.flush();
   }
 
+  // The pilot's own message to a session, as it is (`id` names it if it can't be delivered).
+  sendText(to: string, text: string, id: string): void {
+    this.queue.push({ to, text, id });
+    this.flush();
+  }
+
   stop(): void {
     this.stopped = true;
     for (const ch of this.channels.values()) ch.kill();
@@ -188,7 +197,7 @@ export class DeckRc {
       req.on('data', (c: string) => { raw += c; });
       req.on('end', () => {
         res.end('{}');
-        let m: { kind?: string; listing?: unknown; ch?: unknown; reason?: unknown; body?: Record<string, unknown> };
+        let m: Parameters<DeckRc['onIn']>[0];
         try { m = JSON.parse(raw); } catch { return; }
         this.onIn(m);
       });
@@ -198,12 +207,16 @@ export class DeckRc {
     res.end();
   }
 
-  private onIn(m: { kind?: string; listing?: unknown; ch?: unknown; reason?: unknown; body?: Record<string, unknown> }): void {
+  private onIn(m: { kind?: string; listing?: unknown; ch?: unknown; id?: unknown; from?: unknown; text?: unknown; reason?: unknown; body?: Record<string, unknown> }): void {
     if (m.kind === 'peers') {
       const listing = typeof m.listing === 'string' ? m.listing : null;
       for (const w of this.peerWaiters.splice(0)) { clearTimeout(w.timer); w.resolve(listing); }
     } else if (m.kind === 'undelivered' && typeof m.ch === 'string') {
       this.channels.get(m.ch)?.fail(`Remote Control couldn't deliver to the hub (${String(m.reason)}).`);
+    } else if (m.kind === 'undelivered' && typeof m.id === 'string') {
+      this.onUndelivered?.(m.id, String(m.reason));
+    } else if (m.kind === 'chat' && typeof m.text === 'string') {
+      this.onChat?.(typeof m.from === 'string' ? m.from : null, m.text);
     } else if (m.kind === 'msg' && m.body && typeof m.body.ch === 'string') {
       this.channels.get(m.body.ch)?.receive(m.body);
     }

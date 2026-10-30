@@ -1,5 +1,5 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import type { LiveSession, Machine, PitWall, ProjectTile, RemoteTarget, SessionCard } from '../types';
+import type { LiveSession, Machine, PitWall, ProjectTile, RcSession, RemoteTarget, SessionCard } from '../types';
 import { timeAgo } from '../lib/timeAgo';
 import { buildQueue, type QueueEntry } from '../lib/queue';
 import { useLive } from '../hooks/useLive';
@@ -42,6 +42,7 @@ interface Props {
 type Item =
   | { kind: 'continue' }
   | { kind: 'live'; entry: QueueEntry; group: 'needs' | 'turn' | 'working' }
+  | { kind: 'rc'; session: RcSession }
   | { kind: 'calm' }
   | { kind: 'project'; project: ProjectTile }
   | { kind: 'open' }
@@ -54,6 +55,13 @@ type Item =
 // only once this old (for the remote computer, every read is a trip over SSH).
 const wallCache: Partial<Record<Machine, { wall: PitWall; at: number }>> = {};
 const OTHER_FRESH_MS = 60_000;
+// Every Remote Control session on the account (main/rcSessions.ts), kept between visits.
+let rcCache: RcSession[] = [];
+const RC_EVERY_MS = 30_000;
+
+// A Remote Control session opens on the live session screen, as "rc:<ref>".
+const asLive = (s: RcSession): LiveSession =>
+  ({ sessionId: `rc:${s.ref}`, name: s.name, cwd: '', status: s.status, entrypoint: 'remote-control', updatedAt: Date.now() });
 
 const Home = forwardRef<HomeNav, Props>(function Home(
   { projectPath, projectHost, current, onContinue, onResume, onNew, onOpenFolder, onOpenLive }, ref,
@@ -99,15 +107,32 @@ const Home = forwardRef<HomeNav, Props>(function Home(
   // The queue: the other computer's running sessions, apart from the one the Deck has open.
   const queue = useMemo(() => buildQueue(live?.state ?? null, projectHost ? wallCache.remote?.wall.currentId ?? null : null),
     [live, projectHost]);
+  // Remote Control sessions on any computer, apart from the ones already here in full over SSH.
+  const [rcList, setRcList] = useState<RcSession[]>(rcCache);
+  useEffect(() => {
+    let on = true;
+    const get = () => window.electronAPI.rcSessions().then((r) => { if (on) { rcCache = r.sessions; setRcList(r.sessions); } });
+    void get();
+    const id = window.setInterval(() => void get(), RC_EVERY_MS);
+    return () => { on = false; window.clearInterval(id); };
+  }, []);
+  const rc = useMemo(() => {
+    const here = new Set((live?.state?.live ?? []).map((l) => l.name).filter(Boolean));
+    const list = rcList.filter((r) => !here.has(r.name));
+    return { busy: list.filter((r) => r.status === 'busy'), idle: list.filter((r) => r.status === 'idle') };
+  }, [rcList, live]);
+  // What needs an answer, then what Claude is working on, then the pilot's turns.
   const left = useMemo<Item[]>(() => {
     const items: Item[] = [
       ...queue.needs.map((entry) => ({ kind: 'live', entry, group: 'needs' } as Item)),
+      ...queue.working.map((entry) => ({ kind: 'live', entry, group: 'working' } as Item)),
+      ...rc.busy.map((session) => ({ kind: 'rc', session } as Item)),
       ...(current ? [{ kind: 'continue' } as Item] : []),
       ...queue.turn.map((entry) => ({ kind: 'live', entry, group: 'turn' } as Item)),
-      ...queue.working.map((entry) => ({ kind: 'live', entry, group: 'working' } as Item)),
+      ...rc.idle.map((session) => ({ kind: 'rc', session } as Item)),
     ];
     return items.length ? items : [{ kind: 'calm' }];
-  }, [queue, current]);
+  }, [queue, current, rc]);
 
   const shownProject = useMemo(() => projects.find((p) => p.cwd === drilled) ?? null, [projects, drilled]);
   const right = useMemo<Item[]>(() => shownProject ? [
@@ -135,6 +160,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
       else onResume(item.session, machine);
     }
     else if (item.kind === 'live') onOpenLive(item.entry.session);
+    else if (item.kind === 'rc') onOpenLive(asLive(item.session));
     else if (item.kind === 'calm') { setCol(1); setRow((r) => [r[0], 0]); }
     else if (item.kind === 'project') { setDrilled(item.project.cwd); setCol(1); setRow((r) => [r[0], 0]); }
     else if (item.kind === 'back') {
@@ -197,11 +223,11 @@ const Home = forwardRef<HomeNav, Props>(function Home(
   const isFocused = (c: number, i: number) => col === c && row[c] === i;
   const other = remote ? (machine === 'local' ? remote.label : 'This Deck') : null;
   const needs = queue.needs.length;
+  const working = queue.working.length + rc.busy.length;
+  const workingText = working ? `Claude is working in ${working} session${working === 1 ? '' : 's'}` : '';
   const headline = needs
-    ? `${needs} session${needs === 1 ? '' : 's'} need${needs === 1 ? 's' : ''} you`
-    : queue.turn.length || current
-      ? 'Nothing waiting on an answer'
-      : queue.working.length ? `Claude is working in ${queue.working.length} session${queue.working.length === 1 ? '' : 's'}` : 'All quiet';
+    ? [`${needs} session${needs === 1 ? '' : 's'} need${needs === 1 ? 's' : ''} you`, workingText].filter(Boolean).join(' · ')
+    : workingText || (queue.turn.length || current || rc.idle.length ? 'Nothing waiting on an answer' : 'All quiet');
 
   return (
     <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '18px 28px 0', gap: 16 }}>
@@ -209,7 +235,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
 
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: calm ? 'minmax(0, 4fr) minmax(0, 8fr)' : 'minmax(0, 7fr) minmax(0, 5fr)', gap: 22, minHeight: 0 }}>
         {/* The queue */}
-        <Column title={remote ? `YOUR SESSIONS · ${remote.label.toUpperCase()} AND THIS DECK` : 'YOUR SESSIONS'}>
+        <Column title={`YOUR SESSIONS${remote ? ` · ${remote.label.toUpperCase()}, THIS DECK` : ''}${rc.busy.length + rc.idle.length ? ' AND OTHER COMPUTERS' : ''}`}>
           {left.map((item, i) => {
             const focused = isFocused(0, i);
             const go = () => { setCol(0); setRow([i, row[1]]); activate(item); };
@@ -219,6 +245,18 @@ const Home = forwardRef<HomeNav, Props>(function Home(
                   <Kicker color={C.clay}>OPEN HERE · THIS DECK</Kicker>
                   <Title>{current.title}</Title>
                   <Sub>{current.project ?? 'No project'}</Sub>
+                </Row>
+              );
+            }
+            if (item.kind === 'rc') {
+              const busy = item.session.status === 'busy';
+              return (
+                <Row key={`rc-${item.session.ref}`} focused={focused} onClick={go}>
+                  <Kicker color={busy ? C.green : C.dim}>
+                    {busy ? 'WORKING' : 'IDLE'} <span style={{ color: C.faint, fontWeight: 600 }}>· REMOTE CONTROL · ANOTHER COMPUTER</span>
+                  </Kicker>
+                  <Title>{item.session.name}</Title>
+                  <Sub>A to message it</Sub>
                 </Row>
               );
             }

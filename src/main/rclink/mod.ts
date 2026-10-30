@@ -13,7 +13,7 @@
 // Messages are Claude Code's own cross-session messages: "ADK1 {json}" one way, "ADK1R {json}"
 // back. Both sessions consume every message they get, so Claude never reads one and no turn starts.
 
-export const MOD_VERSION = 2;
+export const MOD_VERSION = 3;
 
 // The link's own sessions (the hub's and the Deck's) run in folders under ~/.anthrodeck/rc. They're
 // plumbing: AnthroDeck never lists them as projects or live sessions.
@@ -111,8 +111,9 @@ async function deckLoop($) {
     if (out.quit) return;
     if (out.peers) await post($, { kind: 'peers', listing: await peers($) });
     for (const m of out.msgs ?? []) {
-      const sent = await $.session.send({ to: m.to, text: REQ + JSON.stringify(m.body) });
-      if (!sent.isDelivered) await post($, { kind: 'undelivered', ch: m.body.ch, reason: sent.reason ?? 'not delivered' });
+      // A link message to the hub, or (text) the pilot's own message to any session.
+      const sent = await $.session.send({ to: m.to, text: m.text ?? (REQ + JSON.stringify(m.body)) });
+      if (!sent.isDelivered) await post($, { kind: 'undelivered', ch: m.body?.ch, id: m.id, reason: sent.reason ?? 'not delivered' });
     }
   }
 }
@@ -206,7 +207,9 @@ export function register(on) {
     const from = sender(e.text);
     if (role === 'deck') {
       const res = body(e.text, RES);
+      // Anything else is a session answering the pilot: AnthroDeck shows it.
       if (res) await post($, { kind: 'msg', from, body: res });
+      else await post($, { kind: 'chat', from, text: e.text });
     } else {
       const req = body(e.text, REQ);
       if (req && from && typeof req.ch === 'string') {

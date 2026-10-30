@@ -10,10 +10,11 @@ import type { RemoteTarget } from '../main/remote';
 import type { LiveLinkStatus, LiveSession, LiveEntry, LiveTail, LiveSent } from '../main/live';
 import type { BesideState } from '../main/beside';
 import type { ProjectActivity } from '../main/activity';
+import type { RcSession, RcEntry } from '../main/rcSessions';
 
 // Which computer something is on: this one, or the remote computer set up in Settings.
 export type Machine = 'local' | 'remote';
-export type { RemoteTarget, LiveSession, LiveEntry, LiveTail, LiveSent, PlanUsage, Commit, BesideState, ProjectActivity };
+export type { RemoteTarget, LiveSession, LiveEntry, LiveTail, LiveSent, PlanUsage, Commit, BesideState, ProjectActivity, RcSession, RcEntry };
 
 // The remote computer's live sessions, as the Deck sees them (null: no remote computer set up).
 export type LiveStatus = (LiveLinkStatus & { label: string; via?: 'ssh' | 'rc' }) | null;
@@ -210,6 +211,10 @@ declare global {
       claudeRewind: (anchor: string | null) => void;
       sessionsList: (machine?: Machine) => Promise<PitWall>;
       activityGet: (machine: Machine, cwds: string[]) => Promise<{ projects: ProjectActivity[]; error: string | null }>;
+      rcSessions: () => Promise<{ sessions: RcSession[]; error: string | null }>;
+      rcChatGet: (ref: string) => Promise<RcEntry[]>;
+      rcChatSend: (ref: string, text: string) => Promise<{ ok: boolean }>;
+      onRcChat: (cb: (ref: string, entries: RcEntry[]) => void) => () => void;
       sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>, machine?: Machine) =>
         Promise<{ cwd?: string; history?: RestoredMessage[]; error?: string }>;
       claudeSetMode: (mode: DriveMode) => Promise<DriveMode>;
