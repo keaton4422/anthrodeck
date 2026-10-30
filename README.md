@@ -245,13 +245,40 @@ Store publishing is a poor fit here regardless of cost: AnthroDeck is a develope
 game, and it requires each user to supply their own paid Anthropic API key — which is awkward
 against storefront expectations. The Non-Steam shortcut gets you the same Game Mode experience.
 
-## Your other computer
+## Your computers
 
-AnthroDeck can pilot Claude Code on another computer, like your Mac, over SSH:
+AnthroDeck reaches your Claude Code sessions the way the Claude app on your phone does, through
+Remote Control: from any network, with no address to set up. Every session with Remote Control on
+shows on Home, on any computer, marked working, idle or **YOUR TURN**, and **A** opens one to message
+it.
+
+To answer a computer's permission prompts and questions on the Deck, and to hear (and read) when
+its sessions finish, add the AnthroDeck plugin to Claude Code on that computer, once:
+
+```bash
+claude plugin install anthrodeck --marketplace keaton4422/anthrodeck
+```
+
+In the Claude desktop app: **+** next to the prompt box → **Plugins** → **Add marketplace**
+`keaton4422/anthrodeck` → **Add plugin**.
+
+From then on, when a session there asks for permission or asks a question, the card pops up on the
+Deck wherever you are, game included; the prompt shows on that computer too, and whichever answers
+first wins. When a session finishes a turn, the Deck chimes (if you're in a game) and Home shows
+what Claude said. With the Deck off, the plugin changes nothing. The plugin is in
+`plugins/anthrodeck`: a Claude Code mod for the Remote Control messages, and a small
+`PermissionRequest` hook (`wait.py`, needs `python3`) that waits on the Deck's answer, since a mod's
+hooks can only wait seconds. `ANTHRODECK_DEBUG=<file>` in its environment makes it log what it does.
+
+## Full live view over SSH (optional)
+
+Under **Settings → Advanced**, AnthroDeck can also reach one computer, like your Mac, over SSH, for
+what Remote Control doesn't carry: each session's conversation streaming in word by word, and the
+computer's projects for starting new sessions:
 
 1. On the Mac, turn on **System Settings → General → Sharing → Remote Login**, and add the Deck's
    public key (`~/.ssh/id_ed25519.pub` on the Deck) to the Mac's `~/.ssh/authorized_keys`.
-2. On the Deck, **Settings → Remote computer**: enter `you@your-mac.local` and press **Save & test**.
+2. On the Deck, **Settings → Advanced → Full live view over SSH**: enter `you@your-mac.local` and press **Save**.
 
 Home then switches between this device and the Mac (**Y**). On the Mac side you get:
 

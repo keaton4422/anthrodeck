@@ -19,6 +19,7 @@ const OUT = 'ADK2 ';
 const BACK = 'ADK2R ';
 const DECK = 'anthrodeck-deck';
 const FIND_EVERY_MS = 60_000;
+const MISSING_EVERY_MS = 5000;
 const TICK_MS = 2000;
 
 let found: { deck: string | null; me: string | null; at: number } | null = null;
@@ -27,7 +28,9 @@ const forwarded = new Set<string>();      // prompts sent to the Deck and still 
 
 // The Deck's session and this one's name, from Claude Code's list of reachable sessions.
 async function look($: EngineInterface): Promise<{ deck: string | null; me: string | null }> {
-  if (found && Date.now() - found.at < FIND_EVERY_MS) return found;
+  // Right after a session starts its list may not hold Remote Control sessions yet: a Deck not
+  // found is looked for again soon.
+  if (found && Date.now() - found.at < (found.deck ? FIND_EVERY_MS : MISSING_EVERY_MS)) return found;
   let listing = '';
   try {
     const r = await $.tool.call({ tool: 'ListAgents' });

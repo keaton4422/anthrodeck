@@ -51,7 +51,7 @@ def main():
     here = os.path.join(ROOT, sid)
     # A session that just started may not be marked yet: when this computer has seen the Deck
     # lately, give the mod a moment. Without a Deck around, step aside at once.
-    patience = 4 if age(os.path.join(ROOT, 'deck-seen')) < SEEN else 0
+    patience = 10 if age(os.path.join(ROOT, 'deck-seen')) < SEEN else 0
     end = time.time() + patience
     while age(os.path.join(here, 'online')) > FRESH:
         if time.time() >= end: return
