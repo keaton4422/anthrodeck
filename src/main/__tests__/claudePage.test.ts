@@ -47,11 +47,22 @@ describe('the controller inside the page', () => {
   it('reads the presses the page reports, and nothing else on its console', async () => {
     const { padPress, PAD_MARK } = await import('../claudePage');
     expect(padPress(`${PAD_MARK}B`)).toBe('B');
+    expect(padPress(`${PAD_MARK}A`)).toBe('A');
+    expect(padPress(`${PAD_MARK}left`)).toBeNull();   // left and right stay in the page, on an approval
     expect(padPress(`${PAD_MARK}down`)).toBe('down');
     expect(padPress(`${PAD_MARK}scroll:-36`)).toEqual({ scroll: -36 });
     expect(padPress(`${PAD_MARK}scroll:lots`)).toBeNull();
     expect(padPress('B')).toBeNull();
     expect(padPress('Uncaught TypeError')).toBeNull();
+  });
+});
+
+describe('the controller script in the page', () => {
+  it('is JavaScript the page can run, with its Deny pattern and line split intact', async () => {
+    const { PAD_JS } = await import('../claudePage');
+    expect(() => new Function(PAD_JS)).not.toThrow();
+    expect(PAD_JS).toContain(String.raw`/^(Deny|Reject|Decline)\b/`);
+    expect(PAD_JS).toContain(String.raw`split('\n')`);
   });
 });
 

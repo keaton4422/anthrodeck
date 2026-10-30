@@ -74,22 +74,60 @@ const FOCUS_BOX_JS = `(() => {
 // The controller inside the page and its sign-in windows. Chromium hands the pad only to the page
 // that has focus, so AnthroDeck's own interface doesn't see B while claude.ai does. This runs in
 // its own isolated world there (the page can't see or change it) and reports presses on the
-// console, where main reads them: B, X, and the D-pad and right stick for scrolling.
+// console, where main reads them: A, B, X, and the D-pad and right stick for scrolling.
+//
+// An approval on the page (Deny, Allow, and the menu under its arrow) is answered here, with no
+// trip to main: left and right move a highlight between its buttons, starting on Deny so nothing
+// is allowed by accident, and A presses the one highlighted. With no approval up, A is reported.
 export const PAD_MARK = '__anthrodeck_pad:';
-const PAD_JS = `(() => {
+export const PAD_JS = `(() => {
   if (window.__anthrodeckPad) return;
   window.__anthrodeckPad = true;
-  let held = {}, wheel = 0, last = 0, had = false;
+  let held = {}, wheel = 0, last = 0, had = false, sel = -1, lit = null, seen = 0, list = [];
   const tell = (what) => console.log('${PAD_MARK}' + what);
+  const shown = (e) => !!e.offsetParent && !e.disabled;
+  const label = (e) => (e.innerText || e.getAttribute('aria-label') || '').trim().split('\\n')[0];
+  // The approval's buttons: an open menu's items, else the buttons of the card Deny sits in.
+  const choices = () => {
+    const menu = [...document.querySelectorAll('[role=menu], [role=listbox]')].find(shown);
+    if (menu) return [...menu.querySelectorAll('[role^=menuitem], [role=option]')].filter(shown);
+    const deny = [...document.querySelectorAll('button')].find((b) => shown(b) && /^(Deny|Reject|Decline)\\b/.test(label(b)));
+    if (!deny) return [];
+    for (let card = deny.parentElement; card && card !== document.body; card = card.parentElement) {
+      const buttons = [...card.querySelectorAll('button')].filter(shown);
+      if (buttons.length >= 2) return buttons;
+    }
+    return [];
+  };
+  const light = (e) => {
+    if (lit === e) return;
+    if (lit) { lit.style.outline = lit.__adOutline; lit.style.outlineOffset = lit.__adOffset; }
+    lit = e;
+    if (e) {
+      e.__adOutline = e.style.outline; e.__adOffset = e.style.outlineOffset;
+      e.style.outline = '3px solid #CC785C'; e.style.outlineOffset = '3px';
+      e.scrollIntoView({ block: 'nearest' });
+    }
+  };
   const loop = (t) => {
     const pad = [...(navigator.getGamepads ? navigator.getGamepads() : [])].find(Boolean);
     // Focus, not the pad: Chromium first shows a page the pad on a press, and that press counts.
     const has = document.hasFocus();
+    // An approval showing (looked for five times a second): keep its highlight, on Deny when it
+    // first shows or when its menu opens.
+    if (t - seen > 200) { list = choices(); seen = t; }
+    if (!list.length) { light(null); sel = -1; }
+    else if (!list.includes(lit)) { sel = Math.max(0, list.findIndex((b) => /^(Deny|Reject|Decline)\\b/.test(label(b)))); light(list[sel]); }
     if (pad && has) {
       // Just got the pad back (from a card, or AnthroDeck): a button still held isn't a press here.
-      for (const [i, name] of [[1, 'B'], [2, 'X'], [12, 'up'], [13, 'down']]) {
+      for (const [i, name] of [[0, 'A'], [1, 'B'], [2, 'X'], [12, 'up'], [13, 'down'], [14, 'left'], [15, 'right']]) {
         const down = !!pad.buttons[i]?.pressed;
-        if (down && !held[i] && had) tell(name);
+        if (down && !held[i] && had) {
+          if (list.length && name === 'A') { const b = list[sel]; light(null); list = []; seen = 0; b.click(); }
+          else if (list.length && (name === 'left' || name === 'right')) {
+            sel = Math.min(list.length - 1, Math.max(0, sel + (name === 'left' ? -1 : 1))); light(list[sel]);
+          } else if (name !== 'left' && name !== 'right') tell(name);
+        }
         held[i] = down;
       }
       const y = pad.axes[3] ?? 0;
@@ -102,12 +140,12 @@ const PAD_JS = `(() => {
   requestAnimationFrame(loop);
 })()`;
 
-export type PadPress = 'B' | 'X' | 'up' | 'down' | { scroll: number };
+export type PadPress = 'A' | 'B' | 'X' | 'up' | 'down' | { scroll: number };
 
 export function padPress(message: string): PadPress | null {
   if (!message.startsWith(PAD_MARK)) return null;
   const what = message.slice(PAD_MARK.length);
-  if (what === 'B' || what === 'X' || what === 'up' || what === 'down') return what;
+  if (what === 'A' || what === 'B' || what === 'X' || what === 'up' || what === 'down') return what;
   const m = /^scroll:(-?\d+)$/.exec(what);
   return m ? { scroll: Number(m[1]) } : null;
 }
@@ -168,7 +206,7 @@ export class ClaudePage {
     });
     watchPad(wc, (p) => {
       if (p === 'B') this.deps.onClose();
-      else if (p === 'X') void this.focusBox();
+      else if (p === 'A' || p === 'X') void this.focusBox();
       else if (p === 'up') this.scroll(-160);
       else if (p === 'down') this.scroll(160);
       else this.scroll(p.scroll);
@@ -246,7 +284,8 @@ export class ClaudePage {
     this.win.webContents.focus();
   }
 
-  // The right stick and D-pad scroll the page; X puts the cursor in its message box.
+  // The right stick and D-pad scroll the page; A (with no approval up) or X puts the cursor in its
+  // message box.
   scroll(dy: number): void {
     const v = this.view;
     if (!v) return;
