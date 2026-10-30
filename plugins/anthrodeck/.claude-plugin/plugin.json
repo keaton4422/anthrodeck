@@ -1,0 +1,6 @@
+{
+  "name": "anthrodeck",
+  "version": "0.1.0",
+  "author": { "name": "keaton4422" },
+  "description": "Answer this computer's Claude Code prompts from AnthroDeck on your Steam Deck, and get told there when a session finishes, over Remote Control."
+}

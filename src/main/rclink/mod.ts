@@ -13,7 +13,7 @@
 // Messages are Claude Code's own cross-session messages: "ADK1 {json}" one way, "ADK1R {json}"
 // back. Both sessions consume every message they get, so Claude never reads one and no turn starts.
 
-export const MOD_VERSION = 3;
+export const MOD_VERSION = 4;
 
 // The link's own sessions (the hub's and the Deck's) run in folders under ~/.anthrodeck/rc. They're
 // plumbing: AnthroDeck never lists them as projects or live sessions.
@@ -207,8 +207,11 @@ export function register(on) {
     const from = sender(e.text);
     if (role === 'deck') {
       const res = body(e.text, RES);
-      // Anything else is a session answering the pilot: AnthroDeck shows it.
+      // A computer's AnthroDeck plugin (plugins/anthrodeck): a prompt for the pilot, or a finished
+      // turn. Anything else is a session answering the pilot: AnthroDeck shows it.
+      const remote = body(e.text, 'ADK2 ');
       if (res) await post($, { kind: 'msg', from, body: res });
+      else if (remote) await post($, { kind: 'remote', from, body: remote });
       else await post($, { kind: 'chat', from, text: e.text });
     } else {
       const req = body(e.text, REQ);

@@ -167,6 +167,10 @@ beside?.on('state', (st) => mainWindow?.webContents.send('steam:state', st));
 beside?.start();
 // While a Steam game is on screen: a chime, and the reason as a toast for when AnthroDeck is back.
 let heard: Heard | null = null;
+// The same for prompts and finished turns arriving over Remote Control (main/remoteAsks.ts).
+liveEvents.on('ping', (why: string) => {
+  if (beside && !beside.state().shown) { chime(); mainWindow?.webContents.send('steam:ping', why); }
+});
 liveEvents.on('state', (st: LiveStatus) => {
   if (!st?.state) return;
   const n = news(heard, st.state);

@@ -10,6 +10,7 @@ export interface RcSession {
   ref: string;            // Remote Control's short id, "fa1763"
   name: string;
   status: 'busy' | 'idle' | 'offline';
+  said?: string | null;   // its last reply, when the AnthroDeck plugin on its computer sent one
 }
 
 export interface RcEntry { id: string; role: 'user' | 'assistant' | 'peer'; text: string; at: number }
@@ -54,6 +55,11 @@ export class RcChats {
     this.add(ref, { id, role: 'user', text, at: this.now() });
     this.lastSent = ref;
     return id;
+  }
+
+  // A turn's last reply, sent by the AnthroDeck plugin on the session's computer.
+  said(ref: string, text: string): void {
+    this.add(ref, { id: `rc${++this.seq}`, role: 'assistant', text, at: this.now() });
   }
 
   undelivered(id: string, reason: string): void {

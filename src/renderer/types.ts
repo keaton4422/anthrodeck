@@ -215,6 +215,7 @@ declare global {
       rcChatGet: (ref: string) => Promise<RcEntry[]>;
       rcChatSend: (ref: string, text: string) => Promise<{ ok: boolean }>;
       onRcChat: (cb: (ref: string, entries: RcEntry[]) => void) => () => void;
+      onRcDone: (cb: (name: string) => void) => () => void;
       sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>, machine?: Machine) =>
         Promise<{ cwd?: string; history?: RestoredMessage[]; error?: string }>;
       claudeSetMode: (mode: DriveMode) => Promise<DriveMode>;

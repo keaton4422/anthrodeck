@@ -89,6 +89,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   rcSessions: () => ipcRenderer.invoke('rc:sessions'),
   rcChatGet: (ref: string) => ipcRenderer.invoke('rc:chat:get', ref),
   rcChatSend: (ref: string, text: string) => ipcRenderer.invoke('rc:chat:send', ref, text),
+  onRcDone: (cb: (name: string) => void) => {
+    const h = (_: unknown, name: string) => cb(name);
+    ipcRenderer.on('rc:done', h);
+    return () => { ipcRenderer.removeListener('rc:done', h); };
+  },
   onRcChat: (cb: (ref: string, entries: unknown[]) => void) => {
     const h = (_: unknown, ref: string, entries: unknown[]) => cb(ref, entries);
     ipcRenderer.on('rc:chat', h);
