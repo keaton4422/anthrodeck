@@ -135,12 +135,19 @@ in the controller layout and bind it to Joystick Move).
 
 ### Library art
 
-Non-Steam shortcuts show a blank tile until they get art. `assets/steam/png/` has the four images
-(rendered from the SVGs beside them by `npx electron tools/renderSteamArt.cjs`). Copy them into
-`~/.local/share/Steam/userdata/<your id>/config/grid/` as `<appid>p.png` (portrait),
-`<appid>.png` (wide), `<appid>_hero.png` and `<appid>_logo.png`, where `<appid>` is the shortcut's
-id (stored in `config/shortcuts.vdf`), then
-restart Steam. Or set each image by hand: select the tile → **Manage → Set custom artwork**.
+Non-Steam shortcuts show a blank tile until they get art, and a blank square in the Steam menu's
+list of running games until they get an icon. `tools/linux/steam-art.py` does both: it copies the
+four images in `assets/steam/png/` (rendered from the SVGs beside them by
+`npx electron tools/renderSteamArt.cjs`) into each Steam user's `config/grid/`, and sets the
+shortcut's icon in `config/shortcuts.vdf` (keeping a `.bak`). Steam rewrites that file while it
+runs, so close Steam first (from SSH: `steam -shutdown`), then run it from the repo on the Deck:
+
+```bash
+python3 tools/linux/steam-art.py
+```
+
+Or set each image by hand: select the tile → **Manage → Set custom artwork**, and the icon under
+**Properties**.
 
 Text entry uses the Steam on-screen keyboard: **STEAM + X**. For the API key specifically, don't —
 use pairing (below) instead.
