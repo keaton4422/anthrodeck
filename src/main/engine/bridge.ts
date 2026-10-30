@@ -37,6 +37,7 @@ import { DeckRc, linkSpawner, setupHub, stopHub, type HubResult, type LinkSpawne
 import { reconnectHeld } from '../held';
 import { ACTIVITY_PY, toActivity, type RawActivity } from '../activity';
 import { parseRcSessions, RcChats, type RcSession } from '../rcSessions';
+import { RemoteAsks } from '../remoteAsks';
 
 interface Pending<T> { resolve: (v: T) => void; fallback: T }
 
@@ -122,12 +123,32 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
       rc = new DeckRc({ claudePath: () => locate()?.path ?? null });
       rc.onChat = (from, text) => rcChats.received(from, text, rcKnown);
       rc.onUndelivered = (id, reason) => rcChats.undelivered(id, reason);
+      rc.onRemote = (from, body) => remoteAsks.receive(from, body);
     }
     return rc;
   };
+  // Started with the app on the Deck, so the AnthroDeck plugin on the pilot's computers can find
+  // it (not on a desktop: two sessions named anthrodeck-deck would split the plugin's messages).
+  if (process.platform === 'linux') {
+    setTimeout(() => { void deckRc()?.start().catch(() => { /* no Claude Code here yet */ }); }, 3000);
+  }
   // Every Remote Control session on the account, on any computer (main/rcSessions.ts).
   let rcKnown: RcSession[] = [];
   const rcChats = new RcChats((ref, entries) => send('rc:chat', ref, entries));
+  // What each Remote Control session last said at the end of a turn (from the plugin), for Home.
+  const rcSaid = new Map<string, string>();
+  const remoteAsks = new RemoteAsks({
+    ask: (card, signal) => ask('claude:ask-user', card, '', signal),
+    answer: (to, id, decision) => deckRc()?.sendText(to, `ADK2R ${JSON.stringify({ t: 'answer', id, decision })}`, `ans-${id}`),
+    onAsk: (name) => liveEvents.emit('ping', `${name} needs you`),
+    onDone: (name, text) => {
+      rcSaid.set(name, text);
+      const ref = rcKnown.find((x) => x.name === name)?.ref;
+      if (ref) rcChats.said(ref, text);
+      liveEvents.emit('ping', `${name} finished`);
+      send('rc:done', name);
+    },
+  });
   ipcMain.handle('rc:sessions', async () => {
     const link = deckRc();
     if (!link) return { sessions: [], error: 'Remote Control is off (Settings → Reach it from anywhere).' };
@@ -135,7 +156,7 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
       const listing = await link.peers();
       if (listing === null) return { sessions: rcKnown, error: 'Remote Control didn\'t answer.' };
       rcKnown = parseRcSessions(listing);
-      return { sessions: rcKnown, error: null };
+      return { sessions: rcKnown.map((x) => ({ ...x, said: rcSaid.get(x.name) ?? null })), error: null };
     } catch (e) {
       return { sessions: rcKnown, error: (e as Error).message };
     }

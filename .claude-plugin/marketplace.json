@@ -1,0 +1,5 @@
+{
+  "name": "anthrodeck",
+  "owner": { "name": "keaton4422" },
+  "plugins": [{ "name": "anthrodeck", "source": "./plugins/anthrodeck" }]
+}

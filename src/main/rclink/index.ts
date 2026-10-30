@@ -76,6 +76,8 @@ export class DeckRc {
   // A session answering the pilot (main/rcSessions.ts), and a message of theirs that didn't arrive.
   onChat: ((from: string | null, text: string) => void) | null = null;
   onUndelivered: ((id: string, reason: string) => void) | null = null;
+  // A computer's AnthroDeck plugin: a prompt for the pilot, a finished turn (main/remoteAsks.ts).
+  onRemote: ((from: string, body: Record<string, unknown>) => void) | null = null;
 
   constructor(private deps: DeckRcDeps) {}
 
@@ -215,6 +217,8 @@ export class DeckRc {
       this.channels.get(m.ch)?.fail(`Remote Control couldn't deliver to the hub (${String(m.reason)}).`);
     } else if (m.kind === 'undelivered' && typeof m.id === 'string') {
       this.onUndelivered?.(m.id, String(m.reason));
+    } else if (m.kind === 'remote' && typeof m.from === 'string' && m.body) {
+      this.onRemote?.(m.from, m.body);
     } else if (m.kind === 'chat' && typeof m.text === 'string') {
       this.onChat?.(typeof m.from === 'string' ? m.from : null, m.text);
     } else if (m.kind === 'msg' && m.body && typeof m.body.ch === 'string') {

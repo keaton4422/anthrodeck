@@ -208,6 +208,11 @@ export function SettingsPanel({
     : live.connected
       ? { ok: true, text: `● Connected to ${live.label}${live.via === 'rc' ? ' through Remote Control' : ''}` }
       : live.error ? { ok: false, text: `Can't reach ${live.label}: ${live.error}` } : { ok: null, text: `Connecting to ${live.label}…` };
+  const deckLine = !rcState ? null
+    : !rcState.enabled ? { ok: false, text: 'Remote Control is off on this Deck.' }
+      : rcState.deck.state === 'connected' ? { ok: true, text: '✓ This Deck is on Remote Control: your computers can reach it.' }
+        : rcState.deck.state === 'needs-consent' ? { ok: false, text: 'Remote Control needs turning on once: run claude remote-control in Konsole and accept.' }
+          : { ok: null, text: 'Connecting this Deck to Remote Control…' };
   const hubLine = !rcState?.enabled || !live ? null
     : rcState.via === 'rc' ? { ok: true, text: `In use: the Deck is reaching ${live.label} through Anthropic's servers.` }
       : rcState.hub?.error ? { ok: false, text: `Not ready: ${rcState.hub.error}` }
@@ -252,11 +257,44 @@ export function SettingsPanel({
           {!keyFolded && <div style={{ marginTop: 16 }}>{apiKeyBox}</div>}
         </section>
 
-        {/* ── 2. Your Mac ──────────────────────────────────────────────── */}
+        {/* ── 2. Your computers ───────────────────────────────────────── */}
+        {/* Every Claude Code session on the account with Remote Control on shows on Home, from any
+            computer, like the Claude app on a phone. The AnthroDeck plugin on a computer brings its
+            prompts here and says when its sessions finish (plugins/anthrodeck). */}
         <section>
-          <label style={labelStyle}>Your Mac</label>
+          <label style={labelStyle}>Your computers</label>
+          {deckLine && <p style={{ ...leadStyle, color: tone(deckLine.ok), marginBottom: 12 }}>{deckLine.text}</p>}
+          <p style={{ ...hintStyle, marginBottom: 10 }}>
+            Every Claude Code session with Remote Control on shows on Home, from any computer, and you can message it.
+            To answer its prompts here and hear when it finishes, add the AnthroDeck plugin to Claude Code on that computer, once:
+          </p>
+          <code style={{
+            display: 'block', background: '#242424', border: '1px solid #3A3A3A', borderRadius: 8, padding: '12px 14px',
+            color: '#ECECEC', fontSize: 14, fontFamily: 'JetBrains Mono, Consolas, monospace', userSelect: 'all',
+          }}>claude plugin install anthrodeck --marketplace keaton4422/anthrodeck</code>
+          <p style={{ ...hintStyle, marginTop: 8 }}>
+            In the Claude desktop app: + next to the prompt box → Plugins → Add marketplace <span style={{ color: '#ECECEC' }}>keaton4422/anthrodeck</span> → Add plugin.
+          </p>
+        </section>
+
+        <Divider />
+
+        <button onClick={() => setAdvanced((a) => !a)} style={{ ...linkBtn, fontSize: 16, padding: '12px 14px' }}>
+          {advanced ? 'Advanced ▾' : 'Advanced ▸'}
+        </button>
+
+        {advanced && (
+          <>
+            {engineFound && <EnginePanel />}
+
+            {/* A computer over SSH: its full live view (the conversation as it streams), its projects
+                for starting sessions, and the relay for its prompts. Remote Control covers the rest. */}
+        <section>
+          <label style={labelStyle}>Full live view over SSH</label>
+          <p style={{ ...hintStyle, marginBottom: 10 }}>
+            Optional. A computer reachable over SSH also streams its sessions word by word and lists its projects for new sessions.
+          </p>
           {macLine && <p style={{ ...leadStyle, color: tone(macLine.ok), marginBottom: 12 }}>{macLine.text}</p>}
-          {!live && <p style={{ ...hintStyle, marginBottom: 10 }}>Its projects and sessions show on Home, and you answer them from here.</p>}
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               value={remoteHost}
@@ -292,12 +330,11 @@ export function SettingsPanel({
           {relayError && <p style={{ ...hintStyle, marginTop: 6, color: '#D9A35B' }}>{relayError}</p>}
         </section>
 
-        {/* ── 3. Remote Control ────────────────────────────────────────── */}
         {live && rcState && (
           <section>
             <ToggleRow
               big
-              label="Reach it from anywhere"
+              label="Over Remote Control when SSH can't reach it"
               hint={`Away from home, the Deck connects to ${live.label} through Anthropic's servers with Remote Control, like the Claude app on your phone. Keep ${live.label} awake.`}
               value={rcState.enabled}
               onChange={() => { if (!rcBusy) void rcToggle(); }}
@@ -306,15 +343,6 @@ export function SettingsPanel({
           </section>
         )}
 
-        <Divider />
-
-        <button onClick={() => setAdvanced((a) => !a)} style={{ ...linkBtn, fontSize: 16, padding: '12px 14px' }}>
-          {advanced ? 'Advanced ▾' : 'Advanced ▸'}
-        </button>
-
-        {advanced && (
-          <>
-            {engineFound && <EnginePanel />}
 
             {keyFolded && (
               <section>

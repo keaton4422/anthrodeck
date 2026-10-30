@@ -114,12 +114,15 @@ const Home = forwardRef<HomeNav, Props>(function Home(
     const get = () => window.electronAPI.rcSessions().then((r) => { if (on) { rcCache = r.sessions; setRcList(r.sessions); } });
     void get();
     const id = window.setInterval(() => void get(), RC_EVERY_MS);
-    return () => { on = false; window.clearInterval(id); };
+    const off = window.electronAPI.onRcDone(() => void get());
+    return () => { on = false; window.clearInterval(id); off(); };
   }, []);
   const rc = useMemo(() => {
     const here = new Set((live?.state?.live ?? []).map((l) => l.name).filter(Boolean));
     const list = rcList.filter((r) => !here.has(r.name));
-    return { busy: list.filter((r) => r.status === 'busy'), idle: list.filter((r) => r.status === 'idle') };
+    // Idle ones that just finished a turn (the plugin sent their reply) are the pilot's turn: first.
+    const idle = list.filter((r) => r.status === 'idle');
+    return { busy: list.filter((r) => r.status === 'busy'), idle: [...idle.filter((r) => r.said), ...idle.filter((r) => !r.said)] };
   }, [rcList, live]);
   // What needs an answer, then what Claude is working on, then the pilot's turns.
   const left = useMemo<Item[]>(() => {
@@ -252,11 +255,13 @@ const Home = forwardRef<HomeNav, Props>(function Home(
               const busy = item.session.status === 'busy';
               return (
                 <Row key={`rc-${item.session.ref}`} focused={focused} onClick={go}>
-                  <Kicker color={busy ? C.green : C.dim}>
-                    {busy ? 'WORKING' : 'IDLE'} <span style={{ color: C.faint, fontWeight: 600 }}>· REMOTE CONTROL · ANOTHER COMPUTER</span>
+                  <Kicker color={busy ? C.green : item.session.said ? C.clay : C.dim}>
+                    {busy ? 'WORKING' : item.session.said ? 'YOUR TURN' : 'IDLE'} <span style={{ color: C.faint, fontWeight: 600 }}>· ANOTHER COMPUTER</span>
                   </Kicker>
                   <Title>{item.session.name}</Title>
-                  <Sub>A to message it</Sub>
+                  {item.session.said
+                    ? <div style={{ fontSize: 16, color: C.dim, marginTop: 4, lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.session.said}</div>
+                    : <Sub>A to message it</Sub>}
                 </Row>
               );
             }

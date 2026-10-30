@@ -1,0 +1,8 @@
+{
+  "modules": ["./register.ts"],
+  "hooks": {
+    "PermissionRequest": [
+      { "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/wait.py\"", "timeout": 600 }] }
+    ]
+  }
+}
