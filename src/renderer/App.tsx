@@ -36,6 +36,7 @@ import { useSeason } from './hooks/useSeason';
 import { DRIVE_MODE_LABELS, nextDriveMode, normalizeModel } from '../main/engine/config';
 import { useVoice } from './hooks/useVoice';
 import { useLive } from './hooks/useLive';
+import { useRcChat } from './hooks/useRcChat';
 import { useLiveSession } from './hooks/useLiveSession';
 import { useLocalVoice } from './hooks/useLocalVoice';
 import { useGamepad } from './hooks/useGamepad';
@@ -75,7 +76,11 @@ export default function App() {
   // A session running on the remote computer, open on the live session screen (from Home's LIVE rows).
   const [liveOpen, setLiveOpen] = useState<LiveSession | null>(null);
   const live = useLive();
-  const liveChat = useLiveSession(liveOpen?.sessionId ?? null);
+  // A Remote Control session on another computer opens on the same screen ("rc:<ref>"): its
+  // conversation is what the pilot sent and what came back (hooks/useRcChat.ts).
+  const rcRef = liveOpen?.sessionId.startsWith('rc:') ? liveOpen.sessionId.slice(3) : null;
+  const rcChat = useRcChat(rcRef);
+  const liveChat = useLiveSession(rcRef ? null : liveOpen?.sessionId ?? null);
   const liveScrollRef = useRef<HTMLDivElement>(null);
   // Its latest state from the watcher (the one Home opened stays on screen if the session ends).
   const liveShown = (liveOpen && live?.state?.live.find((s) => s.sessionId === liveOpen.sessionId)) || liveOpen;
@@ -917,7 +922,7 @@ export default function App() {
         contextPct={context?.percentage ?? null}
         costUsd={costUsd}
         mode={mode}
-        liveMode={liveShown ? liveChat.mode : undefined}
+        liveMode={rcRef ? '' : liveShown ? liveChat.mode : undefined}
         onCycleMode={cycleMode}
         onDrawer={() => setDrawerOpen((s) => !s)}
         onSettings={() => setShowSettings((s) => !s)}
@@ -972,19 +977,19 @@ export default function App() {
       ) : liveShown ? (
         <LiveSessionView
           session={liveShown}
-          label={live?.label ?? remoteTarget?.label ?? 'your other computer'}
-          waiting={live?.state?.requests.filter((r) => r.sessionId === liveShown.sessionId).length ?? 0}
-          connected={!!live?.connected}
-          entries={liveChat.entries}
-          mode={liveChat.mode}
-          outgoing={liveChat.outgoing}
+          label={rcRef ? 'Remote Control' : live?.label ?? remoteTarget?.label ?? 'your other computer'}
+          waiting={rcRef ? 0 : live?.state?.requests.filter((r) => r.sessionId === liveShown.sessionId).length ?? 0}
+          connected={rcRef ? true : !!live?.connected}
+          entries={rcRef ? rcChat : liveChat.entries}
+          mode={rcRef ? null : liveChat.mode}
+          outgoing={rcRef ? [] : liveChat.outgoing}
           onDismiss={liveChat.dismiss}
           scrollRef={liveScrollRef}
           onBack={() => setLiveOpen(null)}
           composer={
             <InputBar
               ref={composerRef}
-              onSend={(text) => void sendLive(text)}
+              onSend={(text) => void (rcRef ? window.electronAPI.rcChatSend(rcRef, text) : sendLive(text))}
               isStreaming={false}
               isListening={dictationListening}
               transcript={useLocal ? '' : transcript}

@@ -249,7 +249,8 @@ export function StatusBar({
         {!engineReady && !isListening && !isStreaming && (
           <span style={{ fontSize: 12, color: '#E05252' }}>⚠ Engine not installed</span>
         )}
-        {liveMode !== undefined ? <LiveModePill mode={liveMode} /> : <ModePill mode={mode} onClick={onCycleMode} />}
+        {/* '' : a Remote Control session on another computer, whose mode the Deck can't know. */}
+        {liveMode === '' ? null : liveMode !== undefined ? <LiveModePill mode={liveMode} /> : <ModePill mode={mode} onClick={onCycleMode} />}
         {/* Only once the open session has used some: an empty gauge is noise. The rank lives in the drawer. */}
         {engineReady && (contextPct !== null || usage.inputTokens + usage.outputTokens > 0) && (
           <TokenHUD usage={usage} budget={budget} contextPct={contextPct} costUsd={costUsd} />

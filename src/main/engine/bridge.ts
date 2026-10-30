@@ -36,6 +36,7 @@ import { LiveLink, setupRelay, WATCH_PY, type LiveLinkStatus } from '../live';
 import { DeckRc, linkSpawner, setupHub, stopHub, type HubResult, type LinkSpawner } from '../rclink';
 import { reconnectHeld } from '../held';
 import { ACTIVITY_PY, toActivity, type RawActivity } from '../activity';
+import { parseRcSessions, RcChats, type RcSession } from '../rcSessions';
 
 interface Pending<T> { resolve: (v: T) => void; fallback: T }
 
@@ -117,9 +118,36 @@ export function registerEngineIpc(store: Store, getWindow: () => BrowserWindow |
   let rc: DeckRc | null = null;
   const deckRc = () => {
     if (!rcEnabled()) return null;
-    rc ??= new DeckRc({ claudePath: () => locate()?.path ?? null });
+    if (!rc) {
+      rc = new DeckRc({ claudePath: () => locate()?.path ?? null });
+      rc.onChat = (from, text) => rcChats.received(from, text, rcKnown);
+      rc.onUndelivered = (id, reason) => rcChats.undelivered(id, reason);
+    }
     return rc;
   };
+  // Every Remote Control session on the account, on any computer (main/rcSessions.ts).
+  let rcKnown: RcSession[] = [];
+  const rcChats = new RcChats((ref, entries) => send('rc:chat', ref, entries));
+  ipcMain.handle('rc:sessions', async () => {
+    const link = deckRc();
+    if (!link) return { sessions: [], error: 'Remote Control is off (Settings → Reach it from anywhere).' };
+    try {
+      const listing = await link.peers();
+      if (listing === null) return { sessions: rcKnown, error: 'Remote Control didn\'t answer.' };
+      rcKnown = parseRcSessions(listing);
+      return { sessions: rcKnown, error: null };
+    } catch (e) {
+      return { sessions: rcKnown, error: (e as Error).message };
+    }
+  });
+  ipcMain.handle('rc:chat:get', (_e, ref: string) => rcChats.get(ref));
+  ipcMain.handle('rc:chat:send', (_e, ref: string, text: string) => {
+    const s = rcKnown.find((x) => x.ref === ref);
+    const link = deckRc();
+    if (!s || !link || typeof text !== 'string' || !text.trim()) return { ok: false };
+    link.sendText(`${s.name} [${s.ref}]`, text, rcChats.sent(ref, text));
+    return { ok: true };
+  });
   // The hub on the other computer: put in place (or checked) once a run, the first time SSH gets there.
   let hub: { host: string; result: HubResult | null; error: string | null; at: number } | null = null;
   const ensureHub = async (restart = false) => {

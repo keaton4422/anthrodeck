@@ -86,6 +86,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   claudeRewind: (anchor: string | null) => ipcRenderer.send('claude:rewind', anchor),
   sessionsList: (machine?: Machine) => ipcRenderer.invoke('sessions:list', machine ?? 'local'),
   activityGet: (machine: Machine, cwds: string[]) => ipcRenderer.invoke('activity:get', machine, cwds),
+  rcSessions: () => ipcRenderer.invoke('rc:sessions'),
+  rcChatGet: (ref: string) => ipcRenderer.invoke('rc:chat:get', ref),
+  rcChatSend: (ref: string, text: string) => ipcRenderer.invoke('rc:chat:send', ref, text),
+  onRcChat: (cb: (ref: string, entries: unknown[]) => void) => {
+    const h = (_: unknown, ref: string, entries: unknown[]) => cb(ref, entries);
+    ipcRenderer.on('rc:chat', h);
+    return () => { ipcRenderer.removeListener('rc:chat', h); };
+  },
   sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>, machine?: Machine) =>
     ipcRenderer.invoke('sessions:resume', { id, cwd, settings, machine: machine ?? 'local' }),
   claudeSetMode: (mode: string) => ipcRenderer.invoke('claude:set-mode', mode),
