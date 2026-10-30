@@ -732,7 +732,7 @@ export default function App() {
       if (pickerOwnsPad) { pickerNav.current?.activate(); return; }
       if (homeOwnsPad) { homeNav.current?.activate(); return; }
       if (liveOwnsPad) { sendOrWrite(); return; }
-      if (rcOwnsPad) return;   // the touchscreen works the page
+      if (rcOwnsPad) return;   // the page answers its approvals with A itself (main/claudePage.ts)
       if (settingsOwnsPad) { settingsNav.current?.activate(); return; }
       if (pendingTeach) teachContinue();
       else if (pendingWrite) handleWriteAccept();

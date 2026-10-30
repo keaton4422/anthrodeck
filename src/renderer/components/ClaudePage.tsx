@@ -9,7 +9,8 @@ import { settlePad } from '../lib/shown';
 // draws the page over the space this component leaves for it, so this only says where.
 //
 // Pad: B back to Home, X puts the cursor in the page's message box (STEAM + X for the keyboard),
-// the right stick and D-pad scroll; the touchscreen works the page. App routes the buttons.
+// the right stick and D-pad scroll; on an approval, left and right pick Deny or Allow and A presses
+// it (the page reads those itself, main/claudePage.ts); the touchscreen works the page.
 
 interface Props {
   session: RcSession;
@@ -43,6 +44,7 @@ export function ClaudePage({ session, covered, onBack }: Props) {
             {session.ref ? 'claude.ai · on another computer' : 'once, with your Claude account; back to Settings after'}
           </span>
         </div>
+        <div style={{ fontSize: 13, color: C.dim, whiteSpace: 'nowrap' }}><Glyph b="A" /> Answer</div>
         <div style={{ fontSize: 13, color: C.dim, whiteSpace: 'nowrap' }}><Glyph b="X" /> Type</div>
         <button onClick={onBack} style={{
           padding: '6px 12px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
