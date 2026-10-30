@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { RcSession } from '../types';
 import { Glyph } from './Glyph';
 import { C } from '../lib/ui';
+import { settlePad } from '../lib/shown';
 
 // A Remote Control session's own claude.ai page (main/claudePage.ts): its whole transcript,
 // prompts and approvals, with nothing installed on the computer it runs on. The main process
@@ -29,7 +30,7 @@ export function ClaudePage({ session, covered, onBack }: Props) {
     void window.electronAPI.claudeOpen(session.ref, session.name, rect());
     const ro = new ResizeObserver(() => window.electronAPI.claudePlace(rect()));
     ro.observe(el);
-    return () => { ro.disconnect(); window.electronAPI.claudeHide(); };
+    return () => { ro.disconnect(); window.electronAPI.claudeHide(); settlePad(); };
   }, [session.ref, session.name]);
   useEffect(() => { window.electronAPI.claudeShown(!covered); }, [covered]);
 

@@ -57,20 +57,24 @@ export const PAD_MARK = '__anthrodeck_pad:';
 const PAD_JS = `(() => {
   if (window.__anthrodeckPad) return;
   window.__anthrodeckPad = true;
-  let held = {}, wheel = 0, last = 0;
+  let held = {}, wheel = 0, last = 0, had = false;
   const tell = (what) => console.log('${PAD_MARK}' + what);
   const loop = (t) => {
     const pad = [...(navigator.getGamepads ? navigator.getGamepads() : [])].find(Boolean);
-    if (pad && document.hasFocus()) {
+    // Focus, not the pad: Chromium first shows a page the pad on a press, and that press counts.
+    const has = document.hasFocus();
+    if (pad && has) {
+      // Just got the pad back (from a card, or AnthroDeck): a button still held isn't a press here.
       for (const [i, name] of [[1, 'B'], [2, 'X'], [12, 'up'], [13, 'down']]) {
         const down = !!pad.buttons[i]?.pressed;
-        if (down && !held[i]) tell(name);
+        if (down && !held[i] && had) tell(name);
         held[i] = down;
       }
       const y = pad.axes[3] ?? 0;
       if (Math.abs(y) > 0.2) wheel += y * 18;
       if (wheel && t - last > 50) { tell('scroll:' + Math.round(wheel)); wheel = 0; last = t; }
     }
+    had = has;
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
