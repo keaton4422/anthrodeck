@@ -44,7 +44,6 @@ import { useProject } from './hooks/useProject';
 import { useTelemetry } from './hooks/useTelemetry';
 import { EngineSettingsPayload, PendingWrite, PendingQuestion, TeachRequest, type BesideState } from './types';
 import { setShown } from './lib/shown';
-import { chime } from './lib/chime';
 
 
 const MILESTONE_TOAST: Record<string, string> = {
@@ -357,18 +356,15 @@ export default function App() {
     });
   }, [beside, isStreaming, showToast]);
 
-  // While a Steam game is on screen, a chime when a session starts waiting on the pilot or finishes.
-  const heard = useRef<{ asks: number; busy: Set<string> } | null>(null);
+  // While a Steam game is on screen the main process chimes (main/pings.ts); back here, say why.
+  const missed = useRef<string[]>([]);
+  useEffect(() => window.electronAPI.onSteamPing((why) => { missed.current = [...missed.current, why]; }), []);
   useEffect(() => {
-    const st = live?.state;
-    if (!st) return;
-    const now = { asks: st.requests.length, busy: new Set(st.live.filter((x) => x.status === 'busy').map((x) => x.sessionId)) };
-    const before = heard.current;
-    heard.current = now;
-    if (besideShown || !before) return;
-    const finished = [...before.busy].some((id) => !now.busy.has(id) && st.live.some((x) => x.sessionId === id));
-    if (now.asks > before.asks || finished) chime();
-  }, [live?.state, besideShown]);
+    if (!besideShown || !missed.current.length) return;
+    const all = [...new Set(missed.current)];
+    missed.current = [];
+    showToast(`While you played: ${all.slice(0, 3).join(' · ')}${all.length > 3 ? ` and ${all.length - 3} more` : ''}.`);
+  }, [besideShown, showToast]);
 
   // Games act on the session here. Only non-destructive intents exist (see game/types.ts): a stray
   // flick of the stick must never approve a write. Clearing stale context in a game is the pilot
@@ -934,25 +930,8 @@ export default function App() {
       <ProjectDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        projectPath={projectPath}
-        projectRemote={projectHost ? remoteTarget?.label ?? projectHost : null}
-        files={files}
-        onOpenFolder={() => setFolderPick({ machine: 'local', onPick: (p) => { setFolderPick(null); void adoptProject(p); } })}
-        onRefreshFiles={refreshFiles}
-        autonomousWrites={mode === 'acceptEdits'}
-        onToggleAutonomous={() => void setMode(mode === 'acceptEdits' ? 'default' : 'acceptEdits')}
-        onFileClick={handleFileClick}
-        sectors={sectors}
-        context={context}
-        season={season}
-        onPitStop={() => { setDrawerOpen(false); pitStop(); }}
-        isStreaming={isStreaming}
-        onShare={() => { setDrawerOpen(false); setShareOpen(true); }}
         otherComputer={remoteTarget?.label ?? null}
-        session={(() => {
-          const deck = jobs.find((j) => j.id === 'deck');
-          return deck ? { title: deck.label, said: deck.said ?? null, working: deck.working } : null;
-        })()}
+        onShare={() => { setDrawerOpen(false); setShareOpen(true); }}
       />
 
       {showSettings ? (
