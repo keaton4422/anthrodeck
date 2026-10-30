@@ -922,7 +922,7 @@ export default function App() {
         contextPct={context?.percentage ?? null}
         costUsd={costUsd}
         mode={mode}
-        liveMode={liveShown ? liveChat.mode : undefined}
+        liveMode={rcRef ? '' : liveShown ? liveChat.mode : undefined}
         onCycleMode={cycleMode}
         onDrawer={() => setDrawerOpen((s) => !s)}
         onSettings={() => setShowSettings((s) => !s)}
