@@ -16,6 +16,8 @@ interface Props {
   onPaired: () => void;
   onClear: () => void;
   onClose: () => void;
+  // Sign in to claude.ai, to open sessions from any computer on their own page (ClaudePage).
+  onClaudeSignIn: () => void;
   model: string;
   onModelChange: (m: string) => void;
   extendedThinking: boolean;
@@ -57,6 +59,7 @@ export function SettingsPanel({
   onPaired,
   onClear,
   onClose,
+  onClaudeSignIn,
   model,
   onModelChange,
   extendedThinking,
@@ -132,6 +135,8 @@ export function SettingsPanel({
     void window.electronAPI.rcGet().then(setRcState);
     return window.electronAPI.onRcState(setRcState);
   }, []);
+  const [webSignedIn, setWebSignedIn] = useState<boolean | null>(null);
+  useEffect(() => { void window.electronAPI.claudeSignedIn().then(setWebSignedIn); }, []);
   const rcToggle = async () => { setRcBusy(true); setRcState(await window.electronAPI.rcSet(!rcState?.enabled)); setRcBusy(false); };
   const rcSetup = async () => { setRcBusy(true); setRcState(await window.electronAPI.rcSetup()); setRcBusy(false); };
 
@@ -263,10 +268,23 @@ export function SettingsPanel({
             prompts here and says when its sessions finish (plugins/anthrodeck). */}
         <section>
           <label style={labelStyle}>Your computers</label>
+          <p style={{ ...hintStyle, marginBottom: 12 }}>
+            Every Claude Code session with Remote Control on shows on Home, from any computer. Nothing to install there.
+          </p>
           {deckLine && <p style={{ ...leadStyle, color: tone(deckLine.ok), marginBottom: 12 }}>{deckLine.text}</p>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+            <p style={{ ...leadStyle, flex: 1, color: tone(webSignedIn) }}>
+              {webSignedIn ? '✓ Signed in to claude.ai: a session opens on its own page, whole.'
+                : webSignedIn === false ? 'Sign in to claude.ai once, to open a session on its own page: the whole conversation, its prompts and approvals.'
+                  : 'Checking claude.ai…'}
+            </p>
+            {webSignedIn === false && (
+              <button onClick={onClaudeSignIn} style={{ ...linkBtn, color: '#CC785C', borderColor: '#CC785C' }}>Sign in</button>
+            )}
+          </div>
           <p style={{ ...hintStyle, marginBottom: 10 }}>
-            Every Claude Code session with Remote Control on shows on Home, from any computer, and you can message it.
-            To answer its prompts here and hear when it finishes, add the AnthroDeck plugin to Claude Code on that computer, once:
+            Optional: to answer a session&apos;s prompts on cards here and hear when it finishes, even mid-game,
+            add the AnthroDeck plugin to Claude Code on that computer, once:
           </p>
           <code style={{
             display: 'block', background: '#242424', border: '1px solid #3A3A3A', borderRadius: 8, padding: '12px 14px',

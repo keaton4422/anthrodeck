@@ -54,3 +54,20 @@ describe('the controller inside the page', () => {
     expect(padPress('Uncaught TypeError')).toBeNull();
   });
 });
+
+describe('the page\'s place and sign-in', () => {
+  it('sits in a column in the middle, zoomed to claude.ai\'s narrow layout', async () => {
+    const { column } = await import('../claudePage');
+    expect(column({ x: 0, y: 110, width: 1280, height: 690 })).toEqual({ bounds: { x: 180, y: 110, width: 920, height: 690 }, zoom: 920 / 600 });
+    expect(column({ x: 0, y: 0, width: 500, height: 400 })).toEqual({ bounds: { x: 0, y: 0, width: 500, height: 400 }, zoom: 1 });
+  });
+
+  it('knows a page past sign-in from one of its steps', async () => {
+    const { pastSignIn } = await import('../claudePage');
+    expect(pastSignIn('https://claude.ai/code')).toBe(true);
+    expect(pastSignIn('https://claude.ai/new')).toBe(true);
+    expect(pastSignIn('https://claude.ai/login?returnTo=%2Fcode')).toBe(false);
+    expect(pastSignIn('https://claude.ai/magic-link#abc')).toBe(false);
+    expect(pastSignIn('https://accounts.google.com/signin')).toBe(false);
+  });
+});

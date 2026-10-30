@@ -1,6 +1,6 @@
 // First, before anything else starts: relaunch without Steam's overlay if it was injected.
 import './steamOverlayGuard';
-import { app, BrowserWindow, ipcMain, dialog, shell, powerMonitor } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, powerMonitor, nativeTheme } from 'electron';
 import path from 'path';
 import { exec, execFile } from 'child_process';
 import os from 'os';
@@ -67,6 +67,9 @@ if (forcedSoftware || store.get('softwareRender', false)) {
   app.commandLine.appendSwitch('disable-gpu-compositing');
   console.log('[startup] software rendering enabled');
 }
+
+// AnthroDeck is dark throughout; pages it shows (a session's claude.ai page) follow it.
+nativeTheme.themeSource = 'dark';
 
 function createWindow() {
   const isDev = !!MAIN_WINDOW_VITE_DEV_SERVER_URL;
@@ -223,6 +226,7 @@ ipcMain.on('claude:hide', () => claudePage?.hide());
 ipcMain.on('claude:shown', (_, shown: boolean) => claudePage?.shown(!!shown));
 ipcMain.on('claude:scroll', (_, dy: number) => claudePage?.scroll(Number(dy) || 0));
 ipcMain.handle('claude:box', () => claudePage?.focusBox() ?? false);
+ipcMain.handle('claude:signed-in', () => page()?.signedIn() ?? false);
 ipcMain.handle('store:set', (_, key: string, value: unknown) => { store.set(key, value); });
 
 // ─── Cockpit mods IPC ─────────────────────────────────────────────────────────

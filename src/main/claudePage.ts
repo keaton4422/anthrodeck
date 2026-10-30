@@ -10,6 +10,7 @@
 import { BrowserWindow, WebContentsView, session, type Rectangle, type WebContents } from 'electron';
 
 export const CLAUDE_CODE_URL = 'https://claude.ai/code';
+export const SIGN_IN_URL = 'https://claude.ai/login';
 const PARTITION = 'persist:claude';
 const FIND_MS = 12_000;
 
@@ -26,6 +27,27 @@ export function findSession(links: PageLink[], name: string): string | null {
     .filter((l) => /\/code\/session_[A-Za-z0-9]+/.test(l.href))
     .map((l) => ({ href: l.href, title: bare(l.text.split('\n').map((t) => t.trim()).find(Boolean) ?? '') }));
   return (titled.find((l) => l.title === want) ?? titled.find((l) => want.length >= 12 && l.title.startsWith(want)))?.href ?? null;
+}
+
+// A page past sign-in: claude.ai, and not one of its sign-in steps.
+export function pastSignIn(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.hostname === 'claude.ai' && !/^\/(login|logout|magic-link|oauth|invite)/.test(u.pathname);
+  } catch { return false; }
+}
+
+// The page as a column like the phone app's, in the middle of the space it's given: at most
+// COLUMN pixels wide, and zoomed so claude.ai lays it out as on a narrow screen (one column, no
+// sidebar), with text large enough for a handheld.
+const COLUMN = 920;
+const NARROW = 600;
+export function column(space: Rectangle): { bounds: Rectangle; zoom: number } {
+  const width = Math.min(space.width, COLUMN);
+  return {
+    bounds: { x: space.x + Math.round((space.width - width) / 2), y: space.y, width, height: space.height },
+    zoom: Math.max(1, width / NARROW),
+  };
 }
 
 // claude.ai sees an ordinary Chrome, not Electron: some sign-in pages refuse embedded browsers.
@@ -104,12 +126,18 @@ const PAD_WORLD = 1077;
 export interface ClaudePageDeps {
   remembered: () => Record<string, string>;          // session ref → its claude.ai address
   remember: (ref: string, url: string) => void;
-  onClose: () => void;                               // Escape in the page: back to AnthroDeck
+  onClose: () => void;                               // B or Escape in the page, or signed in: back to AnthroDeck
 }
+
+// What the page is open for: a session (found by name once signed in), or signing in alone.
+type Target = { ref: string; name: string; found: boolean } | null;
 
 export class ClaudePage {
   private view: WebContentsView | null = null;
   private finding = 0;
+  private searching = false;
+  private target: Target = null;
+  private zoom = 1;
 
   constructor(private win: BrowserWindow, private deps: ClaudePageDeps) {}
 
@@ -153,27 +181,53 @@ export class ClaudePage {
         if (input.type === 'keyDown' && input.key === 'Escape') { e.preventDefault(); close(); }
       });
     });
+    // Every page it goes to: kept narrow, and once past sign-in, on to the session it's open for
+    // (or, opened only to sign in, done).
+    const arrived = () => {
+      wc.setZoomFactor(this.zoom);
+      if (!pastSignIn(wc.getURL())) return;
+      const t = this.target;
+      if (!t) this.deps.onClose();
+      else if (!t.found) void this.find(this.finding, t);
+    };
+    wc.on('did-navigate', arrived);
+    wc.on('did-navigate-in-page', arrived);
     view.setBackgroundColor('#262624');
     return view;
   }
 
-  // Show the page for a session (by its ref and name) where the interface leaves room for it.
-  open(ref: string, name: string, bounds: Rectangle): void {
+  // Show the page for a session (by its ref and name), or with no ref to sign in, where the
+  // interface leaves room for it.
+  open(ref: string, name: string, space: Rectangle): void {
     if (!this.view) this.view = this.make();
     const view = this.view;
     if (!this.win.contentView.children.includes(view)) this.win.contentView.addChildView(view);
-    view.setBounds(bounds);
+    this.place(space);
     view.setVisible(true);
-    const known = this.deps.remembered()[ref];
-    const finding = ++this.finding;
-    void view.webContents.loadURL(known ?? CLAUDE_CODE_URL).then(
-      () => { if (!known) void this.find(finding, ref, name); },
-      () => { /* offline, or signed out mid-load: the page says so itself */ },
-    );
+    this.finding++;
+    const known = ref ? this.deps.remembered()[ref] : undefined;
+    this.target = ref ? { ref, name, found: !!known } : null;
+    // Loading it fires `arrived`, which goes on from there.
+    void view.webContents.loadURL(known ?? (ref ? CLAUDE_CODE_URL : SIGN_IN_URL)).catch(() => {
+      /* offline, or redirected to sign in: the page says so itself */
+    });
     view.webContents.focus();
   }
 
-  place(bounds: Rectangle): void { this.view?.setBounds(bounds); }
+  place(space: Rectangle): void {
+    const v = this.view;
+    if (!v) return;
+    const { bounds, zoom } = column(space);
+    this.zoom = zoom;
+    v.setBounds(bounds);
+    v.webContents.setZoomFactor(zoom);
+  }
+
+  // Whether the pilot has signed in to claude.ai here (its session cookie, not what's in it).
+  async signedIn(): Promise<boolean> {
+    const cookies = await session.fromPartition(PARTITION).cookies.get({ url: 'https://claude.ai', name: 'sessionKey' });
+    return cookies.length > 0;
+  }
 
   // Stepping aside for a card or menu the interface draws where the page is, and back.
   shown(on: boolean): void {
@@ -206,19 +260,27 @@ export class ClaudePage {
     return this.view.webContents.executeJavaScript(FOCUS_BOX_JS).catch(() => false);
   }
 
-  // claude.ai's session list draws after the page loads (and only once signed in), so look a few times.
-  private async find(finding: number, ref: string, name: string): Promise<void> {
+  // claude.ai's session list draws after the page loads (and only once signed in), so look a few
+  // times. Not found: the list stays up for the pilot to pick from.
+  private async find(finding: number, t: NonNullable<Target>): Promise<void> {
     const wc = this.view?.webContents;
-    const until = Date.now() + FIND_MS;
-    while (wc && finding === this.finding && Date.now() < until) {
-      const links = (await wc.executeJavaScript(LINKS_JS).catch(() => [])) as PageLink[];
-      const href = findSession(links, name);
-      if (href && finding === this.finding) {
-        this.deps.remember(ref, href);
-        await wc.loadURL(href).catch(() => {});
-        return;
+    if (!wc || this.searching) return;
+    this.searching = true;
+    try {
+      const until = Date.now() + FIND_MS;
+      while (finding === this.finding && Date.now() < until && pastSignIn(wc.getURL())) {
+        const links = (await wc.executeJavaScript(LINKS_JS).catch(() => [])) as PageLink[];
+        const href = findSession(links, t.name);
+        if (href && finding === this.finding) {
+          t.found = true;
+          this.deps.remember(t.ref, href);
+          await wc.loadURL(href).catch(() => {});
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 800));
       }
-      await new Promise((r) => setTimeout(r, 800));
+    } finally {
+      this.searching = false;
     }
   }
 }

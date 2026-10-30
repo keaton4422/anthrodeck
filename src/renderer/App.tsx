@@ -78,8 +78,12 @@ export default function App() {
   const live = useLive();
   // A Remote Control session on another computer opens on its own claude.ai page (ClaudePage).
   const [rcOpen, setRcOpen] = useState<RcSession | null>(null);
-  // Escape in the page itself (a keyboard) comes back the same way B does.
-  useEffect(() => window.electronAPI.onClaudeClosed(() => setRcOpen(null)), []);
+  // Signing in to claude.ai from Settings: the same page, with no session; back to Settings after.
+  const closeRc = useCallback(() => {
+    setRcOpen((open) => { if (open?.ref === '') setShowSettings(true); return null; });
+  }, []);
+  // B or Escape in the page itself, or signed in, comes back the same way B here does.
+  useEffect(() => window.electronAPI.onClaudeClosed(closeRc), [closeRc]);
   const liveChat = useLiveSession(liveOpen?.sessionId ?? null);
   const liveScrollRef = useRef<HTMLDivElement>(null);
   // Its latest state from the watcher (the one Home opened stays on screen if the session ends).
@@ -768,7 +772,7 @@ export default function App() {
       if (pickerOwnsPad) { setFolderPick(null); return; }
       if (homeOwnsPad) { if (messages.length) setShowHome(false); return; }
       if (liveOwnsPad) { setLiveOpen(null); return; }
-      if (rcOwnsPad) { setRcOpen(null); return; }
+      if (rcOwnsPad) { closeRc(); return; }
       if (pendingTeach) { setTeachRedirectSignal((s) => s + 1); return; }
       if (pendingWrite) {
         // Toggle spoken-rejection push-to-talk.
@@ -957,6 +961,7 @@ export default function App() {
           }}
           onClear={handleClear}
           onClose={() => setShowSettings(false)}
+          onClaudeSignIn={() => { setShowSettings(false); setRcOpen({ ref: '', name: 'Sign in to claude.ai', status: 'idle' }); }}
           model={model}
           onModelChange={setModel}
           extendedThinking={extendedThinking}
@@ -985,7 +990,7 @@ export default function App() {
         <ClaudePage
           session={rcOpen}
           covered={modalActive || drawerOpen || cockpitOpen || radialOpen || shareOpen || !!folderPick}
-          onBack={() => setRcOpen(null)}
+          onBack={closeRc}
         />
       ) : liveShown ? (
         <LiveSessionView

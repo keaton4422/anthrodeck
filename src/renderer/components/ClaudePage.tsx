@@ -39,7 +39,9 @@ export function ClaudePage({ session, covered, onBack }: Props) {
       <div style={{ padding: '8px 24px', borderBottom: `1px solid ${C.line}`, display: 'flex', alignItems: 'center', gap: 14 }}>
         <div style={{ minWidth: 0, flex: 1, fontSize: 15, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {session.name}
-          <span style={{ fontSize: 12, color: C.dim, marginLeft: 10 }}>claude.ai · on another computer</span>
+          <span style={{ fontSize: 12, color: C.dim, marginLeft: 10 }}>
+            {session.ref ? 'claude.ai · on another computer' : 'once, with your Claude account; back to Settings after'}
+          </span>
         </div>
         <div style={{ fontSize: 13, color: C.dim, whiteSpace: 'nowrap' }}><Glyph b="X" /> Type</div>
         <button onClick={onBack} style={{

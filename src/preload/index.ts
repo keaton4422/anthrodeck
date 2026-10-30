@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   claudeShown: (shown: boolean) => ipcRenderer.send('claude:shown', shown),
   claudeScroll: (dy: number) => ipcRenderer.send('claude:scroll', dy),
   claudeBox: () => ipcRenderer.invoke('claude:box'),
+  claudeSignedIn: () => ipcRenderer.invoke('claude:signed-in'),
   onClaudeClosed: (cb: () => void) => {
     const h = () => cb();
     ipcRenderer.on('claude:closed', h);
