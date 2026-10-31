@@ -12,8 +12,11 @@ import { settlePad } from '../lib/shown';
 // the right stick and D-pad scroll; on an approval, left and right pick Deny or Allow and A presses
 // it (the page reads those itself, main/claudePage.ts); the touchscreen works the page.
 
+// `engine`: Claude Code's own sign-in on this page instead of a session (main/claudeLogin.ts).
+export type PageFor = RcSession & { engine?: boolean };
+
 interface Props {
-  session: RcSession;
+  session: PageFor;
   covered: boolean;      // a card, menu or game over it: the page steps aside (it would draw on top)
   onBack: () => void;
 }
@@ -28,11 +31,12 @@ export function ClaudePage({ session, covered, onBack }: Props) {
       const r = el.getBoundingClientRect();
       return { x: r.left, y: r.top, width: r.width, height: r.height };
     };
-    void window.electronAPI.claudeOpen(session.ref, session.name, rect());
+    if (session.engine) void window.electronAPI.claudeEngineSignIn(rect());
+    else void window.electronAPI.claudeOpen(session.ref, session.name, rect());
     const ro = new ResizeObserver(() => window.electronAPI.claudePlace(rect()));
     ro.observe(el);
     return () => { ro.disconnect(); window.electronAPI.claudeHide(); settlePad(); };
-  }, [session.ref, session.name]);
+  }, [session.ref, session.name, session.engine]);
   useEffect(() => { window.electronAPI.claudeShown(!covered); }, [covered]);
 
   return (

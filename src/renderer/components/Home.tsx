@@ -291,7 +291,7 @@ const Home = forwardRef<HomeNav, Props>(function Home(
                   ? live?.connected
                     ? <>Nothing needs you. Start something on the right.</>
                     : <>Connecting to {remote.label}…</>
-                  : <>Nothing needs you. Start something on the right, or add your Mac in Settings to see its sessions here.</>}
+                  : <>Nothing needs you. Start something on the right. Sessions on your other computers show here once Remote Control is on in Claude Code there.</>}
                 {queue.quiet > 0 && <div style={{ fontSize: 15, color: C.faint, marginTop: 6 }}>{queue.quiet} older idle session{queue.quiet === 1 ? '' : 's'} on {remote?.label}</div>}
               </div>
             );

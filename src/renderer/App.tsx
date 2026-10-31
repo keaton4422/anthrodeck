@@ -36,7 +36,7 @@ import { useSeason } from './hooks/useSeason';
 import { DRIVE_MODE_LABELS, nextDriveMode, normalizeModel } from '../main/engine/config';
 import { useVoice } from './hooks/useVoice';
 import { useLive } from './hooks/useLive';
-import { ClaudePage } from './components/ClaudePage';
+import { ClaudePage, type PageFor } from './components/ClaudePage';
 import { useLiveSession } from './hooks/useLiveSession';
 import { useLocalVoice } from './hooks/useLocalVoice';
 import { useGamepad } from './hooks/useGamepad';
@@ -77,8 +77,9 @@ export default function App() {
   const [liveOpen, setLiveOpen] = useState<LiveSession | null>(null);
   const live = useLive();
   // A Remote Control session on another computer opens on its own claude.ai page (ClaudePage).
-  const [rcOpen, setRcOpen] = useState<RcSession | null>(null);
-  // Signing in to claude.ai from Settings: the same page, with no session; back to Settings after.
+  const [rcOpen, setRcOpen] = useState<PageFor | null>(null);
+  // Signing in from Settings (Claude Code, or claude.ai alone): the same page, with no session;
+  // back to Settings after.
   const closeRc = useCallback(() => {
     setRcOpen((open) => { if (open?.ref === '') setShowSettings(true); return null; });
   }, []);
@@ -215,11 +216,15 @@ export default function App() {
   }, [mode, setMode, showToast]);
 
   // Engine health: checked at start and whenever settings close (an install may have happened).
+  // Settings comes up while Claude Code isn't installed, and once at start while it isn't signed in.
+  const askedSignIn = useRef(false);
   useEffect(() => {
     if (showSettings) return;
     void window.electronAPI.engineStatus().then((st) => {
       setEngineReady(st.found);
-      if (!st.found) setShowSettings(true);
+      const unsigned = !st.claude.signedIn && !st.hasApiKey && !askedSignIn.current;
+      askedSignIn.current = true;
+      if (!st.found || unsigned) setShowSettings(true);
     }).catch(() => {});
   }, [showSettings]);
 
@@ -962,6 +967,7 @@ export default function App() {
           onClear={handleClear}
           onClose={() => setShowSettings(false)}
           onClaudeSignIn={() => { setShowSettings(false); setRcOpen({ ref: '', name: 'Sign in to claude.ai', status: 'idle' }); }}
+          onEngineSignIn={() => { setShowSettings(false); setRcOpen({ ref: '', name: 'Sign in to Claude', status: 'idle', engine: true }); }}
           model={model}
           onModelChange={setModel}
           extendedThinking={extendedThinking}

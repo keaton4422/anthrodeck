@@ -216,6 +216,7 @@ declare global {
       activityGet: (machine: Machine, cwds: string[]) => Promise<{ projects: ProjectActivity[]; error: string | null }>;
       rcSessions: () => Promise<{ sessions: RcSession[]; error: string | null }>;
       claudeOpen: (ref: string, name: string, bounds: Bounds) => Promise<void>;
+      claudeEngineSignIn: (bounds: Bounds) => Promise<void>;
       claudePlace: (bounds: Bounds) => void;
       claudeHide: () => void;
       claudeShown: (shown: boolean) => void;

@@ -8,6 +8,7 @@
 // address is remembered. If the name isn't found the list stays up for the pilot to tap.
 
 import { BrowserWindow, WebContentsView, session, type Rectangle, type WebContents } from 'electron';
+import { runLogin, type Login } from './claudeLogin';
 
 export const CLAUDE_CODE_URL = 'https://claude.ai/code';
 export const SIGN_IN_URL = 'https://claude.ai/login';
@@ -78,7 +79,8 @@ const FOCUS_BOX_JS = `(() => {
 //
 // An approval on the page (Deny, Allow, and the menu under its arrow) is answered here, with no
 // trip to main: left and right move a highlight between its buttons, starting on Deny so nothing
-// is allowed by accident, and A presses the one highlighted. With no approval up, A is reported.
+// is allowed by accident, and A presses the one highlighted; B closes the arrow's menu. With no
+// approval up, A is reported.
 export const PAD_MARK = '__anthrodeck_pad:';
 export const PAD_JS = `(() => {
   if (window.__anthrodeckPad) return;
@@ -123,7 +125,10 @@ export const PAD_JS = `(() => {
       for (const [i, name] of [[0, 'A'], [1, 'B'], [2, 'X'], [12, 'up'], [13, 'down'], [14, 'left'], [15, 'right']]) {
         const down = !!pad.buttons[i]?.pressed;
         if (down && !held[i] && had) {
-          if (list.length && name === 'A') { const b = list[sel]; light(null); list = []; seen = 0; b.click(); }
+          // B with the arrow's menu open closes the menu, not the page.
+          const menu = name === 'B' && [...document.querySelectorAll('[role=menu], [role=listbox]')].find(shown);
+          if (menu) menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+          else if (list.length && name === 'A') { const b = list[sel]; light(null); list = []; seen = 0; b.click(); }
           else if (list.length && (name === 'left' || name === 'right')) {
             sel = Math.min(list.length - 1, Math.max(0, sel + (name === 'left' ? -1 : 1))); light(list[sel]);
           } else if (name !== 'left' && name !== 'right') tell(name);
@@ -167,8 +172,9 @@ export interface ClaudePageDeps {
   onClose: () => void;                               // B or Escape in the page, or signed in: back to AnthroDeck
 }
 
-// What the page is open for: a session (found by name once signed in), or signing in alone.
-type Target = { ref: string; name: string; found: boolean } | null;
+// What the page is open for: a session (found by name once signed in), signing in to claude.ai
+// alone (null), or Claude Code's own sign-in ('engine', main/claudeLogin.ts).
+type Target = { ref: string; name: string; found: boolean } | null | 'engine';
 
 export class ClaudePage {
   private view: WebContentsView | null = null;
@@ -176,6 +182,7 @@ export class ClaudePage {
   private searching = false;
   private target: Target = null;
   private zoom = 1;
+  private login: Login | null = null;
 
   constructor(private win: BrowserWindow, private deps: ClaudePageDeps) {}
 
@@ -223,8 +230,8 @@ export class ClaudePage {
     // (or, opened only to sign in, done).
     const arrived = () => {
       wc.setZoomFactor(this.zoom);
-      if (!pastSignIn(wc.getURL())) return;
       const t = this.target;
+      if (t === 'engine' || !pastSignIn(wc.getURL())) return;
       if (!t) this.deps.onClose();
       else if (!t.found) void this.find(this.finding, t);
     };
@@ -237,12 +244,7 @@ export class ClaudePage {
   // Show the page for a session (by its ref and name), or with no ref to sign in, where the
   // interface leaves room for it.
   open(ref: string, name: string, space: Rectangle): void {
-    if (!this.view) this.view = this.make();
-    const view = this.view;
-    if (!this.win.contentView.children.includes(view)) this.win.contentView.addChildView(view);
-    this.place(space);
-    view.setVisible(true);
-    this.finding++;
+    const view = this.show(space);
     const known = ref ? this.deps.remembered()[ref] : undefined;
     this.target = ref ? { ref, name, found: !!known } : null;
     // Loading it fires `arrived`, which goes on from there.
@@ -250,6 +252,34 @@ export class ClaudePage {
       /* offline, or redirected to sign in: the page says so itself */
     });
     view.webContents.focus();
+  }
+
+  // Claude Code's own sign-in, on this page instead of a browser; back to the interface once it's
+  // done, signed in or not.
+  signInEngine(bin: string, space: Rectangle): void {
+    const view = this.show(space);
+    this.target = 'engine';
+    void view.webContents.loadURL('about:blank').catch(() => {});
+    view.webContents.focus();
+    const run = runLogin(bin, (url) => { if (this.login === run) void view.webContents.loadURL(url).catch(() => {}); });
+    this.login = run;
+    void run.done.then(() => {
+      if (this.login !== run) return;
+      this.login = null;
+      this.deps.onClose();
+    });
+  }
+
+  private show(space: Rectangle): WebContentsView {
+    if (!this.view) this.view = this.make();
+    const view = this.view;
+    if (!this.win.contentView.children.includes(view)) this.win.contentView.addChildView(view);
+    this.place(space);
+    view.setVisible(true);
+    this.finding++;
+    this.login?.cancel();
+    this.login = null;
+    return view;
   }
 
   place(space: Rectangle): void {
@@ -277,6 +307,8 @@ export class ClaudePage {
 
   hide(): void {
     this.finding++;
+    this.login?.cancel();
+    this.login = null;
     if (!this.view) return;
     for (const w of this.win.getChildWindows()) if (!w.isDestroyed()) w.close();
     this.view.setVisible(false);
@@ -301,7 +333,7 @@ export class ClaudePage {
 
   // claude.ai's session list draws after the page loads (and only once signed in), so look a few
   // times. Not found: the list stays up for the pilot to pick from.
-  private async find(finding: number, t: NonNullable<Target>): Promise<void> {
+  private async find(finding: number, t: Exclude<Target, null | 'engine'>): Promise<void> {
     const wc = this.view?.webContents;
     if (!wc || this.searching) return;
     this.searching = true;

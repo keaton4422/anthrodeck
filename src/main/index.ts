@@ -14,6 +14,7 @@ import type { LiveStatus } from '../renderer/types';
 import { canHandoff, listSteamGames, startHandoff, steamArt } from './steamGames';
 import { Beside, canBeside, realDeps } from './beside';
 import { ClaudePage } from './claudePage';
+import { defaultLocateDeps, locateEngine } from './engine/locate';
 import { updaterErrorMessage } from './updaterMessages';
 import { whatsNew, type RawReleaseNotes, type UpdateAvailable } from './releaseNotes';
 import { LATEST_RELEASE_API, parseLatestRelease } from './manualUpdate';
@@ -221,6 +222,12 @@ function page(): ClaudePage | null {
 type Bounds = { x: number; y: number; width: number; height: number };
 const whole = (b: Bounds) => ({ x: Math.round(b.x), y: Math.round(b.y), width: Math.max(1, Math.round(b.width)), height: Math.max(1, Math.round(b.height)) });
 ipcMain.handle('claude:open', (_, ref: string, name: string, b: Bounds) => page()?.open(String(ref), String(name), whole(b)));
+// Claude Code's own sign-in on the same page (main/claudeLogin.ts).
+ipcMain.handle('claude:engine-sign-in', (_, b: Bounds) => {
+  const engine = locateEngine((store.get('enginePath', '') as string) || null, defaultLocateDeps(app.isPackaged ? null : app.getAppPath()));
+  if (engine) page()?.signInEngine(engine.path, whole(b));
+  else mainWindow?.webContents.send('claude:closed');
+});
 ipcMain.on('claude:place', (_, b: Bounds) => claudePage?.place(whole(b)));
 ipcMain.on('claude:hide', () => claudePage?.hide());
 ipcMain.on('claude:shown', (_, shown: boolean) => claudePage?.shown(!!shown));
