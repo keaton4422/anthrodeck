@@ -216,11 +216,15 @@ export default function App() {
   }, [mode, setMode, showToast]);
 
   // Engine health: checked at start and whenever settings close (an install may have happened).
+  // Settings comes up while Claude Code isn't installed, and once at start while it isn't signed in.
+  const askedSignIn = useRef(false);
   useEffect(() => {
     if (showSettings) return;
     void window.electronAPI.engineStatus().then((st) => {
       setEngineReady(st.found);
-      if (!st.found) setShowSettings(true);
+      const unsigned = !st.claude.signedIn && !st.hasApiKey && !askedSignIn.current;
+      askedSignIn.current = true;
+      if (!st.found || unsigned) setShowSettings(true);
     }).catch(() => {});
   }, [showSettings]);
 
