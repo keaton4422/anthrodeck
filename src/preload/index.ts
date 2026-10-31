@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => { ipcRenderer.removeListener('steam:state', h); };
   },
   claudeOpen: (ref: string, name: string, bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke('claude:open', ref, name, bounds),
+  claudeEngineSignIn: (bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke('claude:engine-sign-in', bounds),
   claudePlace: (bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.send('claude:place', bounds),
   claudeHide: () => ipcRenderer.send('claude:hide'),
   claudeShown: (shown: boolean) => ipcRenderer.send('claude:shown', shown),

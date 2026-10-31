@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
 import { useUpdater } from '../hooks/useUpdater';
 import { useLive } from '../hooks/useLive';
-import { LocalVoiceStatus, type RcStatus } from '../types';
+import { LocalVoiceStatus, type EngineStatus, type RcStatus } from '../types';
 import { withGlyphs } from './Glyph';
 import { PairKeyPanel } from './PairKeyPanel';
 import { EnginePanel } from './EnginePanel';
@@ -18,6 +18,7 @@ interface Props {
   onClose: () => void;
   // Sign in to claude.ai, to open sessions from any computer on their own page (ClaudePage).
   onClaudeSignIn: () => void;
+  onEngineSignIn: () => void;           // Claude Code's own sign-in, on the claude.ai page
   model: string;
   onModelChange: (m: string) => void;
   extendedThinking: boolean;
@@ -60,6 +61,7 @@ export function SettingsPanel({
   onClear,
   onClose,
   onClaudeSignIn,
+  onEngineSignIn,
   model,
   onModelChange,
   extendedThinking,
@@ -95,9 +97,11 @@ export function SettingsPanel({
   useEffect(() => {
     void window.electronAPI.engineStatus().then((st) => { setClaude(st.claude); setEngineFound(st.found); }).catch(() => setClaude(null));
   }, []);
+  // Installed from the panel at the top: the sign-in step comes up under it.
+  const onEngine = useCallback((st: EngineStatus) => { setEngineFound(st.found); setClaude(st.claude); }, []);
   // Everything past the three things that matter (account, the Mac, the link) waits behind this.
   const [advanced, setAdvanced] = useState(false);
-  const keyFolded = !!claude?.signedIn && !apiKey && !keyOpen;
+  const keyFolded = !apiKey && !keyOpen;
 
   // Remote computer: run Claude Code on another machine (your Mac) over SSH, from Home's switcher.
   const [remoteHost, setRemoteHost] = useState('');
@@ -242,7 +246,7 @@ export function SettingsPanel({
           <button onClick={onClose} style={closeBtn}>✕</button>
         </div>
 
-        {!engineFound && <EnginePanel />}
+        {!engineFound && <EnginePanel onStatus={onEngine} />}
 
         {/* ── 1. Account ───────────────────────────────────────────────── */}
         <section>
@@ -253,11 +257,18 @@ export function SettingsPanel({
               {/* A personal account's org is just "<email>'s Organization": nothing new to show. */}
               {claude.org && !(claude.email && claude.org.includes(claude.email)) ? <> · {claude.org}</> : null}
             </p>
+          ) : !engineFound ? (
+            <p style={leadStyle}>Install Claude Code above, then sign in here.</p>
           ) : (
-            <p style={leadStyle}>
-              Not signed in. Sign in once from Desktop Mode: run{' '}
-              <code style={{ color: '#CC785C' }}>~/.local/bin/claude</code> in Konsole.
-            </p>
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <p style={{ ...leadStyle, flex: 1 }}>Sign in with your Claude account. Its page opens right here.</p>
+                <button onClick={onEngineSignIn} style={{ ...linkBtn, color: '#fff', background: '#CC785C', borderColor: '#CC785C' }}>Sign in</button>
+              </div>
+              {keyFolded && (
+                <button onClick={() => setKeyOpen(true)} style={{ ...linkBtn, marginTop: 12 }}>Or use an API key ▸</button>
+              )}
+            </>
           )}
           {!keyFolded && <div style={{ marginTop: 16 }}>{apiKeyBox}</div>}
         </section>
@@ -271,28 +282,33 @@ export function SettingsPanel({
           <p style={{ ...hintStyle, marginBottom: 12 }}>
             Every Claude Code session with Remote Control on shows on Home, from any computer. Nothing to install there.
           </p>
-          {deckLine && <p style={{ ...leadStyle, color: tone(deckLine.ok), marginBottom: 12 }}>{deckLine.text}</p>}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-            <p style={{ ...leadStyle, flex: 1, color: tone(webSignedIn) }}>
-              {webSignedIn ? '✓ Signed in to claude.ai: a session opens on its own page, whole.'
-                : webSignedIn === false ? 'Sign in to claude.ai once, to open a session on its own page: the whole conversation, its prompts and approvals.'
-                  : 'Checking claude.ai…'}
+          {/* Nothing here works before Claude Code is signed in on the Deck. */}
+          {!claude?.signedIn ? (
+            <p style={{ ...leadStyle, color: '#9A9A9A' }}>After you sign in.</p>
+          ) : (<>
+            {deckLine && <p style={{ ...leadStyle, color: tone(deckLine.ok), marginBottom: 12 }}>{deckLine.text}</p>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+              <p style={{ ...leadStyle, flex: 1, color: tone(webSignedIn) }}>
+                {webSignedIn ? '✓ Signed in to claude.ai: a session opens on its own page, whole.'
+                  : webSignedIn === false ? 'Sign in to claude.ai once, to open a session on its own page: the whole conversation, its prompts and approvals.'
+                    : 'Checking claude.ai…'}
+              </p>
+              {webSignedIn === false && (
+                <button onClick={onClaudeSignIn} style={{ ...linkBtn, color: '#CC785C', borderColor: '#CC785C' }}>Sign in</button>
+              )}
+            </div>
+            <p style={{ ...hintStyle, marginBottom: 10 }}>
+              Optional: to answer a session&apos;s prompts on cards here and hear when it finishes, even mid-game,
+              add the AnthroDeck plugin to Claude Code on that computer, once:
             </p>
-            {webSignedIn === false && (
-              <button onClick={onClaudeSignIn} style={{ ...linkBtn, color: '#CC785C', borderColor: '#CC785C' }}>Sign in</button>
-            )}
-          </div>
-          <p style={{ ...hintStyle, marginBottom: 10 }}>
-            Optional: to answer a session&apos;s prompts on cards here and hear when it finishes, even mid-game,
-            add the AnthroDeck plugin to Claude Code on that computer, once:
-          </p>
-          <code style={{
-            display: 'block', background: '#242424', border: '1px solid #3A3A3A', borderRadius: 8, padding: '12px 14px',
-            color: '#ECECEC', fontSize: 14, fontFamily: 'JetBrains Mono, Consolas, monospace', userSelect: 'all',
-          }}>claude plugin install anthrodeck --marketplace keaton4422/anthrodeck</code>
-          <p style={{ ...hintStyle, marginTop: 8 }}>
-            In the Claude desktop app: + next to the prompt box → Plugins → Add marketplace <span style={{ color: '#ECECEC' }}>keaton4422/anthrodeck</span> → Add plugin.
-          </p>
+            <code style={{
+              display: 'block', background: '#242424', border: '1px solid #3A3A3A', borderRadius: 8, padding: '12px 14px',
+              color: '#ECECEC', fontSize: 14, fontFamily: 'JetBrains Mono, Consolas, monospace', userSelect: 'all',
+            }}>claude plugin install anthrodeck --marketplace keaton4422/anthrodeck</code>
+            <p style={{ ...hintStyle, marginTop: 8 }}>
+              In the Claude desktop app: + next to the prompt box → Plugins → Add marketplace <span style={{ color: '#ECECEC' }}>keaton4422/anthrodeck</span> → Add plugin.
+            </p>
+          </>)}
         </section>
 
         <Divider />
