@@ -222,6 +222,7 @@ declare global {
       claudeShown: (shown: boolean) => void;
       claudeScroll: (dy: number) => void;
       claudeBox: () => Promise<boolean>;
+      openKeyboard: () => void;
       claudeSignedIn: () => Promise<boolean>;
       claudeSignOut: () => Promise<boolean>;
       onClaudeClosed: (cb: () => void) => () => void;

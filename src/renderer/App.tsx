@@ -701,7 +701,13 @@ export default function App() {
     if (box?.hasText()) box.send();
     else showToast('Hold [L2] and talk, or press [X] to type.');
   };
-  const typeInBox = () => document.querySelector<HTMLTextAreaElement>('.message-box')?.focus();
+  // X: the cursor in the message box, and Steam's on-screen keyboard up in Game Mode (main).
+  const typeInBox = () => {
+    const box = document.querySelector<HTMLTextAreaElement>('.message-box');
+    if (!box) return;
+    box.focus();
+    window.electronAPI.openKeyboard();
+  };
 
   // L1 + face button fires a meta action instead of the button's normal job. Returns true when the
   // chord consumed the press.

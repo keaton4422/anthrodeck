@@ -8,7 +8,7 @@ import { settlePad } from '../lib/shown';
 // prompts and approvals, with nothing installed on the computer it runs on. The main process
 // draws the page over the space this component leaves for it, so this only says where.
 //
-// Pad: B back to Home, X puts the cursor in the page's message box (STEAM + X for the keyboard),
+// Pad: B back to Home, X puts the cursor in the page's message box with Steam's keyboard up,
 // the right stick and D-pad scroll; on an approval, left and right pick Deny or Allow and A presses
 // it (the page reads those itself, main/claudePage.ts); the touchscreen works the page.
 
