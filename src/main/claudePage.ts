@@ -291,6 +291,12 @@ export class ClaudePage {
     v.webContents.setZoomFactor(zoom);
   }
 
+  // Signing out: claude.ai's sign-in and everything it kept here, and the page closed.
+  async signOut(): Promise<void> {
+    this.hide();
+    await session.fromPartition(PARTITION).clearStorageData();
+  }
+
   // Whether the pilot has signed in to claude.ai here (its session cookie, not what's in it).
   async signedIn(): Promise<boolean> {
     const cookies = await session.fromPartition(PARTITION).cookies.get({ url: 'https://claude.ai', name: 'sessionKey' });

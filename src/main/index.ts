@@ -234,6 +234,17 @@ ipcMain.on('claude:shown', (_, shown: boolean) => claudePage?.shown(!!shown));
 ipcMain.on('claude:scroll', (_, dy: number) => claudePage?.scroll(Number(dy) || 0));
 ipcMain.handle('claude:box', () => claudePage?.focusBox() ?? false);
 ipcMain.handle('claude:signed-in', () => page()?.signedIn() ?? false);
+// Signing out of Settings → Account: Claude Code on this device (its own `claude auth logout`) and
+// the claude.ai page with it, so the next sign-in starts clean.
+ipcMain.handle('claude:sign-out', async () => {
+  const engine = locateEngine((store.get('enginePath', '') as string) || null, defaultLocateDeps(app.isPackaged ? null : app.getAppPath()));
+  const out = engine ? await new Promise<boolean>((resolve) => {
+    execFile(engine.path, ['auth', 'logout'], { timeout: 30_000 }, (err) => resolve(!err));
+  }) : true;
+  await page()?.signOut();
+  store.delete('claudePages');
+  return out;
+});
 ipcMain.handle('store:set', (_, key: string, value: unknown) => { store.set(key, value); });
 
 // ─── Cockpit mods IPC ─────────────────────────────────────────────────────────
