@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useDragScroll } from '../hooks/useDragScroll';
 import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
 import { useUpdater } from '../hooks/useUpdater';
-import { useLive } from '../hooks/useLive';
 import { LocalVoiceStatus, type EngineStatus, type RcStatus } from '../types';
 import { withGlyphs } from './Glyph';
 import { PairKeyPanel } from './PairKeyPanel';
@@ -19,19 +19,9 @@ interface Props {
   // Sign in to claude.ai, to open sessions from any computer on their own page (ClaudePage).
   onClaudeSignIn: () => void;
   onEngineSignIn: () => void;           // Claude Code's own sign-in, on the claude.ai page
-  model: string;
-  onModelChange: (m: string) => void;
-  extendedThinking: boolean;
-  onExtendedThinkingChange: (v: boolean) => void;
-  effort: string;
-  onEffortChange: (e: string) => void;
   onVoiceChanged: () => void;
   teachMode: boolean;
   onTeachModeChange: (v: boolean) => void;
-  previewPort: number;
-  onPreviewPortChange: (p: number) => void;
-  previewHttps: boolean;
-  onPreviewHttpsChange: (v: boolean) => void;
   haptics: boolean;
   onHapticsChange: (v: boolean) => void;
   intermission: boolean;
@@ -44,15 +34,6 @@ interface Props {
   onSoundChange: (v: boolean) => void;
 }
 
-// Claude Code model aliases: they track the current generation, so this list never goes stale.
-const MODEL_OPTS: { id: string; label: string; sub: string }[] = [
-  { id: 'sonnet', label: 'Sonnet', sub: 'Balanced · default · lower cost' },
-  { id: 'opus', label: 'Opus', sub: 'Most capable · hardest jobs' },
-  { id: 'haiku', label: 'Haiku', sub: 'Fastest · cheapest' },
-];
-
-const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh', 'max'];
-
 export function SettingsPanel({
   padNav,
   apiKey,
@@ -62,19 +43,9 @@ export function SettingsPanel({
   onClose,
   onClaudeSignIn,
   onEngineSignIn,
-  model,
-  onModelChange,
-  extendedThinking,
-  onExtendedThinkingChange,
-  effort,
-  onEffortChange,
   onVoiceChanged,
   teachMode,
   onTeachModeChange,
-  previewPort,
-  onPreviewPortChange,
-  previewHttps,
-  onPreviewHttpsChange,
   haptics,
   onHapticsChange,
   intermission,
@@ -86,7 +57,6 @@ export function SettingsPanel({
   sound,
   onSoundChange,
 }: Props) {
-  const [portDraft, setPortDraft] = useState(String(previewPort));
   const [draftKey, setDraftKey] = useState(apiKey);
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -110,40 +80,17 @@ export function SettingsPanel({
   };
   // Installed from the panel at the top: the sign-in step comes up under it.
   const onEngine = useCallback((st: EngineStatus) => { setEngineFound(st.found); setClaude(st.claude); }, []);
-  // Everything past the three things that matter (account, the Mac, the link) waits behind this.
+  // Everything past the two things that matter (account, your computers) waits behind this.
   const [advanced, setAdvanced] = useState(false);
   const keyFolded = !apiKey && !keyOpen;
 
-  // Remote computer: run Claude Code on another machine (your Mac) over SSH, from Home's switcher.
-  const [remoteHost, setRemoteHost] = useState('');
+  // A computer set up over SSH in an older version: Remote Control does its job now, so Settings
+  // only offers to forget it.
   const [remoteSaved, setRemoteSaved] = useState<string | null>(null);
-  const [remoteStatus, setRemoteStatus] = useState<{ busy?: boolean; ok?: boolean; text: string } | null>(null);
-  useEffect(() => {
-    void window.electronAPI.remoteGet().then((t) => { setRemoteSaved(t?.host ?? null); setRemoteHost(t?.host ?? ''); });
-  }, []);
-  const saveRemote = async () => {
-    const t = await window.electronAPI.remoteSet(remoteHost.trim() || null, null);
-    setRemoteSaved(t?.host ?? null);
-    if (!t) { setRemoteStatus(null); return; }
-    setRemoteStatus({ busy: true, text: `Connecting to ${t.label}…` });
-    const r = await window.electronAPI.remoteTest();
-    setRemoteStatus(r.ok
-      ? { ok: true, text: `✓ Connected to ${t.label} · Claude Code ${r.version?.replace(/\s*\(Claude Code\)/, '') ?? ''}` }
-      : { ok: false, text: r.error ?? 'Could not connect.' });
-  };
+  useEffect(() => { void window.electronAPI.remoteGet().then((t) => setRemoteSaved(t?.label ?? t?.host ?? null)); }, []);
+  const forgetRemote = async () => { await window.electronAPI.remoteSet(null, null); setRemoteSaved(null); };
 
-  // Live sessions there: the relay that brings their approvals and questions to the Deck.
-  const live = useLive();
-  const [relayBusy, setRelayBusy] = useState(false);
-  const [relayError, setRelayError] = useState<string | null>(null);
-  const setRelay = async (op: 'install' | 'remove') => {
-    setRelayBusy(true); setRelayError(null);
-    const r = await window.electronAPI.liveRelay(op);
-    setRelayBusy(false);
-    if (!r.ok) setRelayError(r.error ?? 'That didn\'t work.');
-  };
-
-  // The Remote Control link: reaching that computer through Anthropic's servers when SSH can't.
+  // Remote Control on this Deck: how every computer's sessions reach it.
   const [rcState, setRcState] = useState<RcStatus | null>(null);
   const [rcBusy, setRcBusy] = useState(false);
   useEffect(() => {
@@ -153,7 +100,6 @@ export function SettingsPanel({
   const [webSignedIn, setWebSignedIn] = useState<boolean | null>(null);
   useEffect(() => { void window.electronAPI.claudeSignedIn().then(setWebSignedIn); }, []);
   const rcToggle = async () => { setRcBusy(true); setRcState(await window.electronAPI.rcSet(!rcState?.enabled)); setRcBusy(false); };
-  const rcSetup = async () => { setRcBusy(true); setRcState(await window.electronAPI.rcSetup()); setRcBusy(false); };
 
   const { status, checkForUpdates, downloadUpdate, installUpdate } = useUpdater();
 
@@ -173,6 +119,7 @@ export function SettingsPanel({
 
   const rootRef = useRef<HTMLDivElement>(null);
   const pad = usePadFocus(rootRef);
+  useDragScroll(rootRef);   // a finger drags it, also when Steam sends touch as a mouse
   useEffect(() => {
     if (!padNav) return;
     padNav.current = pad;
@@ -223,22 +170,11 @@ export function SettingsPanel({
     </div>
   );
 
-  // The Mac, in one line: how the Deck reaches it right now, or why it can't.
-  const macLine = !live ? null
-    : live.connected
-      ? { ok: true, text: `● Connected to ${live.label}${live.via === 'rc' ? ' through Remote Control' : ''}` }
-      : live.error ? { ok: false, text: `Can't reach ${live.label}: ${live.error}` } : { ok: null, text: `Connecting to ${live.label}…` };
   const deckLine = !rcState ? null
     : !rcState.enabled ? { ok: false, text: 'Remote Control is off on this Deck.' }
       : rcState.deck.state === 'connected' ? { ok: true, text: '✓ This Deck is on Remote Control: your computers can reach it.' }
         : rcState.deck.state === 'needs-consent' ? { ok: false, text: 'Remote Control needs turning on once: run claude remote-control in Konsole and accept.' }
           : { ok: null, text: 'Connecting this Deck to Remote Control…' };
-  const hubLine = !rcState?.enabled || !live ? null
-    : rcState.via === 'rc' ? { ok: true, text: `In use: the Deck is reaching ${live.label} through Anthropic's servers.` }
-      : rcState.hub?.error ? { ok: false, text: `Not ready: ${rcState.hub.error}` }
-        : rcState.hub?.result?.status.state === 'connected' ? { ok: true, text: `Ready for when you're away from home.` }
-          : rcState.hub?.result?.status.state === 'needs-consent' ? { ok: false, text: `Needs turning on once: run "claude remote-control" on ${live.label} and accept.` }
-            : { ok: null, text: `Gets ready the next time the Deck reaches ${live.label} at home.` };
   const tone = (ok: boolean | null | undefined) => (ok ? '#9AC9A8' : ok === false ? '#D9A35B' : '#9A9A9A');
 
   return (
@@ -304,7 +240,14 @@ export function SettingsPanel({
           {!claude?.signedIn ? (
             <p style={{ ...leadStyle, color: '#9A9A9A' }}>After you sign in.</p>
           ) : (<>
-            {deckLine && <p style={{ ...leadStyle, color: tone(deckLine.ok), marginBottom: 12 }}>{deckLine.text}</p>}
+            {deckLine && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                <p style={{ ...leadStyle, flex: 1, color: tone(deckLine.ok) }}>{deckLine.text}</p>
+                {rcState && !rcState.enabled && (
+                  <button onClick={() => { if (!rcBusy) void rcToggle(); }} style={{ ...linkBtn, color: '#CC785C', borderColor: '#CC785C' }}>Turn on</button>
+                )}
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
               <p style={{ ...leadStyle, flex: 1, color: tone(webSignedIn) }}>
                 {webSignedIn ? '✓ Signed in to claude.ai: a session opens on its own page, whole.'
@@ -339,62 +282,15 @@ export function SettingsPanel({
           <>
             {engineFound && <EnginePanel />}
 
-            {/* A computer over SSH: its full live view (the conversation as it streams), its projects
-                for starting sessions, and the relay for its prompts. Remote Control covers the rest. */}
-        <section>
-          <label style={labelStyle}>Full live view over SSH</label>
-          <p style={{ ...hintStyle, marginBottom: 10 }}>
-            Optional. A computer reachable over SSH also streams its sessions word by word and lists its projects for new sessions.
-          </p>
-          {macLine && <p style={{ ...leadStyle, color: tone(macLine.ok), marginBottom: 12 }}>{macLine.text}</p>}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              value={remoteHost}
-              onChange={(e) => setRemoteHost(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') void saveRemote(); }}
-              placeholder="you@your-mac.local"
-              style={{
-                flex: 1, background: '#242424', border: '1px solid #3A3A3A', borderRadius: 8, padding: '12px 14px',
-                color: '#ECECEC', fontSize: 16, outline: 'none', fontFamily: 'JetBrains Mono, Consolas, monospace',
-              }}
-            />
-            <button onClick={() => void saveRemote()} disabled={!!remoteStatus?.busy} style={{ ...linkBtn, color: '#CC785C', borderColor: '#CC785C' }}>
-              {remoteHost.trim() === (remoteSaved ?? '') && remoteSaved ? 'Test' : remoteHost.trim() || !remoteSaved ? 'Save' : 'Remove'}
-            </button>
-          </div>
-          {remoteStatus && (
-            <p style={{ ...hintStyle, marginTop: 8, color: tone(remoteStatus.busy ? null : remoteStatus.ok) }}>{remoteStatus.text}</p>
-          )}
-          {/* What can go wrong, said only when it has. */}
-          {live && !live.connected && live.error && /key|Remote Login|refused/i.test(live.error) && (
-            <p style={{ ...hintStyle, marginTop: 8 }}>
-              On the Mac: turn on Remote Login (System Settings → General → Sharing) and add this Deck&apos;s SSH key to it.
-            </p>
-          )}
-          {live?.connected && !live.state?.relay && (
-            <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <p style={{ ...hintStyle, flex: 1 }}>Answer {live.label}&apos;s approvals and questions from the Deck.</p>
-              <button onClick={() => void setRelay('install')} disabled={relayBusy} style={{ ...linkBtn, color: '#CC785C', borderColor: '#CC785C' }}>
-                {relayBusy ? 'Turning on…' : 'Turn on'}
-              </button>
-            </div>
-          )}
-          {relayError && <p style={{ ...hintStyle, marginTop: 6, color: '#D9A35B' }}>{relayError}</p>}
-        </section>
-
-        {live && rcState && (
-          <section>
-            <ToggleRow
-              big
-              label="Over Remote Control when SSH can't reach it"
-              hint={`Away from home, the Deck connects to ${live.label} through Anthropic's servers with Remote Control, like the Claude app on your phone. Keep ${live.label} awake.`}
-              value={rcState.enabled}
-              onChange={() => { if (!rcBusy) void rcToggle(); }}
-            />
-            {hubLine && <p style={{ ...hintStyle, marginTop: 8, color: tone(hubLine.ok) }}>{hubLine.text}</p>}
-          </section>
-        )}
-
+            {remoteSaved && (
+              <section>
+                <label style={labelStyle}>Over SSH</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <p style={{ ...hintStyle, flex: 1 }}>{remoteSaved} is still set up over SSH. Remote Control brings its sessions here without it.</p>
+                  <button onClick={() => void forgetRemote()} style={linkBtn}>Forget it</button>
+                </div>
+              </section>
+            )}
 
             {keyFolded && (
               <section>
@@ -402,67 +298,6 @@ export function SettingsPanel({
                 <button onClick={() => setKeyOpen(true)} style={linkBtn}>Use an API key instead of your account ▸</button>
               </section>
             )}
-
-            {/* ── Model & Reasoning ── */}
-            <section>
-              <label style={labelStyle}>Model</label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-                {MODEL_OPTS.map((m) => {
-                  const active = model === m.id;
-                  return (
-                    <button
-                      key={m.id}
-                      onClick={() => onModelChange(m.id)}
-                      style={{
-                        display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-                        gap: 2, padding: '12px 14px', borderRadius: 8, cursor: 'pointer',
-                        textAlign: 'left', transition: 'all 0.15s',
-                        border: `1px solid ${active ? '#CC785C' : '#3A3A3A'}`,
-                        background: active ? 'rgba(204,120,92,0.12)' : '#242424',
-                      }}
-                    >
-                      <span style={{ fontSize: 16, fontWeight: 600, color: active ? '#CC785C' : '#ECECEC' }}>
-                        {m.label}
-                        <span style={{ color: '#6A6A6A', fontWeight: 400, marginLeft: 8, fontSize: 13 }}>{m.id}</span>
-                      </span>
-                      <span style={{ fontSize: 14, color: '#8A8A8A' }}>{m.sub}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{ marginTop: 16 }}>
-                <ToggleRow
-                  label="Extended thinking"
-                  hint="Adaptive reasoning before answering. Best on Opus for hard turns."
-                  value={extendedThinking}
-                  onChange={() => onExtendedThinkingChange(!extendedThinking)}
-                />
-              </div>
-              <div style={{ marginTop: 16 }}>
-                <span style={{ fontSize: 16, color: '#ECECEC', fontWeight: 600 }}>Effort</span>
-                <p style={{ ...hintStyle, marginTop: 2, marginBottom: 8 }}>How much the model deliberates and how many tools it uses.</p>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  {EFFORT_OPTS.map((e) => {
-                    const active = effort === e;
-                    return (
-                      <button
-                        key={e}
-                        onClick={() => onEffortChange(e)}
-                        style={{
-                          flex: 1, padding: '10px 4px', borderRadius: 7, cursor: 'pointer',
-                          fontSize: 14, fontWeight: active ? 600 : 400, textTransform: 'capitalize',
-                          border: `1px solid ${active ? '#CC785C' : '#3A3A3A'}`,
-                          background: active ? 'rgba(204,120,92,0.12)' : '#242424',
-                          color: active ? '#CC785C' : '#9A9A9A',
-                        }}
-                      >
-                        {e}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
 
             {/* ── Voice & play ── */}
             <section style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -494,60 +329,6 @@ export function SettingsPanel({
               />
               <ToggleRow label="Haptics" hint="Controller rumble on tool success, errors and finished messages." value={haptics} onChange={() => onHapticsChange(!haptics)} />
               <ToggleRow label="Sound cues" hint="A chime when Claude finishes, a low tone on errors." value={sound} onChange={() => onSoundChange(!sound)} />
-            </section>
-
-            {/* ── The Mac, in detail ── */}
-            {live && (
-              <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <label style={labelStyle}>{live.label}</label>
-                {live.state?.relay ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <p style={{ ...hintStyle, flex: 1 }}>
-                      Approvals from {live.label}: on (a hook in Claude Code&apos;s settings there, backed up first).
-                    </p>
-                    <button onClick={() => void setRelay('remove')} disabled={relayBusy} style={linkBtn}>
-                      {relayBusy ? 'Removing…' : 'Turn off'}
-                    </button>
-                  </div>
-                ) : null}
-                {rcState?.enabled && live.connected && rcState.via === 'ssh' && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <p style={{ ...hintStyle, flex: 1 }}>The Remote Control hub on {live.label} (a Claude Code session named anthrodeck-hub).</p>
-                    <button onClick={() => void rcSetup()} disabled={rcBusy} style={linkBtn}>{rcBusy ? 'Restarting…' : 'Restart'}</button>
-                  </div>
-                )}
-              </section>
-            )}
-
-            {/* ── Sharing ── */}
-            <section style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <label style={labelStyle}>Sharing</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 16, color: '#ECECEC', fontWeight: 600 }}>Preview port</div>
-                  <div style={{ ...hintStyle, marginTop: 2 }}>Port the LAN preview server listens on.</div>
-                </div>
-                <input
-                  value={portDraft}
-                  onChange={(e) => {
-                    const v = e.target.value.replace(/[^0-9]/g, '');
-                    setPortDraft(v);
-                    const n = parseInt(v, 10);
-                    if (Number.isInteger(n) && n >= 1024 && n <= 65535) onPreviewPortChange(n);
-                  }}
-                  placeholder="5757"
-                  style={{
-                    width: 90, background: '#242424', border: '1px solid #3A3A3A', borderRadius: 8,
-                    padding: '10px', color: '#ECECEC', fontSize: 16, outline: 'none', fontFamily: 'monospace', textAlign: 'center',
-                  }}
-                />
-              </div>
-              <ToggleRow
-                label="Self-signed HTTPS"
-                hint="Serve the preview over https so a phone's browser can use the camera, mic and gyro."
-                value={previewHttps}
-                onChange={() => onPreviewHttpsChange(!previewHttps)}
-              />
             </section>
 
             <section>
