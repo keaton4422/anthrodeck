@@ -427,7 +427,8 @@ export function GameMenu({
       position: 'absolute', inset: 0, zIndex: 5, background: '#0A0B0D',
       display: 'flex', justifyContent: 'center', padding: '20px 24px',
     }}>
-      <div ref={rootRef} style={{ width: '100%', maxWidth: 980, display: 'flex', flexDirection: 'column', gap: 18, overflowY: 'auto' }}>
+      {/* The whole screen's width: a narrower column left bands either side, like a 4:3 window. */}
+      <div ref={rootRef} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 18, overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.16em', color: '#ECECEC' }}>GAMES</div>

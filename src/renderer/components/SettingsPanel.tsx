@@ -97,6 +97,17 @@ export function SettingsPanel({
   useEffect(() => {
     void window.electronAPI.engineStatus().then((st) => { setClaude(st.claude); setEngineFound(st.found); }).catch(() => setClaude(null));
   }, []);
+  // Signing out of Claude Code on this device, and claude.ai's page with it (main: claude:sign-out).
+  const [signingOut, setSigningOut] = useState<null | 'armed' | 'busy'>(null);
+  const signOut = async () => {
+    if (signingOut !== 'armed') { setSigningOut('armed'); return; }
+    setSigningOut('busy');
+    await window.electronAPI.claudeSignOut();
+    const st = await window.electronAPI.engineStatus();
+    setClaude(st.claude);
+    setWebSignedIn(await window.electronAPI.claudeSignedIn());
+    setSigningOut(null);
+  };
   // Installed from the panel at the top: the sign-in step comes up under it.
   const onEngine = useCallback((st: EngineStatus) => { setEngineFound(st.found); setClaude(st.claude); }, []);
   // Everything past the three things that matter (account, the Mac, the link) waits behind this.
@@ -252,11 +263,18 @@ export function SettingsPanel({
         <section>
           <label style={labelStyle}>Account</label>
           {claude?.signedIn ? (
-            <p style={{ ...leadStyle, color: '#9AC9A8' }}>
-              ✓ Signed in{claude.email ? <> as <span style={{ color: '#ECECEC' }}>{claude.email}</span></> : null}
-              {/* A personal account's org is just "<email>'s Organization": nothing new to show. */}
-              {claude.org && !(claude.email && claude.org.includes(claude.email)) ? <> · {claude.org}</> : null}
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <p style={{ ...leadStyle, flex: 1, color: '#9AC9A8' }}>
+                ✓ Signed in{claude.email ? <> as <span style={{ color: '#ECECEC' }}>{claude.email}</span></> : null}
+                {/* A personal account's org is just "<email>'s Organization": nothing new to show. */}
+                {claude.org && !(claude.email && claude.org.includes(claude.email)) ? <> · {claude.org}</> : null}
+              </p>
+              {/* Twice to sign out: once arms it, so a stray A doesn't. */}
+              <button onClick={() => void signOut()} disabled={signingOut === 'busy'} onBlur={() => { if (signingOut === 'armed') setSigningOut(null); }}
+                style={{ ...linkBtn, ...(signingOut === 'armed' ? { color: '#E05252', borderColor: '#E05252' } : {}) }}>
+                {signingOut === 'busy' ? 'Signing out…' : signingOut === 'armed' ? 'Press again to sign out' : 'Sign out'}
+              </button>
+            </div>
           ) : !engineFound ? (
             <p style={leadStyle}>Install Claude Code above, then sign in here.</p>
           ) : (

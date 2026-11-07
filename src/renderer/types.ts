@@ -223,6 +223,7 @@ declare global {
       claudeScroll: (dy: number) => void;
       claudeBox: () => Promise<boolean>;
       claudeSignedIn: () => Promise<boolean>;
+      claudeSignOut: () => Promise<boolean>;
       onClaudeClosed: (cb: () => void) => () => void;
       onRcDone: (cb: (name: string) => void) => () => void;
       sessionsResume: (id: string, cwd: string, settings?: Record<string, unknown>, machine?: Machine) =>
