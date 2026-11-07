@@ -232,7 +232,14 @@ ipcMain.on('claude:place', (_, b: Bounds) => claudePage?.place(whole(b)));
 ipcMain.on('claude:hide', () => claudePage?.hide());
 ipcMain.on('claude:shown', (_, shown: boolean) => claudePage?.shown(!!shown));
 ipcMain.on('claude:scroll', (_, dy: number) => claudePage?.scroll(Number(dy) || 0));
-ipcMain.handle('claude:box', () => claudePage?.focusBox() ?? false);
+ipcMain.handle('claude:box', async () => { const ok = (await claudePage?.focusBox()) ?? false; if (ok) openKeyboard(); return ok; });
+// X to type: the cursor goes in the box and, in Steam's Game Mode, Steam's on-screen keyboard comes
+// up with it (otherwise it needs STEAM + X). Elsewhere there's a real keyboard and nothing to do.
+function openKeyboard(): void {
+  if (process.platform !== 'linux' || !process.env.SteamGameId) return;
+  try { execFile('steam', ['steam://open/keyboard'], { timeout: 10_000 }, () => {}); } catch { /* no steam on PATH */ }
+}
+ipcMain.on('keyboard:open', () => openKeyboard());
 ipcMain.handle('claude:signed-in', () => page()?.signedIn() ?? false);
 // Signing out of Settings → Account: Claude Code on this device (its own `claude auth logout`) and
 // the claude.ai page with it, so the next sign-in starts clean.
