@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import type { ChatMessage, LiveEntry, LiveSession } from '../types';
 import type { OutgoingMessage } from '../hooks/useLiveSession';
 import { MessageBubble } from './MessageBubble';
-import { Glyph } from './Glyph';
+import { Glyph, withGlyphs } from './Glyph';
 import { C, folderName, liveSource } from '../lib/ui';
 
 // The live session screen: a Claude Code session running on the remote computer right now (in the
@@ -21,6 +21,7 @@ interface Props {
   connected: boolean;
   entries: LiveEntry[] | null;    // null until the first read
   mode: string | null;            // its permission mode (the status bar shows it too)
+  onTwin?: () => void;            // open its claude.ai page, where typing isn't held (Bypass sessions)
   outgoing: OutgoingMessage[];
   onDismiss: (id: number) => void;
   scrollRef: React.RefObject<HTMLDivElement>;
@@ -57,7 +58,7 @@ function toBlocks(entries: LiveEntry[]): Block[] {
   return out;
 }
 
-export function LiveSessionView({ session, label, waiting, connected, entries, mode, outgoing, onDismiss, scrollRef, composer, onBack }: Props) {
+export function LiveSessionView({ session, label, waiting, connected, entries, mode, onTwin, outgoing, onDismiss, scrollRef, composer, onBack }: Props) {
   const busy = session.status === 'busy';
   const blocks = useMemo(() => toBlocks(entries ?? []), [entries]);
   const [now, setNow] = useState(Date.now());
@@ -148,9 +149,18 @@ export function LiveSessionView({ session, label, waiting, connected, entries, m
       {/* Claude Code holds messages from outside for review in a session that never asks for
           permission, so say so before the pilot types, not after. */}
       {mode === 'bypassPermissions' && (
-        <div style={{ ...column, margin: '0 auto', padding: '8px 18px', fontSize: 13, color: C.amber }}>
-          This session runs with Bypass permissions, so the Claude app on {label} holds messages from the Deck
-          until you allow them there.
+        <div style={{ ...column, margin: '0 auto', padding: '8px 18px', fontSize: 13, color: C.amber, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ flex: 1 }}>
+            {onTwin
+              ? withGlyphs(`This session runs with Bypass permissions, so ${label} holds what's typed here until you allow it there. [X] types on its claude.ai page instead, which goes straight in.`)
+              : `This session runs with Bypass permissions, so the Claude app on ${label} holds messages from the Deck until you allow them there.`}
+          </span>
+          {onTwin && (
+            <button onClick={onTwin} style={{
+              padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+              border: `1px solid ${C.amber}`, background: 'transparent', color: C.amber,
+            }}>Open on claude.ai</button>
+          )}
         </div>
       )}
       <div className="live-composer">{composer}</div>

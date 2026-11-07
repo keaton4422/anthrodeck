@@ -86,6 +86,20 @@ export default function App() {
   // B or Escape in the page itself, or signed in, comes back the same way B here does.
   useEffect(() => window.electronAPI.onClaudeClosed(closeRc), [closeRc]);
   const liveChat = useLiveSession(liveOpen?.sessionId ?? null);
+  // A session that skips permission prompts holds what the Deck types into it (its own window has
+  // to let each message in). If it's on Remote Control too, X opens its claude.ai page instead,
+  // where typing is the pilot's own and goes straight in.
+  const [liveTwin, setLiveTwin] = useState<RcSession | null>(null);
+  useEffect(() => {
+    setLiveTwin(null);
+    const name = liveOpen?.name;
+    if (!name || liveChat.mode !== 'bypassPermissions') return;
+    let on = true;
+    void window.electronAPI.rcSessions().then((r) => {
+      if (on) setLiveTwin(r.sessions.find((x) => x.name === name && x.status !== 'offline') ?? null);
+    }).catch(() => {});
+    return () => { on = false; };
+  }, [liveOpen?.name, liveChat.mode]);
   const liveScrollRef = useRef<HTMLDivElement>(null);
   // Its latest state from the watcher (the one Home opened stays on screen if the session ends).
   const liveShown = (liveOpen && live?.state?.live.find((s) => s.sessionId === liveOpen.sessionId)) || liveOpen;
@@ -486,6 +500,15 @@ export default function App() {
     setQuestions((qs) => qs.filter((q) => q.id !== pendingQuestion.id));
   }, [pendingQuestion, record]);
 
+  // A card from another computer can wait: it also shows in that session's own window there and
+  // whichever answers first wins, so closing it here answers nothing. One from this Deck's own
+  // session has no other window, so it stays until answered.
+  const canSkip = !!pendingQuestion && /^(live|rc)-/.test(pendingQuestion.id);
+  const skipQuestion = useCallback(() => {
+    if (!pendingQuestion || !/^(live|rc)-/.test(pendingQuestion.id)) return;
+    setQuestions((qs) => qs.filter((q) => q.id !== pendingQuestion.id));
+  }, [pendingQuestion]);
+
   const teachContinue = useCallback(() => {
     if (!pendingTeach) return;
     window.electronAPI.sendTeachDecision(pendingTeach.id, 'continue');
@@ -769,6 +792,7 @@ export default function App() {
       if (rcOwnsPad) { void window.electronAPI.claudeBox(); return; }
       if (pendingWrite) handleWriteReject();
       else if (pendingQuestion) answerOption(2);
+      else if (liveOwnsPad && liveTwin) setRcOpen(liveTwin);
       else if (liveOwnsPad || (!showHome && !showSettings && !drawerOpen && !cockpitOpen && !folderPick)) typeInBox();
     },
     onXRelease: () => {
@@ -815,8 +839,10 @@ export default function App() {
       if (pendingQuestion) answerOption(3);
       else if (!cockpitOpen) setDrawerOpen((s) => !s);
     },
-    // Start: Settings normally; in the cockpit it opens and closes the game menu.
+    // Start: Settings normally; in the cockpit it opens and closes the game menu; on a card from
+    // another computer, not now.
     onStartPress: () => {
+      if (canSkip) { skipQuestion(); return; }   // Menu on a card from another computer: not now
       if (cockpitOpen) { if (!modalActive) setGameMenuOpen((o) => !o); }
       else setShowSettings((s) => !s);
     },
@@ -1004,6 +1030,7 @@ export default function App() {
           connected={!!live?.connected}
           entries={liveChat.entries}
           mode={liveChat.mode}
+          onTwin={liveTwin ? () => setRcOpen(liveTwin) : undefined}
           outgoing={liveChat.outgoing}
           onDismiss={liveChat.dismiss}
           scrollRef={liveScrollRef}
@@ -1065,7 +1092,7 @@ export default function App() {
 
       {/* ask_user modal — Claude paused to ask the pilot a question */}
       {pendingQuestion && (
-        <AskUserModal question={pendingQuestion} onSelect={answerQuestion} />
+        <AskUserModal question={pendingQuestion} onSelect={answerQuestion} onSkip={canSkip ? skipQuestion : undefined} />
       )}
 
       {/* Teach mode — Claude is about to run a tool */}

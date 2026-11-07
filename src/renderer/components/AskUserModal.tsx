@@ -1,9 +1,12 @@
 import React from 'react';
 import { PendingQuestion } from '../types';
+import { withGlyphs } from './Glyph';
 
 interface Props {
   question: PendingQuestion;
   onSelect: (value: string) => void;
+  // Close it without answering (a card from another computer, which still waits there).
+  onSkip?: () => void;
 }
 
 // Face-button colors matching the Steam Deck / Xbox layout: A green, B red, X blue, Y yellow.
@@ -20,7 +23,7 @@ const HEADER: Record<NonNullable<PendingQuestion['kind']>, { icon: string; title
   plan: { icon: '📋', title: 'PLAN READY' },
 };
 
-export default function AskUserModal({ question, onSelect }: Props) {
+export default function AskUserModal({ question, onSelect, onSkip }: Props) {
   const options = question.options.slice(0, 4);
 
   return (
@@ -54,9 +57,15 @@ export default function AskUserModal({ question, onSelect }: Props) {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 16 }}>{HEADER[question.kind ?? 'question'].icon}</span>
-          <span style={{ color: '#CC785C', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em' }}>
+          <span style={{ color: '#CC785C', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', flex: 1 }}>
             {HEADER[question.kind ?? 'question'].title}
           </span>
+          {onSkip && (
+            <button onClick={onSkip} title="Not now (Menu)" style={{
+              width: 34, height: 34, borderRadius: 8, border: '1px solid #3A3A3A', background: 'transparent',
+              color: '#9A9A9A', fontSize: 16, cursor: 'pointer', flexShrink: 0,
+            }}>✕</button>
+          )}
         </div>
 
         <p style={{ color: '#ECECEC', fontSize: 17, lineHeight: 1.5, margin: 0 }}>
@@ -125,6 +134,7 @@ export default function AskUserModal({ question, onSelect }: Props) {
 
         <p style={{ color: '#6A6A6A', fontSize: 12, margin: 0, textAlign: 'center' }}>
           Tap an option or press the matching face button
+          {onSkip && <>{withGlyphs(' · [Menu] not now: it still waits in its own window')}</>}
         </p>
       </div>
     </div>
