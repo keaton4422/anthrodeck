@@ -128,10 +128,12 @@ export default function App() {
     const t = window.setTimeout(() => setToasts((q) => q.slice(1)), 3200);
     return () => window.clearTimeout(t);
   }, [toast]);
-  const [storedModel, setModel] = useStore<string>('model', 'sonnet');
+  // The model, thinking and effort a new session on this Deck starts with; each session picks its
+  // own after that, so Settings no longer has them.
+  const [storedModel] = useStore<string>('model', 'sonnet');
   const model = normalizeModel(storedModel);
-  const [extendedThinking, setExtendedThinking] = useStore<boolean>('extendedThinking', false);
-  const [effort, setEffort] = useStore<string>('effort', 'high');
+  const [extendedThinking] = useStore<boolean>('extendedThinking', false);
+  const [effort] = useStore<string>('effort', 'high');
 
   const { projectPath, projectHost, files, refreshFiles, adoptProject } = useProject();
   // The remote computer from Settings (null when none is set up); reloaded when Settings closes.
@@ -968,19 +970,9 @@ export default function App() {
           onClose={() => setShowSettings(false)}
           onClaudeSignIn={() => { setShowSettings(false); setRcOpen({ ref: '', name: 'Sign in to claude.ai', status: 'idle' }); }}
           onEngineSignIn={() => { setShowSettings(false); setRcOpen({ ref: '', name: 'Sign in to Claude', status: 'idle', engine: true }); }}
-          model={model}
-          onModelChange={setModel}
-          extendedThinking={extendedThinking}
-          onExtendedThinkingChange={setExtendedThinking}
-          effort={effort}
-          onEffortChange={setEffort}
           onVoiceChanged={() => setVoiceCheck((n) => n + 1)}
           teachMode={teachMode}
           onTeachModeChange={setTeachMode}
-          previewPort={previewPort}
-          onPreviewPortChange={setPreviewPort}
-          previewHttps={previewHttps}
-          onPreviewHttpsChange={setPreviewHttps}
           haptics={haptics}
           onHapticsChange={setHaptics}
           intermission={intermission}

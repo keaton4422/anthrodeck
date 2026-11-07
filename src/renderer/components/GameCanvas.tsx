@@ -7,6 +7,7 @@ import ModFrame from './ModFrame';
 import { useModGames } from '../hooks/useModGames';
 import { loadHighScores, applyScore, saveHighScores, type HighScores } from '../lib/highscores';
 import { SectorStrip } from './SectorStrip';
+import { useDragScroll } from '../hooks/useDragScroll';
 import { usePadFocus, type PadFocus } from '../hooks/usePadFocus';
 import type { Sector } from '../types';
 import type { Checkpoint } from '../lib/season';
@@ -373,6 +374,7 @@ export function GameMenu({
     return () => { live = false; };
   }, [onPlaySteam]);
   const rootRef = useRef<HTMLDivElement>(null);
+  useDragScroll(rootRef);   // a finger drags it, also when Steam sends touch as a mouse
   // The ring starts on the way back to a Steam game that's running, else on the game being played,
   // else (the Steam library on its own) on the first game.
   const pad = usePadFocus(rootRef, undefined, () =>
