@@ -5,12 +5,12 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { HANDOFF_PY, SNAP_PY, listSteamGames, parseManifest, steamArt } from '../steamGames';
 
-const manifest = (appid: string, name: string, flags = 4, lastPlayed = 0) => `"AppState"
+const manifest = (appid: string, name: string, flags = 4, lastPlayed = 0, bytes = '') => `"AppState"
 {
 \t"appid"\t\t"${appid}"
 \t"name"\t\t"${name}"
 \t"StateFlags"\t\t"${flags}"
-\t"LastPlayed"\t\t"${lastPlayed}"
+\t"LastPlayed"\t\t"${lastPlayed}"${bytes}
 \t"UserConfig"
 \t{
 \t\t"name"\t\t"ignored"
@@ -19,12 +19,20 @@ const manifest = (appid: string, name: string, flags = 4, lastPlayed = 0) => `"A
 
 describe('the Deck\'s Steam games', () => {
   it('reads a game from its manifest, and leaves out Steam\'s tools and unfinished installs', () => {
-    expect(parseManifest(manifest('413150', 'Stardew Valley', 4, 1700000000))).toEqual({ appid: '413150', name: 'Stardew Valley', lastPlayed: 1700000000 });
+    expect(parseManifest(manifest('413150', 'Stardew Valley', 4, 1700000000))).toEqual({ appid: '413150', name: 'Stardew Valley', lastPlayed: 1700000000, update: null });
     expect(parseManifest(manifest('105450', 'Age of Empires® III (2007)', 1538))).not.toBeNull();   // installed, update pending
     expect(parseManifest(manifest('1493710', 'Proton Experimental'))).toBeNull();
     expect(parseManifest(manifest('1628350', 'Steam Linux Runtime 3.0 (sniper)'))).toBeNull();
     expect(parseManifest(manifest('228980', 'Steamworks Common Redistributables'))).toBeNull();
     expect(parseManifest(manifest('1', 'Still downloading', 1024))).toBeNull();
+  });
+
+  it('says when a game has an update waiting, and how far its download is', () => {
+    expect(parseManifest(manifest('105450', 'Age of Empires III', 6))?.update).toEqual({ pct: null });
+    const bytes = '\n\t"BytesToDownload"\t\t"2000"\n\t"BytesDownloaded"\t\t"500"';
+    expect(parseManifest(manifest('105450', 'Age of Empires III', 1030, 0, bytes))?.update).toEqual({ pct: 25 });
+    const done = '\n\t"BytesToDownload"\t\t"2000"\n\t"BytesDownloaded"\t\t"2000"';
+    expect(parseManifest(manifest('105450', 'Age of Empires III', 4, 0, done))?.update).toBeNull();
   });
 
   it('lists every library, the SD card too, most recently played first, with covers', () => {

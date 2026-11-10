@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { SteamGame } from '../types';
 import { GAME_MODES } from '../game/registry';
 import type { GameMode } from '../game/types';
 import { useGameLoop, forgetRace } from '../hooks/useGameLoop';
@@ -344,18 +345,23 @@ function TidyMeter({ hits, needed, queued, contextPct }: { hits: number; needed:
 // Every game as a card, in two groups. A modal over the cockpit (the game pauses underneath), so it
 // fits any number of games and mods, and it's driven by the pad: D-pad to move, A to pick,
 // B or Start to close.
+// "Updating 40%" while Steam updates a game before it starts; null when it isn't.
+function updateLabel(u: { pct: number | null } | null | undefined): string | null {
+  return u ? `Updating${u.pct !== null ? ` ${u.pct}%` : '…'}` : null;
+}
+
 export function GameMenu({
   telemetry, freeplay, modIds, selectedId, nav, onPick, onPlaySteam, running, onResume, onClose, onLeave, leaveLabel,
 }: {
   telemetry: GameMode[]; freeplay: GameMode[]; modIds: Set<string>; selectedId: string;
   nav: React.MutableRefObject<PadFocus | null>; onPick: (id: string) => void; onClose: () => void;
   onPlaySteam?: (appid: string, name: string) => void;
-  running: { appid: string; name: string } | null; onResume?: () => void;
+  running: { appid: string; name: string; update?: { pct: number | null } | null } | null; onResume?: () => void;
   leaveLabel?: string;
   onLeave: () => void;
 }) {
   // The Deck's installed Steam games, with their covers (loaded one by one, they're files).
-  const [steam, setSteam] = useState<{ appid: string; name: string }[]>([]);
+  const [steam, setSteam] = useState<SteamGame[]>([]);
   const [beside, setBeside] = useState(false);
   const [art, setArt] = useState<Record<string, string | null>>({});
   useEffect(() => {
@@ -476,7 +482,9 @@ export function GameMenu({
                     display: 'flex', alignItems: 'flex-end', padding: 8, boxSizing: 'border-box',
                   }}>
                     {!art[g.appid] && <span style={{ fontSize: 14, fontWeight: 600 }}>{g.name}</span>}
-                    {running?.appid === g.appid && <span style={{ ...menuTag, background: '#141414', fontSize: 11, padding: '1px 6px' }}>Running</span>}
+                    {running?.appid === g.appid
+                      ? <span style={{ ...menuTag, background: '#141414', fontSize: 11, padding: '1px 6px' }}>{updateLabel(running?.update) ?? 'Running'}</span>
+                      : g.update && <span style={{ ...menuTag, background: '#2A1E10', color: '#D9A35B', fontSize: 11, padding: '1px 6px' }}>Update</span>}
                   </div>
                   <span style={{ fontSize: 13, padding: '6px 8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</span>
                 </button>

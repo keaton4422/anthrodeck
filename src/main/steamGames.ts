@@ -19,7 +19,11 @@ export interface SteamGame {
   appid: string;
   name: string;
   lastPlayed: number;       // epoch seconds, 0 if never
+  update: Update | null;    // an update waiting or downloading: Steam runs it before the game starts
 }
+
+// How far along a game's update is: the share downloaded, null before Steam knows the size.
+export interface Update { pct: number | null }
 
 const STEAM_ROOTS = () => [
   path.join(os.homedir(), '.local', 'share', 'Steam'),
@@ -46,7 +50,16 @@ export function parseManifest(text: string): SteamGame | null {
   const flags = Number(kv.get('StateFlags') ?? 0);
   // StateFlags: 4 fully installed, 2 installed with an update waiting (Steam updates it on launch).
   if (!appid || !name || !(flags & 6) || TOOL.test(name) || appid === '228980') return null;
-  return { appid, name, lastPlayed: Number(kv.get('LastPlayed') ?? 0) };
+  return { appid, name, lastPlayed: Number(kv.get('LastPlayed') ?? 0), update: updateOf(flags, kv) };
+}
+
+// An update waiting (StateFlags 2), or bytes still to come of one Steam has started.
+export function updateOf(flags: number, kv: Map<string, string>): Update | null {
+  const total = Number(kv.get('BytesToDownload') ?? 0);
+  const done = Number(kv.get('BytesDownloaded') ?? 0);
+  const downloading = total > 0 && done < total;
+  if (!(flags & 2) && !downloading) return null;
+  return { pct: downloading ? Math.floor((done / total) * 100) : null };
 }
 
 export function steamRoot(): string | null {
@@ -55,15 +68,18 @@ export function steamRoot(): string | null {
 
 // Every installed game across the Deck's libraries (its own storage and the SD card), most recently
 // played first. Empty off a Steam machine.
-export function listSteamGames(root = steamRoot()): SteamGame[] {
-  if (!root) return [];
-  let libs: string[] = [root];
+// The Deck's Steam libraries: its own storage and the SD card.
+function libraries(root: string): string[] {
   try {
     const vdf = fs.readFileSync(path.join(root, 'steamapps', 'libraryfolders.vdf'), 'utf8');
-    libs = [...new Set([root, ...vdfPairs(vdf).filter(([k]) => k === 'path').map(([, v]) => v)])];
-  } catch { /* the main library only */ }
+    return [...new Set([root, ...vdfPairs(vdf).filter(([k]) => k === 'path').map(([, v]) => v)])];
+  } catch { return [root]; }
+}
+
+export function listSteamGames(root = steamRoot()): SteamGame[] {
+  if (!root) return [];
   const games = new Map<string, SteamGame>();
-  for (const lib of libs) {
+  for (const lib of libraries(root)) {
     let files: string[] = [];
     try { files = fs.readdirSync(path.join(lib, 'steamapps')).filter((f) => /^appmanifest_\d+\.acf$/.test(f)); } catch { continue; }
     for (const f of files) {
@@ -74,6 +90,17 @@ export function listSteamGames(root = steamRoot()): SteamGame[] {
     }
   }
   return [...games.values()].sort((a, b) => b.lastPlayed - a.lastPlayed || a.name.localeCompare(b.name));
+}
+
+// One game's update right now (re-read while it starts, as Steam downloads it).
+export function gameUpdate(appid: string, root = steamRoot()): Update | null {
+  if (!root || !/^\d+$/.test(appid)) return null;
+  for (const lib of libraries(root)) {
+    try {
+      return parseManifest(fs.readFileSync(path.join(lib, 'steamapps', `appmanifest_${appid}.acf`), 'utf8'))?.update ?? null;
+    } catch { /* not in this library */ }
+  }
+  return null;
 }
 
 // The game's cover (its portrait library capsule, else its header) as a data: URL, or null.

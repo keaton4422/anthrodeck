@@ -13,11 +13,14 @@
 import { execFile, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import fs from 'fs';
+import { gameUpdate, type Update } from './steamGames';
 
 // Steam's own interface in gamescope (the library, the Steam menu).
 export const STEAM_UI = '769';
 // How long a game gets to start (an update or a shader compile can come first).
 export const START_MS = 5 * 60_000;
+// An update Steam runs first gets longer, up to this, before AnthroDeck stops waiting for the game.
+export const UPDATE_MS = 60 * 60_000;
 const POLL_MS = 1000;
 export const GONE_MS = 10_000;
 // Gamescope keeps its focus properties on its first X display, Steam's own. Games, AnthroDeck
@@ -27,6 +30,7 @@ const GS_DISPLAY = ':0';
 export interface BesideState {
   game: { appid: string; name: string } | null;
   starting: boolean;      // asked for, not running yet
+  update: Update | null;  // while starting: Steam updating it first
   shown: boolean;         // AnthroDeck is the app on screen
 }
 
@@ -34,6 +38,7 @@ export interface BesideDeps {
   run: (cmd: string, args: string[]) => Promise<string>;   // resolves stdout, '' on failure
   launch: (appid: string) => void;
   now: () => number;
+  update?: (appid: string) => Update | null;   // its update, from Steam's install record
 }
 
 // The order gamescope picks from: what to show, then what to fall back to.
@@ -54,12 +59,15 @@ export class Beside extends EventEmitter {
   private seen = false;
   private goneAt: number | null = null;
   private shown = true;
+  private update: Update | null = null;
+  private updatedAt = 0;      // last seen updating: the start's clock runs from then
   private timer: NodeJS.Timeout | null = null;
 
   constructor(private self: string, private deps: BesideDeps) { super(); }
 
   state(): BesideState {
-    return { game: this.game, starting: !!this.game && !this.seen, shown: this.shown };
+    const starting = !!this.game && !this.seen;
+    return { game: this.game, starting, update: starting ? this.update : null, shown: this.shown };
   }
 
   // Watch what's on screen from now on: a game started from Steam's own library hides AnthroDeck too.
@@ -72,6 +80,8 @@ export class Beside extends EventEmitter {
     this.askedAt = this.deps.now();
     this.seen = false;
     this.goneAt = null;
+    this.update = this.deps.update?.(appid) ?? null;
+    this.updatedAt = 0;
     this.deps.launch(appid);
     this.emit('state', this.state());
     this.start();
@@ -97,7 +107,13 @@ export class Beside extends EventEmitter {
       if (running) { this.seen = true; this.goneAt = null; }
       // Steam can swap a game's launch process while it starts, so it's only gone after a while.
       else if (this.seen) { this.goneAt ??= now; if (now - this.goneAt >= GONE_MS) return this.end(); }
-      else if (now - this.askedAt > START_MS) return this.end();
+      else {
+        // Not running yet: maybe Steam is updating it first, which takes as long as it takes.
+        this.update = this.deps.update?.(game.appid) ?? null;
+        if (this.update) this.updatedAt = now;
+        const waited = now - Math.max(this.askedAt, this.updatedAt);
+        if (waited > START_MS || now - this.askedAt > UPDATE_MS) return this.end();
+      }
     }
     this.shown = focused === null || focused === this.self;
     if (JSON.stringify(this.state()) !== before) this.emit('state', this.state());
@@ -134,5 +150,6 @@ export function realDeps(): BesideDeps {
       spawn('systemd-run', ['--user', '-q', '--collect', 'steam', `steam://rungameid/${appid}`], { detached: true, stdio: 'ignore' }).unref();
     },
     now: () => Date.now(),
+    update: (appid) => gameUpdate(appid),
   };
 }
