@@ -367,6 +367,15 @@ export default function App() {
     if (lastBeside.current && !name) showToast(`Back from ${lastBeside.current}.`);
     lastBeside.current = name;
   }, [beside?.game?.name, showToast]);
+  // A game that has to update before it starts: say so once, and the Games screen shows how far.
+  const toldUpdate = useRef<string | null>(null);
+  useEffect(() => {
+    const g = beside?.game;
+    if (!g || !beside?.update) { if (!g) toldUpdate.current = null; return; }
+    if (toldUpdate.current === g.appid) return;
+    toldUpdate.current = g.appid;
+    showToast(`${g.name} needs an update first. Steam is downloading it; it starts when that's done.`);
+  }, [beside?.game, beside?.update, showToast]);
   const steamConfirm = useRef<{ appid: string; at: number } | null>(null);
   const playSteam = useCallback((appid: string, name: string) => {
     if (beside?.game?.appid === appid) { void window.electronAPI.steamShow('game'); return; }
@@ -1145,7 +1154,7 @@ export default function App() {
               nav={gameMenuNav}
               onPick={() => {}}
               onPlaySteam={(appid, name) => { playSteam(appid, name); if (beside?.game?.appid !== appid) closeGame(); }}
-              running={beside?.game ?? null}
+              running={beside?.game ? { ...beside.game, update: beside.update } : null}
               onResume={() => { closeGame(); void window.electronAPI.steamShow('game'); }}
               onClose={closeGame}
               onLeave={closeGame}
