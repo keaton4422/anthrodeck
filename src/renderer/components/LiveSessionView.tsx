@@ -86,7 +86,7 @@ export function LiveSessionView({ session, label, waiting, connected, entries, m
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <div style={{ // On the conversation's column, so titles and messages share one left edge.
-        padding: '14px max(24px, calc((100% - 920px) / 2 + 18px))', borderBottom: `1px solid ${C.line}`, display: 'flex', alignItems: 'center', gap: 14 }}>
+        padding: '14px max(24px, calc((100% - 1200px) / 2 + 18px))', borderBottom: `1px solid ${C.line}`, display: 'flex', alignItems: 'center', gap: 14 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: badge.color, flexShrink: 0 }} />
