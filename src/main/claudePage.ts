@@ -38,17 +38,12 @@ export function pastSignIn(url: string): boolean {
   } catch { return false; }
 }
 
-// The page as a column like the phone app's, in the middle of the space it's given: at most
-// COLUMN pixels wide, and zoomed so claude.ai lays it out as on a narrow screen (one column, no
-// sidebar), with text large enough for a handheld.
-const COLUMN = 920;
-const NARROW = 600;
+// The page across the whole space it's given, zoomed so claude.ai lays it out as on an 800px
+// screen: text large enough for a handheld. At that width claude.ai brings its sidebar and session
+// panel; TIDY_JS closes them (claude.ai remembers that).
+const WIDE = 800;
 export function column(space: Rectangle): { bounds: Rectangle; zoom: number } {
-  const width = Math.min(space.width, COLUMN);
-  return {
-    bounds: { x: space.x + Math.round((space.width - width) / 2), y: space.y, width, height: space.height },
-    zoom: Math.max(1, width / NARROW),
-  };
+  return { bounds: { ...space }, zoom: Math.max(1, space.width / WIDE) };
 }
 
 // claude.ai sees an ordinary Chrome, not Electron: some sign-in pages refuse embedded browsers.
@@ -64,7 +59,21 @@ export function opensWindow(url: string): boolean {
   } catch { return false; }
 }
 
-const LINKS_JS = `[...document.querySelectorAll('a[href*="/code/session_"]')].map((a) => ({ href: a.href, text: a.innerText || a.textContent || '' }))`;
+// The session list is in claude.ai's sidebar, hidden on a session's page (TIDY_JS): open it first.
+const LINKS_JS = `(() => {
+  const show = [...document.querySelectorAll('button[aria-label="Show sidebar"]')].find((b) => b.offsetParent);
+  if (show) show.click();
+  return [...document.querySelectorAll('a[href*="/code/session_"]')].map((a) => ({ href: a.href, text: a.innerText || a.textContent || '' }));
+})()`;
+// Close claude.ai's sidebar and session panel if they're open; true once there's nothing to close.
+const TIDY_JS = `(() => {
+  const label = (l) => [...document.querySelectorAll('button[aria-label]')].find((b) => b.getAttribute('aria-label') === l && b.offsetParent);
+  const side = label('Hide sidebar');
+  if (side) side.click();
+  const rail = label('Session rail');
+  if (rail && rail.getAttribute('aria-pressed') === 'true') rail.click();
+  return !!label('Show sidebar');
+})()`;
 const FOCUS_BOX_JS = `(() => {
   const boxes = [...document.querySelectorAll('textarea, [contenteditable="true"]')].filter((e) => e.offsetParent);
   const box = boxes[boxes.length - 1];
@@ -226,10 +235,11 @@ export class ClaudePage {
         if (input.type === 'keyDown' && input.key === 'Escape') { e.preventDefault(); close(); }
       });
     });
-    // Every page it goes to: kept narrow, and once past sign-in, on to the session it's open for
+    // Every page it goes to: zoomed, a session's tidied, and once past sign-in, on to the session it's open for
     // (or, opened only to sign in, done).
     const arrived = () => {
       wc.setZoomFactor(this.zoom);
+      if (/\/code\/session_/.test(wc.getURL())) void this.tidy(wc);
       const t = this.target;
       if (t === 'engine' || !pastSignIn(wc.getURL())) return;
       if (!t) this.deps.onClose();
@@ -335,6 +345,14 @@ export class ClaudePage {
     if (!this.view) return false;
     this.view.webContents.focus();
     return this.view.webContents.executeJavaScript(FOCUS_BOX_JS).catch(() => false);
+  }
+
+  // claude.ai draws its sidebar after the page loads, so look for it a few times.
+  private async tidy(wc: WebContents): Promise<void> {
+    for (let i = 0; i < 8 && !wc.isDestroyed(); i++) {
+      if (pastSignIn(wc.getURL()) && await wc.executeJavaScript(TIDY_JS).catch(() => false)) return;
+      await new Promise((r) => setTimeout(r, 500));
+    }
   }
 
   // claude.ai's session list draws after the page loads (and only once signed in), so look a few
