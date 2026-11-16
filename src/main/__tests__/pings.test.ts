@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { news } from '../pings';
+import { news, pingKind } from '../pings';
 import type { LiveRequest, LiveSession, LiveState } from '../live';
 
 const s = (id: string, status: string): LiveSession =>
@@ -23,5 +23,13 @@ describe('pings while a Steam game is on screen', () => {
   it('doesn\'t call a session that went away "finished"', () => {
     const first = news(null, state([s('a', 'busy')]));
     expect(news(first.heard, state([])).ping).toBeNull();
+  });
+});
+
+describe('the sound a ping makes', () => {
+  it('rises for a session waiting on the pilot, falls for one that finished', () => {
+    expect(pingKind('Solar leads SEO/AEO platform needs you')).toBe('ask');
+    expect(pingKind('Solar leads SEO/AEO platform finished')).toBe('done');
+    expect(pingKind('A session needs you')).toBe('ask');
   });
 });

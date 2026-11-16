@@ -24,16 +24,28 @@ export function news(before: Heard | null, st: LiveState): { heard: Heard; ping:
   return { heard, ping: done ? `${name(done)} finished` : null };
 }
 
-// A two-note chime, written once as a WAV.
-function chimeFile(): string {
-  const file = path.join(os.tmpdir(), 'anthrodeck-chime.wav');
+// Two sounds, since nothing can be drawn over a game (gamescope keeps that for Steam and MangoHud):
+// a session waiting on the pilot rises three notes, one that finished falls two, softer.
+export type PingKind = 'ask' | 'done';
+const NOTES: Record<PingKind, { notes: [number, number][]; gain: number }> = {
+  ask: { notes: [[880, 0.12], [1175, 0.12], [1568, 0.3]], gain: 11000 },
+  done: { notes: [[1320, 0.16], [880, 0.3]], gain: 7000 },
+};
+
+export function pingKind(why: string): PingKind {
+  return / needs you$/.test(why) ? 'ask' : 'done';
+}
+
+// Written once per kind as a WAV.
+function chimeFile(kind: PingKind): string {
+  const file = path.join(os.tmpdir(), `anthrodeck-chime-${kind}.wav`);
   if (fs.existsSync(file)) return file;
   const rate = 44100;
-  const notes: [number, number][] = [[880, 0.16], [1320, 0.28]];
+  const { notes, gain } = NOTES[kind];
   const samples: number[] = [];
   for (const [f, dur] of notes) {
     const n = Math.floor(rate * dur);
-    for (let i = 0; i < n; i++) samples.push(Math.round(9000 * Math.min(1, i / 400) * (1 - i / n) * Math.sin(2 * Math.PI * f * i / rate)));
+    for (let i = 0; i < n; i++) samples.push(Math.round(gain * Math.min(1, i / 400) * (1 - i / n) * Math.sin(2 * Math.PI * f * i / rate)));
   }
   const data = Buffer.alloc(samples.length * 2);
   samples.forEach((s, i) => data.writeInt16LE(s, i * 2));
@@ -45,6 +57,6 @@ function chimeFile(): string {
   return file;
 }
 
-export function chime(): void {
-  try { execFile('pw-play', [chimeFile()], () => { /* no PipeWire: nothing to hear */ }); } catch { /* same */ }
+export function chime(kind: PingKind): void {
+  try { execFile('pw-play', [chimeFile(kind)], () => { /* no PipeWire: nothing to hear */ }); } catch { /* same */ }
 }

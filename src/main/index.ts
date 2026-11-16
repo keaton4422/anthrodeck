@@ -9,7 +9,7 @@ import Store from 'electron-store';
 import { autoUpdater } from 'electron-updater';
 import Anthropic from '@anthropic-ai/sdk';
 import { liveEvents, registerEngineIpc } from './engine/bridge';
-import { chime, news, type Heard } from './pings';
+import { chime, news, pingKind, type Heard } from './pings';
 import type { LiveStatus } from '../renderer/types';
 import { canHandoff, listSteamGames, startHandoff, steamArt } from './steamGames';
 import { Beside, canBeside, realDeps } from './beside';
@@ -174,14 +174,14 @@ beside?.start();
 let heard: Heard | null = null;
 // The same for prompts and finished turns arriving over Remote Control (main/remoteAsks.ts).
 liveEvents.on('ping', (why: string) => {
-  if (beside && !beside.state().shown) { chime(); mainWindow?.webContents.send('steam:ping', why); }
+  if (beside && !beside.state().shown) { chime(pingKind(why)); mainWindow?.webContents.send('steam:ping', why); }
 });
 liveEvents.on('state', (st: LiveStatus) => {
   if (!st?.state) return;
   const n = news(heard, st.state);
   heard = n.heard;
   if (n.ping && beside && !beside.state().shown) {
-    chime();
+    chime(pingKind(n.ping));
     mainWindow?.webContents.send('steam:ping', n.ping);
   }
 });
