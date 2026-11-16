@@ -31,7 +31,7 @@ interface Props {
 
 // The conversation's column, as MessageBubble lays it out.
 const column: React.CSSProperties = {
-  width: 'calc(100% - 48px)', maxWidth: 920, margin: '6px auto', padding: '12px 18px', boxSizing: 'border-box',
+  width: 'calc(100% - 48px)', maxWidth: 1200, margin: '6px auto', padding: '12px 18px', boxSizing: 'border-box',
 };
 
 // A message the Deck sent that the session hasn't picked up after this long is probably being held.
