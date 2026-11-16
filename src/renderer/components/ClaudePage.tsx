@@ -55,7 +55,10 @@ export function ClaudePage({ session, covered, onBack }: Props) {
           border: `1px solid ${C.line}`, background: 'transparent', color: C.dim,
         }}><Glyph b="B" /> Back</button>
       </div>
-      <div ref={spot} style={{ flex: 1, minHeight: 0 }} />
+      {/* Under the page: seen only until the page is on the session (main/claudePage.ts). */}
+      <div ref={spot} style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#262624' }}>
+        <span style={{ fontSize: 15, color: C.dim }}>{session.ref ? `Opening ${session.name}…` : ''}</span>
+      </div>
     </div>
   );
 }

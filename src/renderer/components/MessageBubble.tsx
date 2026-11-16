@@ -100,7 +100,7 @@ export function MessageBubble({ message, onRewind, collapseTools }: Props) {
       <div
         style={{
           width: '100%',
-          maxWidth: 920,
+          maxWidth: 1200,
           minWidth: 0,
           padding: isUser ? '14px 18px' : '12px 18px',
           borderRadius: 12,

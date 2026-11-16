@@ -123,7 +123,7 @@ export function ChatView({ messages, error, scrollRef, isStreaming, pendingWrite
           style={{
             margin: '12px auto',
             width: 'calc(100% - 48px)',
-            maxWidth: 920,
+            maxWidth: 1200,
             padding: '12px 18px',
             borderRadius: 8,
             background: 'rgba(224,82,82,0.1)',

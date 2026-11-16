@@ -9,7 +9,7 @@ import Store from 'electron-store';
 import { autoUpdater } from 'electron-updater';
 import Anthropic from '@anthropic-ai/sdk';
 import { liveEvents, registerEngineIpc } from './engine/bridge';
-import { chime, news, type Heard } from './pings';
+import { chime, news, pingKind, type Heard } from './pings';
 import type { LiveStatus } from '../renderer/types';
 import { canHandoff, listSteamGames, startHandoff, steamArt } from './steamGames';
 import { Beside, canBeside, realDeps } from './beside';
@@ -174,14 +174,14 @@ beside?.start();
 let heard: Heard | null = null;
 // The same for prompts and finished turns arriving over Remote Control (main/remoteAsks.ts).
 liveEvents.on('ping', (why: string) => {
-  if (beside && !beside.state().shown) { chime(); mainWindow?.webContents.send('steam:ping', why); }
+  if (beside && !beside.state().shown) { chime(pingKind(why)); mainWindow?.webContents.send('steam:ping', why); }
 });
 liveEvents.on('state', (st: LiveStatus) => {
   if (!st?.state) return;
   const n = news(heard, st.state);
   heard = n.heard;
   if (n.ping && beside && !beside.state().shown) {
-    chime();
+    chime(pingKind(n.ping));
     mainWindow?.webContents.send('steam:ping', n.ping);
   }
 });
@@ -229,6 +229,12 @@ ipcMain.handle('claude:engine-sign-in', (_, b: Bounds) => {
   else mainWindow?.webContents.send('claude:closed');
 });
 ipcMain.on('claude:place', (_, b: Bounds) => claudePage?.place(whole(b)));
+// The sessions Home lists: their claude.ai addresses learned ahead, so opening one goes straight there.
+ipcMain.on('claude:learn', (_, list: unknown) => {
+  if (!Array.isArray(list)) return;
+  const sessions = list.filter((x): x is { ref: string; name: string } => !!x && typeof x.ref === 'string' && typeof x.name === 'string');
+  void page()?.learn(sessions);
+});
 ipcMain.on('claude:hide', () => claudePage?.hide());
 ipcMain.on('claude:shown', (_, shown: boolean) => claudePage?.shown(!!shown));
 ipcMain.on('claude:scroll', (_, dy: number) => claudePage?.scroll(Number(dy) || 0));

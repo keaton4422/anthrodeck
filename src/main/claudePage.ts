@@ -14,6 +14,8 @@ export const CLAUDE_CODE_URL = 'https://claude.ai/code';
 export const SIGN_IN_URL = 'https://claude.ai/login';
 const PARTITION = 'persist:claude';
 const FIND_MS = 12_000;
+const READY_MS = 15_000;
+const LEARN_EVERY_MS = 5 * 60_000;
 
 export interface PageLink { href: string; text: string }
 
@@ -38,17 +40,12 @@ export function pastSignIn(url: string): boolean {
   } catch { return false; }
 }
 
-// The page as a column like the phone app's, in the middle of the space it's given: at most
-// COLUMN pixels wide, and zoomed so claude.ai lays it out as on a narrow screen (one column, no
-// sidebar), with text large enough for a handheld.
-const COLUMN = 920;
-const NARROW = 600;
+// The page across the whole space it's given, zoomed so claude.ai lays it out as on an 800px
+// screen: text large enough for a handheld. At that width claude.ai brings its sidebar and session
+// panel; TIDY_JS closes them (claude.ai remembers that).
+const WIDE = 800;
 export function column(space: Rectangle): { bounds: Rectangle; zoom: number } {
-  const width = Math.min(space.width, COLUMN);
-  return {
-    bounds: { x: space.x + Math.round((space.width - width) / 2), y: space.y, width, height: space.height },
-    zoom: Math.max(1, width / NARROW),
-  };
+  return { bounds: { ...space }, zoom: Math.max(1, space.width / WIDE) };
 }
 
 // claude.ai sees an ordinary Chrome, not Electron: some sign-in pages refuse embedded browsers.
@@ -64,7 +61,21 @@ export function opensWindow(url: string): boolean {
   } catch { return false; }
 }
 
-const LINKS_JS = `[...document.querySelectorAll('a[href*="/code/session_"]')].map((a) => ({ href: a.href, text: a.innerText || a.textContent || '' }))`;
+// The session list is in claude.ai's sidebar, hidden on a session's page (TIDY_JS): open it first.
+const LINKS_JS = `(() => {
+  const show = [...document.querySelectorAll('button[aria-label="Show sidebar"]')].find((b) => b.offsetParent);
+  if (show) show.click();
+  return [...document.querySelectorAll('a[href*="/code/session_"]')].map((a) => ({ href: a.href, text: a.innerText || a.textContent || '' }));
+})()`;
+// Close claude.ai's sidebar and session panel if they're open; true once there's nothing to close.
+const TIDY_JS = `(() => {
+  const label = (l) => [...document.querySelectorAll('button[aria-label]')].find((b) => b.getAttribute('aria-label') === l && b.offsetParent);
+  const side = label('Hide sidebar');
+  if (side) side.click();
+  const rail = label('Session rail');
+  if (rail && rail.getAttribute('aria-pressed') === 'true') rail.click();
+  return !!label('Show sidebar');
+})()`;
 const FOCUS_BOX_JS = `(() => {
   const boxes = [...document.querySelectorAll('textarea, [contenteditable="true"]')].filter((e) => e.offsetParent);
   const box = boxes[boxes.length - 1];
@@ -183,6 +194,12 @@ export class ClaudePage {
   private target: Target = null;
   private zoom = 1;
   private login: Login | null = null;
+  // The page stays out of sight until it's on the session it was opened for, so the pilot doesn't
+  // watch it go through claude.ai's list to get there; and while a card covers it.
+  private ready = true;
+  private covered = false;
+  private readyTimer: NodeJS.Timeout | null = null;
+  private learnedAt = 0;
 
   constructor(private win: BrowserWindow, private deps: ClaudePageDeps) {}
 
@@ -226,12 +243,17 @@ export class ClaudePage {
         if (input.type === 'keyDown' && input.key === 'Escape') { e.preventDefault(); close(); }
       });
     });
-    // Every page it goes to: kept narrow, and once past sign-in, on to the session it's open for
+    // Every page it goes to: zoomed, a session's tidied, and once past sign-in, on to the session it's open for
     // (or, opened only to sign in, done).
     const arrived = () => {
       wc.setZoomFactor(this.zoom);
+      const url = wc.getURL();
+      if (/\/code\/session_/.test(url)) {
+        const finding = this.finding;
+        void this.tidy(wc).then(() => { if (finding === this.finding) this.reveal(); });
+      }
       const t = this.target;
-      if (t === 'engine' || !pastSignIn(wc.getURL())) return;
+      if (t === 'engine' || !pastSignIn(url)) { this.reveal(); return; }   // signing in: the pilot's to see
       if (!t) this.deps.onClose();
       else if (!t.found) void this.find(this.finding, t);
     };
@@ -247,6 +269,7 @@ export class ClaudePage {
     const view = this.show(space);
     const known = ref ? this.deps.remembered()[ref] : undefined;
     this.target = ref ? { ref, name, found: !!known } : null;
+    if (ref) this.conceal();
     // Loading it fires `arrived`, which goes on from there.
     void view.webContents.loadURL(known ?? (ref ? CLAUDE_CODE_URL : SIGN_IN_URL)).catch(() => {
       /* offline, or redirected to sign in: the page says so itself */
@@ -275,8 +298,8 @@ export class ClaudePage {
     const view = this.view;
     if (!this.win.contentView.children.includes(view)) this.win.contentView.addChildView(view);
     this.place(space);
-    view.setVisible(true);
     this.finding++;
+    this.reveal();
     this.login?.cancel();
     this.login = null;
     return view;
@@ -305,10 +328,59 @@ export class ClaudePage {
 
   // Stepping aside for a card or menu the interface draws where the page is, and back.
   shown(on: boolean): void {
+    this.covered = !on;
+    this.apply();
+  }
+
+  private conceal(): void {
+    this.ready = false;
+    this.apply();
+    // Shown anyway after a while, whatever it's on: it may need the pilot (signed out, not found).
+    if (this.readyTimer) clearTimeout(this.readyTimer);
+    this.readyTimer = setTimeout(() => this.reveal(), READY_MS);
+  }
+
+  private reveal(): void {
+    if (this.readyTimer) { clearTimeout(this.readyTimer); this.readyTimer = null; }
+    this.ready = true;
+    this.apply();
+  }
+
+  private apply(): void {
     const v = this.view;
     if (!v || !this.win.contentView.children.includes(v)) return;
+    const on = this.ready && !this.covered;
     v.setVisible(on);
     if (on) v.webContents.focus(); else this.win.webContents.focus();
+  }
+
+  // Learn the claude.ai address of each session not yet known, from claude.ai's own list, in a
+  // page nobody sees: opening one of them then goes straight there. At most every few minutes.
+  async learn(sessions: { ref: string; name: string }[]): Promise<void> {
+    const known = this.deps.remembered();
+    const missing = sessions.filter((x) => x.ref && x.name && !known[x.ref]);
+    if (!missing.length || Date.now() - this.learnedAt < LEARN_EVERY_MS || !(await this.signedIn())) return;
+    this.learnedAt = Date.now();
+    const quiet = new WebContentsView({ webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    const wc = quiet.webContents;
+    wc.setAudioMuted(true);
+    quiet.setBounds({ x: 0, y: 0, width: 1280, height: 800 });
+    try {
+      await wc.loadURL(CLAUDE_CODE_URL).catch(() => {});
+      const until = Date.now() + FIND_MS;
+      let left = missing;
+      while (left.length && Date.now() < until && pastSignIn(wc.getURL())) {
+        const links = (await wc.executeJavaScript(LINKS_JS).catch(() => [])) as PageLink[];
+        left = left.filter((x) => {
+          const href = findSession(links, x.name);
+          if (href) this.deps.remember(x.ref, href);
+          return !href;
+        });
+        if (left.length) await new Promise((r) => setTimeout(r, 800));
+      }
+    } finally {
+      wc.close();
+    }
   }
 
   hide(): void {
@@ -335,6 +407,14 @@ export class ClaudePage {
     if (!this.view) return false;
     this.view.webContents.focus();
     return this.view.webContents.executeJavaScript(FOCUS_BOX_JS).catch(() => false);
+  }
+
+  // claude.ai draws its sidebar after the page loads, so look for it a few times.
+  private async tidy(wc: WebContents): Promise<void> {
+    for (let i = 0; i < 8 && !wc.isDestroyed(); i++) {
+      if (pastSignIn(wc.getURL()) && await wc.executeJavaScript(TIDY_JS).catch(() => false)) return;
+      await new Promise((r) => setTimeout(r, 500));
+    }
   }
 
   // claude.ai's session list draws after the page loads (and only once signed in), so look a few

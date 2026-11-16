@@ -91,7 +91,7 @@ export const InputBar = forwardRef<ComposerHandle, Props>(function InputBar({
         justifyContent: 'center',
       }}
     >
-      <div style={{ width: '100%', maxWidth: 920 }}>
+      <div style={{ width: '100%', maxWidth: 1200 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ flex: 1, position: 'relative', display: 'flex' }}>
             <textarea

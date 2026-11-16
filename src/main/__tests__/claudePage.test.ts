@@ -67,9 +67,9 @@ describe('the controller script in the page', () => {
 });
 
 describe('the page\'s place and sign-in', () => {
-  it('sits in a column in the middle, zoomed to claude.ai\'s narrow layout', async () => {
+  it('fills the space it\'s given, zoomed to an 800px layout', async () => {
     const { column } = await import('../claudePage');
-    expect(column({ x: 0, y: 110, width: 1280, height: 690 })).toEqual({ bounds: { x: 180, y: 110, width: 920, height: 690 }, zoom: 920 / 600 });
+    expect(column({ x: 0, y: 110, width: 1280, height: 690 })).toEqual({ bounds: { x: 0, y: 110, width: 1280, height: 690 }, zoom: 1.6 });
     expect(column({ x: 0, y: 0, width: 500, height: 400 })).toEqual({ bounds: { x: 0, y: 0, width: 500, height: 400 }, zoom: 1 });
   });
 

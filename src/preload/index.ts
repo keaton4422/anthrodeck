@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   claudeOpen: (ref: string, name: string, bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke('claude:open', ref, name, bounds),
   claudeEngineSignIn: (bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke('claude:engine-sign-in', bounds),
+  claudeLearn: (sessions: { ref: string; name: string }[]) => ipcRenderer.send('claude:learn', sessions),
   claudePlace: (bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.send('claude:place', bounds),
   claudeHide: () => ipcRenderer.send('claude:hide'),
   claudeShown: (shown: boolean) => ipcRenderer.send('claude:shown', shown),

@@ -218,6 +218,7 @@ declare global {
       rcSessions: () => Promise<{ sessions: RcSession[]; error: string | null }>;
       claudeOpen: (ref: string, name: string, bounds: Bounds) => Promise<void>;
       claudeEngineSignIn: (bounds: Bounds) => Promise<void>;
+      claudeLearn: (sessions: { ref: string; name: string }[]) => void;
       claudePlace: (bounds: Bounds) => void;
       claudeHide: () => void;
       claudeShown: (shown: boolean) => void;
