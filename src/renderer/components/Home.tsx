@@ -108,7 +108,11 @@ const Home = forwardRef<HomeNav, Props>(function Home(
   const [rcList, setRcList] = useState<RcSession[]>(rcCache);
   useEffect(() => {
     let on = true;
-    const get = () => window.electronAPI.rcSessions().then((r) => { if (on) { rcCache = r.sessions; setRcList(r.sessions); } });
+    const get = () => window.electronAPI.rcSessions().then((r) => {
+      if (!on) return;
+      rcCache = r.sessions; setRcList(r.sessions);
+      window.electronAPI.claudeLearn(r.sessions.map(({ ref, name }) => ({ ref, name })));
+    });
     void get();
     const id = window.setInterval(() => void get(), RC_EVERY_MS);
     const off = window.electronAPI.onRcDone(() => void get());

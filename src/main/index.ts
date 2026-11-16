@@ -229,6 +229,12 @@ ipcMain.handle('claude:engine-sign-in', (_, b: Bounds) => {
   else mainWindow?.webContents.send('claude:closed');
 });
 ipcMain.on('claude:place', (_, b: Bounds) => claudePage?.place(whole(b)));
+// The sessions Home lists: their claude.ai addresses learned ahead, so opening one goes straight there.
+ipcMain.on('claude:learn', (_, list: unknown) => {
+  if (!Array.isArray(list)) return;
+  const sessions = list.filter((x): x is { ref: string; name: string } => !!x && typeof x.ref === 'string' && typeof x.name === 'string');
+  void page()?.learn(sessions);
+});
 ipcMain.on('claude:hide', () => claudePage?.hide());
 ipcMain.on('claude:shown', (_, shown: boolean) => claudePage?.shown(!!shown));
 ipcMain.on('claude:scroll', (_, dy: number) => claudePage?.scroll(Number(dy) || 0));

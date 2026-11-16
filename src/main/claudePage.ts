@@ -14,6 +14,8 @@ export const CLAUDE_CODE_URL = 'https://claude.ai/code';
 export const SIGN_IN_URL = 'https://claude.ai/login';
 const PARTITION = 'persist:claude';
 const FIND_MS = 12_000;
+const READY_MS = 15_000;
+const LEARN_EVERY_MS = 5 * 60_000;
 
 export interface PageLink { href: string; text: string }
 
@@ -192,6 +194,12 @@ export class ClaudePage {
   private target: Target = null;
   private zoom = 1;
   private login: Login | null = null;
+  // The page stays out of sight until it's on the session it was opened for, so the pilot doesn't
+  // watch it go through claude.ai's list to get there; and while a card covers it.
+  private ready = true;
+  private covered = false;
+  private readyTimer: NodeJS.Timeout | null = null;
+  private learnedAt = 0;
 
   constructor(private win: BrowserWindow, private deps: ClaudePageDeps) {}
 
@@ -239,9 +247,13 @@ export class ClaudePage {
     // (or, opened only to sign in, done).
     const arrived = () => {
       wc.setZoomFactor(this.zoom);
-      if (/\/code\/session_/.test(wc.getURL())) void this.tidy(wc);
+      const url = wc.getURL();
+      if (/\/code\/session_/.test(url)) {
+        const finding = this.finding;
+        void this.tidy(wc).then(() => { if (finding === this.finding) this.reveal(); });
+      }
       const t = this.target;
-      if (t === 'engine' || !pastSignIn(wc.getURL())) return;
+      if (t === 'engine' || !pastSignIn(url)) { this.reveal(); return; }   // signing in: the pilot's to see
       if (!t) this.deps.onClose();
       else if (!t.found) void this.find(this.finding, t);
     };
@@ -257,6 +269,7 @@ export class ClaudePage {
     const view = this.show(space);
     const known = ref ? this.deps.remembered()[ref] : undefined;
     this.target = ref ? { ref, name, found: !!known } : null;
+    if (ref) this.conceal();
     // Loading it fires `arrived`, which goes on from there.
     void view.webContents.loadURL(known ?? (ref ? CLAUDE_CODE_URL : SIGN_IN_URL)).catch(() => {
       /* offline, or redirected to sign in: the page says so itself */
@@ -285,8 +298,8 @@ export class ClaudePage {
     const view = this.view;
     if (!this.win.contentView.children.includes(view)) this.win.contentView.addChildView(view);
     this.place(space);
-    view.setVisible(true);
     this.finding++;
+    this.reveal();
     this.login?.cancel();
     this.login = null;
     return view;
@@ -315,10 +328,59 @@ export class ClaudePage {
 
   // Stepping aside for a card or menu the interface draws where the page is, and back.
   shown(on: boolean): void {
+    this.covered = !on;
+    this.apply();
+  }
+
+  private conceal(): void {
+    this.ready = false;
+    this.apply();
+    // Shown anyway after a while, whatever it's on: it may need the pilot (signed out, not found).
+    if (this.readyTimer) clearTimeout(this.readyTimer);
+    this.readyTimer = setTimeout(() => this.reveal(), READY_MS);
+  }
+
+  private reveal(): void {
+    if (this.readyTimer) { clearTimeout(this.readyTimer); this.readyTimer = null; }
+    this.ready = true;
+    this.apply();
+  }
+
+  private apply(): void {
     const v = this.view;
     if (!v || !this.win.contentView.children.includes(v)) return;
+    const on = this.ready && !this.covered;
     v.setVisible(on);
     if (on) v.webContents.focus(); else this.win.webContents.focus();
+  }
+
+  // Learn the claude.ai address of each session not yet known, from claude.ai's own list, in a
+  // page nobody sees: opening one of them then goes straight there. At most every few minutes.
+  async learn(sessions: { ref: string; name: string }[]): Promise<void> {
+    const known = this.deps.remembered();
+    const missing = sessions.filter((x) => x.ref && x.name && !known[x.ref]);
+    if (!missing.length || Date.now() - this.learnedAt < LEARN_EVERY_MS || !(await this.signedIn())) return;
+    this.learnedAt = Date.now();
+    const quiet = new WebContentsView({ webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    const wc = quiet.webContents;
+    wc.setAudioMuted(true);
+    quiet.setBounds({ x: 0, y: 0, width: 1280, height: 800 });
+    try {
+      await wc.loadURL(CLAUDE_CODE_URL).catch(() => {});
+      const until = Date.now() + FIND_MS;
+      let left = missing;
+      while (left.length && Date.now() < until && pastSignIn(wc.getURL())) {
+        const links = (await wc.executeJavaScript(LINKS_JS).catch(() => [])) as PageLink[];
+        left = left.filter((x) => {
+          const href = findSession(links, x.name);
+          if (href) this.deps.remember(x.ref, href);
+          return !href;
+        });
+        if (left.length) await new Promise((r) => setTimeout(r, 800));
+      }
+    } finally {
+      wc.close();
+    }
   }
 
   hide(): void {
